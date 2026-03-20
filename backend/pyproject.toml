@@ -1,0 +1,30 @@
+[project]
+name = "black-jaguar-backend"
+version = "0.1.0"
+description = "Business Strategy Simulator — backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.115",
+    "uvicorn>=0.34",
+    "pydantic>=2",
+    "pydantic-settings>=2",
+    "camel-ai[anthropic]>=0.2",
+    "python-multipart>=0.0.9",
+    "openpyxl>=3.1",
+    "edgartools>=3",
+    "packaging>=24",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9",
+    "pytest>=8",
+    "pytest-asyncio>=0.25",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
