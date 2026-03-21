@@ -69,4 +69,4 @@ Each org node gets its own Claude Haiku agent with a tailored system prompt. Eve
 
 ## License
 
-Proprietary — Black Lily LLC
+[MIT](LICENSE)
