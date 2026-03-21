@@ -3,7 +3,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { NodeData, NodeType } from "@/types/graph";
 
 const NODE_COLORS: Record<NodeType, { bg: string; border: string; badge: string; glow: string }> = {
-  department: { bg: "bg-[#6366f1]/10", border: "border-[#6366f1]/30", badge: "bg-[#6366f1]", glow: "shadow-[#6366f1]/10" },
+  department: { bg: "bg-accent/10", border: "border-accent/30", badge: "bg-accent", glow: "shadow-accent/10" },
   team: { bg: "bg-secondary/10", border: "border-secondary/30", badge: "bg-secondary", glow: "shadow-secondary/10" },
   role: { bg: "bg-surface-100", border: "border-surface-300", badge: "bg-surface-500", glow: "shadow-surface-500/10" },
   revenue_stream: { bg: "bg-accent/10", border: "border-accent/30", badge: "bg-accent", glow: "shadow-accent/10" },

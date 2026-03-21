@@ -17,9 +17,9 @@ interface MetricsPanelProps {
 }
 
 const METRIC_COLORS: Record<string, string> = {
-  total_headcount: "#6366f1",
-  total_budget: "#f87171",
-  revenue: "#c9a84c",
+  total_headcount: "#3b82f6",
+  total_budget: "#ec4899",
+  revenue: "#22c55e",
 };
 
 const METRIC_ICONS: Record<string, string> = {
@@ -78,25 +78,25 @@ export function MetricsPanel({ globalMetrics, tick, history }: MetricsPanelProps
               <LineChart data={history}>
                 <XAxis
                   dataKey="tick"
-                  stroke="#2a2a38"
-                  tick={{ fontSize: 9, fill: "#5a5a6e" }}
+                  stroke="#e2e8f0"
+                  tick={{ fontSize: 9, fill: "#64748b" }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  stroke="#2a2a38"
-                  tick={{ fontSize: 9, fill: "#5a5a6e" }}
+                  stroke="#e2e8f0"
+                  tick={{ fontSize: 9, fill: "#64748b" }}
                   axisLine={false}
                   tickLine={false}
                   width={40}
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "#0c0c12",
-                    border: "1px solid #1e1e2a",
+                    backgroundColor: "#ffffff",
+                    border: "1px solid #e2e8f0",
                     borderRadius: 12,
                     fontSize: 11,
-                    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
                   }}
                 />
                 {metricKeys.map((key) => (
@@ -104,7 +104,7 @@ export function MetricsPanel({ globalMetrics, tick, history }: MetricsPanelProps
                     key={key}
                     type="monotone"
                     dataKey={`metrics.${key}`}
-                    stroke={METRIC_COLORS[key] ?? "#5a5a6e"}
+                    stroke={METRIC_COLORS[key] ?? "#94a3b8"}
                     strokeWidth={2}
                     dot={false}
                   />

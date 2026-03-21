@@ -1,42 +1,42 @@
 @import "tailwindcss";
 
 @theme {
-  /* Surfaces — blue-undertone blacks */
-  --color-surface-0: #06060a;
-  --color-surface-50: #0c0c12;
-  --color-surface-100: #14141e;
-  --color-surface-200: #1e1e2a;
-  --color-surface-300: #2a2a38;
-  --color-surface-400: #3a3a4a;
-  --color-surface-500: #5a5a6e;
-  --color-surface-600: #8888a0;
-  --color-surface-700: #b0b0c4;
-  --color-surface-800: #e0e0ee;
-  --color-surface-900: #f4f4fa;
+  /* Surfaces — clean white */
+  --color-surface-0: #ffffff;
+  --color-surface-50: #f8fafc;
+  --color-surface-100: #f1f5f9;
+  --color-surface-200: #e2e8f0;
+  --color-surface-300: #cbd5e1;
+  --color-surface-400: #94a3b8;
+  --color-surface-500: #64748b;
+  --color-surface-600: #475569;
+  --color-surface-700: #334155;
+  --color-surface-800: #1e293b;
+  --color-surface-900: #0f172a;
 
-  /* Primary accent — Leopard Gold */
-  --color-accent: #c9a84c;
-  --color-accent-dim: #a08530;
-  --color-accent-bright: #e8c75a;
+  /* Primary accent — Blue */
+  --color-accent: #3b82f6;
+  --color-accent-dim: #2563eb;
+  --color-accent-bright: #60a5fa;
 
-  /* Secondary — Signal Cyan */
-  --color-secondary: #4ecdc4;
-  --color-secondary-dim: #2a9d94;
+  /* Secondary — Pink */
+  --color-secondary: #ec4899;
+  --color-secondary-dim: #db2777;
 
   /* Semantic */
-  --color-positive: #4ade80;
-  --color-negative: #f87171;
-  --color-warning: #fbbf24;
-  --color-info: #60a5fa;
-  --color-complete: #818cf8;
+  --color-positive: #22c55e;
+  --color-negative: #ef4444;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+  --color-complete: #8b5cf6;
 
   /* Node type colors */
-  --color-node-department: #6366f1;
-  --color-node-team: #4ecdc4;
-  --color-node-role: #8888a0;
-  --color-node-revenue: #c9a84c;
-  --color-node-cost: #f87171;
-  --color-node-external: #fbbf24;
+  --color-node-department: #3b82f6;
+  --color-node-team: #ec4899;
+  --color-node-role: #94a3b8;
+  --color-node-revenue: #22c55e;
+  --color-node-cost: #ef4444;
+  --color-node-external: #f59e0b;
 
   /* Fonts */
   --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
@@ -44,8 +44,8 @@
 }
 
 :root {
-  --background: #06060a;
-  --foreground: #f4f4fa;
+  --background: #ffffff;
+  --foreground: #0f172a;
 }
 
 html {
@@ -60,9 +60,9 @@ body {
 /* ─── Button Utilities ─── */
 
 @utility btn-primary {
-  @apply bg-accent text-surface-0 font-medium rounded-xl px-5 py-2.5 text-sm
+  @apply bg-accent text-white font-medium rounded-xl px-5 py-2.5 text-sm
     shadow-lg shadow-accent/20
-    hover:bg-accent-bright
+    hover:bg-accent-dim
     active:scale-[0.97]
     focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent/60
     disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:bg-accent
@@ -110,9 +110,9 @@ body {
   transform: translateX(-50%);
   padding: 4px 10px;
   border-radius: 8px;
-  background: var(--color-surface-100);
-  border: 1px solid var(--color-surface-300);
-  color: var(--color-surface-800);
+  background: var(--color-surface-800);
+  border: 1px solid var(--color-surface-700);
+  color: var(--color-surface-0);
   font-size: 11px;
   white-space: nowrap;
   pointer-events: none;
@@ -168,17 +168,17 @@ body {
 }
 
 .react-flow__controls button {
-  background-color: var(--color-surface-50) !important;
-  border-color: var(--color-surface-300) !important;
+  background-color: var(--color-surface-0) !important;
+  border-color: var(--color-surface-200) !important;
   fill: var(--color-surface-600) !important;
 }
 
 .react-flow__controls button:hover {
-  background-color: var(--color-surface-100) !important;
+  background-color: var(--color-surface-50) !important;
 }
 
 .react-flow__minimap {
-  background-color: var(--color-surface-0) !important;
+  background-color: var(--color-surface-50) !important;
   border: 1px solid var(--color-surface-200) !important;
   border-radius: 12px !important;
   overflow: hidden;
@@ -224,7 +224,7 @@ body {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, var(--color-surface-300), transparent, var(--color-surface-300));
+  background: linear-gradient(135deg, var(--color-surface-200), transparent, var(--color-surface-200));
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;

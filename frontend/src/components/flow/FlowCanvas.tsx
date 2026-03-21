@@ -59,9 +59,9 @@ function buildFlowElements(
     target: e.target,
     label: e.label,
     animated: e.relationship === "funds",
-    style: { stroke: "#2a2a38", strokeWidth: 1.5 },
-    labelStyle: { fill: "#5a5a6e", fontSize: 10, fontWeight: 500 },
-    labelBgStyle: { fill: "#06060a", fillOpacity: 0.8 },
+    style: { stroke: "#cbd5e1", strokeWidth: 1.5 },
+    labelStyle: { fill: "#64748b", fontSize: 10, fontWeight: 500 },
+    labelBgStyle: { fill: "#ffffff", fillOpacity: 0.9 },
     labelBgPadding: [6, 3] as [number, number],
     labelBgBorderRadius: 6,
   }));
@@ -95,11 +95,11 @@ export function FlowCanvas({ graph, previousGraph }: FlowCanvasProps) {
           minZoom={0.3}
           maxZoom={2}
         >
-          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#14141e" />
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#e2e8f0" />
           <Controls showInteractive={false} />
           <MiniMap
-            nodeColor="#2a2a38"
-            maskColor="rgba(6,6,10,0.8)"
+            nodeColor="#cbd5e1"
+            maskColor="rgba(255,255,255,0.8)"
             pannable
             zoomable
           />
