@@ -1,5 +1,11 @@
-from fastapi import FastAPI
+import logging
+import traceback
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+logging.basicConfig(level=logging.INFO)
 
 from src.routes.company import router as company_router
 from src.routes.simulation import router as simulation_router
@@ -28,6 +34,13 @@ app.include_router(onboarding_router)
 app.include_router(documents_router)
 app.include_router(export_router)
 app.include_router(import_router)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exception(exc)
+    logging.error(f"Unhandled error on {request.url}:\n{''.join(tb)}")
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
 @app.get("/health")
