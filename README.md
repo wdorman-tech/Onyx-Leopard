@@ -25,7 +25,8 @@ cd Onyx-Leopard
 
 ```bash
 cd backend
-uv venv && uv sync          # or: python -m venv .venv && pip install -e .
+uv venv
+uv sync                      # or: python -m venv .venv && pip install -e .
 cp .env.example .env         # then edit .env and paste your ANTHROPIC_API_KEY
 uvicorn src.main:app --reload --port 8000
 ```
