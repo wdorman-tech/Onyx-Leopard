@@ -26,11 +26,7 @@ cd Onyx-Leopard
 ```bash
 cd backend
 python -m venv .venv
-
-# Activate the virtual environment:
-# Windows (PowerShell): .venv\Scripts\activate
-# macOS/Linux:          source .venv/bin/activate
-
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -e .
 cp ../.env.example .env      # then edit .env and paste your ANTHROPIC_API_KEY
 uvicorn src.main:app --reload --port 8000
