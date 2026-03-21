@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Onyx Leopard - one-command setup and launch."""
 
+import socket
 import shutil
 import subprocess
 import sys
@@ -87,7 +88,33 @@ def install_frontend() -> None:
     )
 
 
+def free_port(port: int) -> None:
+    """Kill whatever is occupying a port so servers start cleanly."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex(("127.0.0.1", port)) != 0:
+            return  # Port is free
+    step(f"Port {port} is already in use -- freeing it...")
+    if WIN:
+        # netstat to find PID, then taskkill
+        out = subprocess.run(
+            f'netstat -ano | findstr ":{port} "',
+            capture_output=True, text=True, shell=True,
+        )
+        pids: set[str] = set()
+        for line in out.stdout.splitlines():
+            parts = line.split()
+            if parts and parts[-1].isdigit():
+                pids.add(parts[-1])
+        for pid in pids:
+            subprocess.run(f"taskkill /PID {pid} /F", shell=True, capture_output=True)
+    else:
+        subprocess.run(f"lsof -ti:{port} | xargs kill -9", shell=True, capture_output=True)
+    time.sleep(1)
+
+
 def start_servers() -> None:
+    free_port(8000)
+    free_port(3000)
     step("Starting servers...\n")
     print("    Backend  : http://localhost:8000")
     print("    Frontend : http://localhost:3000")
