@@ -14,39 +14,13 @@
 
 **Prerequisites:** [Node.js 18+](https://nodejs.org/), [Python 3.12+](https://www.python.org/downloads/), [pnpm](https://pnpm.io/installation), and an [Anthropic API key](https://console.anthropic.com/)
 
-**1. Clone the repo**
-
 ```bash
 git clone https://github.com/wdorman-tech/Onyx-Leopard.git
 cd Onyx-Leopard
+python start.py
 ```
 
-**2. Set up the backend**
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -e .
-cp ../.env.example .env      # then edit .env and paste your ANTHROPIC_API_KEY
-uvicorn src.main:app --reload --port 8000
-```
-
-Leave this terminal running.
-
-**3. Set up the frontend** (in a new terminal)
-
-```bash
-cd frontend
-pnpm install
-pnpm dev
-```
-
-Leave this terminal running too.
-
-**4. Open the app**
-
-Go to [http://localhost:3000](http://localhost:3000) — the onboarding flow will guide you from there.
+The start script checks prerequisites, installs dependencies, prompts for your API key, and launches both servers. Open [http://localhost:3000](http://localhost:3000) when it's ready.
 
 ## Tech Stack
 
