@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import uuid
 
-from src.schemas import CompanyGraph
+from src.schemas import CompanyGraph, SimulationParameters
 from src.simulation.engine import SimulationEngine
-from src.simulation.state import StepResult
 
 
 class SimulationSession:
@@ -48,8 +46,19 @@ class SessionManager:
     def __init__(self):
         self._sessions: dict[str, SimulationSession] = {}
 
-    def create_session(self, graph: CompanyGraph, max_ticks: int = 50, outlook: str = "normal") -> SimulationSession:
-        engine = SimulationEngine(graph, max_ticks=max_ticks, outlook=outlook)
+    def create_session(
+        self,
+        graph: CompanyGraph,
+        max_ticks: int = 50,
+        outlook: str = "normal",
+        sim_params: SimulationParameters | None = None,
+    ) -> SimulationSession:
+        engine = SimulationEngine(
+            graph,
+            max_ticks=max_ticks,
+            outlook=outlook,
+            sim_params=sim_params,
+        )
         session = SimulationSession(engine)
         self._sessions[session.id] = session
         return session
@@ -71,6 +80,7 @@ class SessionManager:
             graph_copy,
             max_ticks=original.engine.state.max_ticks,
             outlook=original.engine.state.outlook,
+            sim_params=original.engine.sim_params,
         )
         new_engine.state.tick = original.engine.state.tick
         new_session = SimulationSession(new_engine)

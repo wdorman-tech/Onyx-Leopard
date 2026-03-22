@@ -19,6 +19,7 @@ class StepResult:
     graph: CompanyGraph
     actions: list[AgentAction]
     global_metrics: dict[str, float]
+    bio_summary: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
