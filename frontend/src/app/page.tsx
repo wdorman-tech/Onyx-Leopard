@@ -94,8 +94,10 @@ export default function Home() {
   const handleStartSimulation = useCallback(async () => {
     if (!companyGraph) return;
     setMetricsHistory([]);
-    await sim.start(companyGraph, outlook);
-  }, [companyGraph, sim, outlook]);
+    // Pass sim_params from the company profile if available
+    const simParams = companyProfile?.sim_params as Record<string, unknown> | undefined;
+    await sim.start(companyGraph, outlook, simParams);
+  }, [companyGraph, companyProfile, sim, outlook]);
 
   const handleImport = useCallback(
     (profile: CompanyProfile, graph: CompanyGraph, sessionId: string) => {
@@ -197,6 +199,7 @@ export default function Home() {
               onClick={handleStartSimulation}
               className="btn-primary group flex items-center gap-2"
               data-tooltip="Start the simulation"
+              data-tooltip-pos="below"
             >
               <Play
                 size={14}
@@ -223,6 +226,7 @@ export default function Home() {
             <FlowCanvas
               graph={displayGraph}
               previousGraph={sim.previousGraph}
+              bioSummary={sim.bioSummary}
             />
 
             {/* Floating node count badge */}

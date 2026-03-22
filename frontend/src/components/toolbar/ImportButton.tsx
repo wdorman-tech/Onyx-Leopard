@@ -105,6 +105,7 @@ export function ImportButton({ sessionId, onImport }: ImportButtonProps) {
         disabled={loading}
         className="btn-ghost flex items-center gap-1.5 text-xs px-2.5 py-1.5"
         data-tooltip="Import .oleo file"
+        data-tooltip-pos="below"
       >
         <Upload size={14} />
         Import

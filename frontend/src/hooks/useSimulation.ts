@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import type { CompanyGraph, SimulationEvent } from "@/types/graph";
+import type { CompanyGraph, SimulationEvent, BioNodeSummary } from "@/types/graph";
 import {
   startSimulation,
   controlSimulation,
@@ -18,8 +18,9 @@ interface UseSimulationReturn {
   previousGraph: CompanyGraph | null;
   globalMetrics: Record<string, number>;
   actions: SimulationEvent["actions"];
+  bioSummary: Record<string, BioNodeSummary> | null;
   outlook: string;
-  start: (graph: CompanyGraph, selectedOutlook?: string) => Promise<void>;
+  start: (graph: CompanyGraph, selectedOutlook?: string, simParams?: Record<string, unknown>) => Promise<void>;
   play: () => Promise<void>;
   pause: () => Promise<void>;
   setSpeed: (multiplier: number) => Promise<void>;
@@ -37,17 +38,19 @@ export function useSimulation(): UseSimulationReturn {
   const [previousGraph, setPreviousGraph] = useState<CompanyGraph | null>(null);
   const [globalMetrics, setGlobalMetrics] = useState<Record<string, number>>({});
   const [actions, setActions] = useState<SimulationEvent["actions"]>(undefined);
+  const [bioSummary, setBioSummary] = useState<Record<string, BioNodeSummary> | null>(null);
   const [outlook, setOutlookState] = useState<string>("normal");
   const [isComplete, setIsComplete] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const start = useCallback(async (initialGraph: CompanyGraph, selectedOutlook = "normal") => {
+  const start = useCallback(async (initialGraph: CompanyGraph, selectedOutlook = "normal", simParams?: Record<string, unknown>) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
     setOutlookState(selectedOutlook);
+    setBioSummary(null);
 
-    const { session_id } = await startSimulation(initialGraph, 50, selectedOutlook);
+    const { session_id } = await startSimulation(initialGraph, 50, selectedOutlook, simParams);
     setSessionId(session_id);
     setTick(0);
     setIsComplete(false);
@@ -69,6 +72,7 @@ export function useSimulation(): UseSimulationReturn {
           setTick(data.tick ?? 0);
           setGlobalMetrics(data.global_metrics ?? {});
           setActions(data.actions);
+          setBioSummary(data.bio_summary ?? null);
           break;
         case "complete":
           setPlaying(false);
@@ -136,6 +140,7 @@ export function useSimulation(): UseSimulationReturn {
     previousGraph,
     globalMetrics,
     actions,
+    bioSummary,
     start,
     play,
     pause,

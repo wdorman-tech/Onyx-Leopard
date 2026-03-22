@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
-from src.schemas import CompanyGraph
+from src.schemas import CompanyGraph, SimulationParameters
 from src.simulation.manager import session_manager
 
 router = APIRouter(prefix="/api/simulate", tags=["simulation"])
@@ -18,6 +18,7 @@ class StartRequest(BaseModel):
     graph: CompanyGraph
     max_ticks: int = 50
     outlook: str = "normal"
+    sim_params: SimulationParameters | None = None
 
 
 class ControlRequest(BaseModel):
@@ -33,7 +34,12 @@ class InjectRequest(BaseModel):
 
 @router.post("/start")
 async def start_simulation(request: StartRequest) -> dict:
-    session = session_manager.create_session(request.graph, max_ticks=request.max_ticks, outlook=request.outlook)
+    session = session_manager.create_session(
+        request.graph,
+        max_ticks=request.max_ticks,
+        outlook=request.outlook,
+        sim_params=request.sim_params,
+    )
     return {"session_id": session.id, "outlook": request.outlook}
 
 
@@ -59,6 +65,8 @@ async def stream_simulation(session_id: str):
                 "actions": [asdict(a) for a in result.actions],
                 "global_metrics": result.global_metrics,
             }
+            if result.bio_summary:
+                event_data["bio_summary"] = result.bio_summary
             yield f"data: {json.dumps(event_data)}\n\n"
             await asyncio.sleep(session.speed)
 

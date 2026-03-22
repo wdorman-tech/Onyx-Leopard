@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from enum import Enum
 
 
 class Department(Enum):
-    """12 department types with color and label."""
+    """Business departments mapped to colors for petri dish rendering."""
 
     RED = ("Finance", "#E74C3C")
     BLUE = ("R&D", "#3498DB")
@@ -29,9 +31,27 @@ class CompanyStage(Enum):
     DECLINE = "decline"
 
 
+class StructureType(Enum):
+    FLAT = "flat"
+    MATRIX = "matrix"
+    HIERARCHICAL = "hierarchical"
+    DIVISIONAL = "divisional"
+
+
+class Outlook(Enum):
+    BOOM = "boom"
+    GROWTH = "growth"
+    STABLE = "stable"
+    RECESSION = "recession"
+    CRISIS = "crisis"
+
+
 class TickPhase(Enum):
     SENSE = "sense"
     SOLVE_ODE = "solve_ode"
-    INTERACT = "interact"
-    GROW_DIE = "grow_die"
-    EMIT = "emit"
+    AGENT_DECISIONS = "agent_decisions"
+    INTERACTIONS = "interactions"
+    GROWTH_DIVISION = "growth_division"
+    ENV_UPDATE = "env_update"
+    SELECTION = "selection"
+    EMIT_STATE = "emit_state"
