@@ -1,20 +1,38 @@
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from __future__ import annotations
+
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
+
+from biosim.gui.dashboard.charts import CashChart, MarketShareChart, RevenueChart
+from biosim.gui.dashboard.kpi import KpiPanel
 
 
 class DashboardPanel(QWidget):
-    """Stub -- real implementation in Unit 5."""
+    """Combined dashboard: KPIs on top, charts below."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        label = QLabel("Dashboard (loading...)")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("color: #e0e0e0; font-size: 16px;")
-        layout.addWidget(label)
 
-    def update_state(self, state: dict):
-        pass
+        self.kpi_panel = KpiPanel()
+        layout.addWidget(self.kpi_panel)
 
-    def clear_data(self):
-        pass
+        self.revenue_chart = RevenueChart()
+        layout.addWidget(self.revenue_chart, stretch=1)
+
+        self.market_share_chart = MarketShareChart()
+        layout.addWidget(self.market_share_chart, stretch=1)
+
+        self.cash_chart = CashChart()
+        layout.addWidget(self.cash_chart, stretch=1)
+
+    def update_state(self, state: dict) -> None:
+        """Update all dashboard components from state snapshot."""
+        self.kpi_panel.update_state(state)
+        self.revenue_chart.update_state(state)
+        self.market_share_chart.update_state(state)
+        self.cash_chart.update_state(state)
+
+    def clear_data(self) -> None:
+        self.revenue_chart.clear_data()
+        self.market_share_chart.clear_data()
+        self.cash_chart.clear_data()

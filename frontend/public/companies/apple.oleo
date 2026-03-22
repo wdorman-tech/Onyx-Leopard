@@ -1,0 +1,519 @@
+{
+  "format": "onyx-leopard-export",
+  "format_version": "1.0.0",
+  "exported_at": "2026-03-21T00:00:00.000Z",
+  "profile": {
+    "schema_version": "1.0.0",
+    "identity": {
+      "name": "Apple Inc.",
+      "description": "Apple designs, manufactures, and markets smartphones, personal computers, tablets, wearables, and accessories. The company also operates a rapidly growing digital services ecosystem including the App Store, Apple Music, iCloud, Apple TV+, Apple Pay, and Apple Intelligence. Known for its vertically integrated hardware-software approach, premium brand positioning, and industry-leading customer loyalty.",
+      "industry": "Consumer Electronics & Technology",
+      "naics_code": "334220",
+      "business_model": "b2c",
+      "company_stage": "mature",
+      "year_founded": 1976,
+      "headquarters": "Cupertino, California, USA",
+      "geographic_scope": "Global",
+      "operating_regions": ["North America", "Europe", "Greater China", "Japan", "Asia Pacific", "Latin America", "Middle East & Africa"]
+    },
+    "organization": {
+      "total_headcount": 164000,
+      "structure_type": "functional",
+      "departments": [
+        {
+          "id": "dept-hardware-eng",
+          "name": "Hardware Engineering",
+          "headcount": 32000,
+          "budget": 12000000000,
+          "function": "Design and development of iPhone, Mac, iPad, Apple Watch, AirPods, Vision Pro, and custom silicon (M-series, A-series chips)",
+          "sub_teams": [
+            { "id": "st-silicon", "name": "Apple Silicon / Chip Design", "headcount": 6000 },
+            { "id": "st-iphone-hw", "name": "iPhone Hardware", "headcount": 8000 },
+            { "id": "st-mac-hw", "name": "Mac Hardware", "headcount": 4000 },
+            { "id": "st-wearables-hw", "name": "Wearables & Accessories", "headcount": 5000 },
+            { "id": "st-vision", "name": "Vision Products", "headcount": 3000 },
+            { "id": "st-hw-test", "name": "Hardware Testing & Reliability", "headcount": 6000 }
+          ],
+          "kpis": { "new_products_per_year": 12, "chip_performance_gain_yoy": 0.15 }
+        },
+        {
+          "id": "dept-software-eng",
+          "name": "Software Engineering",
+          "headcount": 35000,
+          "budget": 14000000000,
+          "function": "Development of iOS, macOS, watchOS, visionOS, tvOS, and core frameworks. Includes Apple Intelligence, Siri, and ML/AI platforms.",
+          "sub_teams": [
+            { "id": "st-ios", "name": "iOS / iPadOS", "headcount": 8000 },
+            { "id": "st-macos", "name": "macOS", "headcount": 4000 },
+            { "id": "st-ai-ml", "name": "Apple Intelligence & ML", "headcount": 7000 },
+            { "id": "st-siri", "name": "Siri & Voice", "headcount": 3000 },
+            { "id": "st-frameworks", "name": "Developer Frameworks & Tools", "headcount": 5000 },
+            { "id": "st-quality", "name": "Software Quality & Automation", "headcount": 4000 },
+            { "id": "st-security", "name": "Security Engineering", "headcount": 4000 }
+          ],
+          "kpis": { "os_adoption_rate": 0.85, "app_crash_rate": 0.005 }
+        },
+        {
+          "id": "dept-services",
+          "name": "Services",
+          "headcount": 18000,
+          "budget": 8000000000,
+          "function": "App Store, Apple Music, Apple TV+, iCloud, Apple Pay, Apple Arcade, Fitness+, Apple One bundles, and advertising.",
+          "sub_teams": [
+            { "id": "st-appstore", "name": "App Store & Developer Relations", "headcount": 5000 },
+            { "id": "st-media", "name": "Apple Music & TV+", "headcount": 4000 },
+            { "id": "st-cloud", "name": "iCloud & Cloud Infrastructure", "headcount": 4000 },
+            { "id": "st-payments", "name": "Apple Pay & Financial Services", "headcount": 3000 },
+            { "id": "st-ads", "name": "Advertising", "headcount": 2000 }
+          ],
+          "kpis": { "services_revenue_growth": 0.14, "paid_subscriptions": 1100000000 }
+        },
+        {
+          "id": "dept-operations",
+          "name": "Operations & Supply Chain",
+          "headcount": 22000,
+          "budget": 5000000000,
+          "function": "Global supply chain management, manufacturing partnerships, logistics, procurement, and environmental sustainability initiatives.",
+          "sub_teams": [
+            { "id": "st-procurement", "name": "Procurement", "headcount": 5000 },
+            { "id": "st-manufacturing", "name": "Manufacturing Operations", "headcount": 6000 },
+            { "id": "st-logistics", "name": "Logistics & Distribution", "headcount": 5000 },
+            { "id": "st-supply-planning", "name": "Supply Planning & Analytics", "headcount": 3000 },
+            { "id": "st-environment", "name": "Environmental Initiatives", "headcount": 3000 }
+          ],
+          "kpis": { "supply_chain_efficiency": 0.97, "carbon_neutral_progress": 0.75 }
+        },
+        {
+          "id": "dept-retail",
+          "name": "Retail",
+          "headcount": 35000,
+          "budget": 6000000000,
+          "function": "Apple Store operations (520+ retail stores globally), online store, AppleCare, and Genius Bar technical support.",
+          "sub_teams": [
+            { "id": "st-stores", "name": "Apple Store Operations", "headcount": 28000 },
+            { "id": "st-online-store", "name": "Online Store", "headcount": 3000 },
+            { "id": "st-applecare", "name": "AppleCare & Support", "headcount": 4000 }
+          ],
+          "kpis": { "revenue_per_sqft": 5500, "nps_retail": 72 }
+        },
+        {
+          "id": "dept-marketing",
+          "name": "Marketing & Communications",
+          "headcount": 8000,
+          "budget": 7500000000,
+          "function": "Global brand marketing, product launches, advertising, PR, developer conferences (WWDC), and market research.",
+          "sub_teams": [
+            { "id": "st-brand", "name": "Brand & Creative", "headcount": 2500 },
+            { "id": "st-product-mktg", "name": "Product Marketing", "headcount": 2500 },
+            { "id": "st-comms", "name": "Communications & PR", "headcount": 1500 },
+            { "id": "st-market-research", "name": "Market Research", "headcount": 1500 }
+          ],
+          "kpis": { "brand_value_rank": 1, "launch_event_viewership": 30000000 }
+        },
+        {
+          "id": "dept-finance",
+          "name": "Finance",
+          "headcount": 5000,
+          "budget": 1200000000,
+          "function": "Financial planning, treasury, investor relations, tax, internal audit, and capital allocation strategy (including share buybacks).",
+          "sub_teams": [
+            { "id": "st-fp-a", "name": "FP&A", "headcount": 1500 },
+            { "id": "st-treasury", "name": "Treasury & Capital Markets", "headcount": 1000 },
+            { "id": "st-tax", "name": "Tax", "headcount": 1000 },
+            { "id": "st-ir", "name": "Investor Relations", "headcount": 500 },
+            { "id": "st-audit", "name": "Internal Audit", "headcount": 1000 }
+          ],
+          "kpis": { "cash_conversion_cycle": -55, "buyback_yield": 0.035 }
+        },
+        {
+          "id": "dept-legal",
+          "name": "Legal & Compliance",
+          "headcount": 4000,
+          "budget": 1500000000,
+          "function": "Intellectual property, antitrust defense, privacy compliance, regulatory affairs, and corporate governance.",
+          "sub_teams": [
+            { "id": "st-ip", "name": "Intellectual Property", "headcount": 1500 },
+            { "id": "st-regulatory", "name": "Regulatory & Antitrust", "headcount": 1200 },
+            { "id": "st-privacy-legal", "name": "Privacy & Data Protection", "headcount": 800 },
+            { "id": "st-corp-gov", "name": "Corporate Governance", "headcount": 500 }
+          ],
+          "kpis": { "patent_portfolio_size": 80000, "regulatory_compliance_rate": 0.99 }
+        },
+        {
+          "id": "dept-hr",
+          "name": "People & HR",
+          "headcount": 5000,
+          "budget": 900000000,
+          "function": "Talent acquisition, employee development, diversity & inclusion, compensation, and workplace culture.",
+          "sub_teams": [
+            { "id": "st-talent", "name": "Talent Acquisition", "headcount": 1500 },
+            { "id": "st-people-ops", "name": "People Operations", "headcount": 2000 },
+            { "id": "st-diversity", "name": "Diversity & Inclusion", "headcount": 500 },
+            { "id": "st-learning", "name": "Learning & Development", "headcount": 1000 }
+          ],
+          "kpis": { "employee_satisfaction": 0.82, "diversity_index": 0.56 }
+        }
+      ],
+      "key_roles": [
+        { "id": "role-ceo", "title": "Chief Executive Officer", "department_id": "dept-software-eng", "reports_to": "board" },
+        { "id": "role-cfo", "title": "Chief Financial Officer", "department_id": "dept-finance", "reports_to": "role-ceo" },
+        { "id": "role-coo", "title": "Chief Operating Officer", "department_id": "dept-operations", "reports_to": "role-ceo" },
+        { "id": "role-svp-hw", "title": "SVP Hardware Engineering", "department_id": "dept-hardware-eng", "reports_to": "role-ceo" },
+        { "id": "role-svp-sw", "title": "SVP Software Engineering", "department_id": "dept-software-eng", "reports_to": "role-ceo" },
+        { "id": "role-svp-services", "title": "SVP Services", "department_id": "dept-services", "reports_to": "role-ceo" },
+        { "id": "role-svp-retail", "title": "SVP Retail", "department_id": "dept-retail", "reports_to": "role-ceo" },
+        { "id": "role-svp-ml-ai", "title": "SVP Machine Learning & AI Strategy", "department_id": "dept-software-eng", "reports_to": "role-ceo" },
+        { "id": "role-gc", "title": "General Counsel", "department_id": "dept-legal", "reports_to": "role-ceo" },
+        { "id": "role-svp-marketing", "title": "SVP Worldwide Marketing", "department_id": "dept-marketing", "reports_to": "role-ceo" }
+      ],
+      "avg_salary": 168000,
+      "turnover_rate": 0.08,
+      "hiring_cost": 42000,
+      "labor_productivity_index": 2.45
+    },
+    "financials": {
+      "currency": "USD",
+      "fiscal_year_end": "September",
+      "annual_revenue": 416160000000,
+      "revenue_growth_rate": 0.064,
+      "revenue_streams": [
+        {
+          "name": "iPhone",
+          "annual_revenue": 209590000000,
+          "growth_rate": 0.015,
+          "margin": 0.368,
+          "type": "transactional"
+        },
+        {
+          "name": "Mac",
+          "annual_revenue": 33000000000,
+          "growth_rate": 0.127,
+          "margin": 0.368,
+          "type": "transactional"
+        },
+        {
+          "name": "iPad",
+          "annual_revenue": 28000000000,
+          "growth_rate": 0.06,
+          "margin": 0.368,
+          "type": "transactional"
+        },
+        {
+          "name": "Wearables, Home & Accessories",
+          "annual_revenue": 35000000000,
+          "growth_rate": 0.03,
+          "margin": 0.368,
+          "type": "transactional"
+        },
+        {
+          "name": "Services",
+          "annual_revenue": 109160000000,
+          "growth_rate": 0.14,
+          "margin": 0.749,
+          "type": "recurring"
+        }
+      ],
+      "cogs": 220960000000,
+      "gross_margin": 0.469,
+      "operating_expenses": {
+        "sga": 27600000000,
+        "rd": 34550000000,
+        "depreciation": 11700000000
+      },
+      "total_assets": 359240000000,
+      "total_debt": 107000000000,
+      "cash": 54700000000,
+      "equity": 73730000000,
+      "debt_to_equity": 1.45,
+      "capex": 12720000000,
+      "rd_spend": 34550000000,
+      "dso": 26,
+      "dio": 9,
+      "dpo": 83,
+      "net_income": 112010000000,
+      "ebitda": 144700000000,
+      "roe": 1.52,
+      "roa": 0.312
+    },
+    "market": {
+      "tam": 2800000000000,
+      "sam": 1200000000000,
+      "som": 400000000000,
+      "market_share": 0.22,
+      "market_growth_rate": 0.05,
+      "competitive_landscape": "oligopoly",
+      "competitors": [
+        {
+          "name": "Samsung Electronics",
+          "est_revenue": 210000000000,
+          "est_market_share": 0.19,
+          "relative_cost": 0.75,
+          "strengths": ["Vertically integrated (displays, memory, chips)", "Diverse product portfolio", "Largest smartphone market share globally", "Strong Android ecosystem presence"],
+          "weaknesses": ["Lower brand premium vs Apple", "Software ecosystem fragmentation", "Lower services revenue", "Thinner margins on mobile"]
+        },
+        {
+          "name": "Google (Alphabet)",
+          "est_revenue": 340000000000,
+          "est_market_share": 0.08,
+          "relative_cost": 0.6,
+          "strengths": ["Android OS dominance (70%+ global share)", "AI/ML leadership", "Search and advertising monopoly", "Cloud infrastructure"],
+          "weaknesses": ["Hardware market share minimal", "Privacy reputation challenges", "Pixel hardware niche only", "No significant services subscription base vs Apple"]
+        },
+        {
+          "name": "Microsoft",
+          "est_revenue": 245000000000,
+          "est_market_share": 0.06,
+          "relative_cost": 0.85,
+          "strengths": ["Enterprise software dominance", "Azure cloud growth", "Office 365 ecosystem lock-in", "AI/Copilot momentum"],
+          "weaknesses": ["Minimal mobile hardware presence", "Surface line small market share", "Consumer brand weaker than Apple", "No smartphone platform"]
+        },
+        {
+          "name": "Huawei",
+          "est_revenue": 98000000000,
+          "est_market_share": 0.05,
+          "relative_cost": 0.65,
+          "strengths": ["Strong in China market", "5G infrastructure leadership", "Custom Kirin chips resurgence", "Vertically integrated telecom"],
+          "weaknesses": ["US sanctions limiting chip access", "Locked out of Google services", "Declining international presence", "Supply chain vulnerabilities"]
+        }
+      ],
+      "primary_competition_dimension": "Ecosystem integration, brand premium, and user experience differentiation",
+      "barriers_to_entry": "Extremely high — requires custom silicon design capability, integrated hardware-software-services ecosystem, global supply chain at scale, massive R&D investment ($30B+/yr), retail footprint, and brand reputation built over decades",
+      "pricing_model": "per_unit",
+      "price_elasticity_estimate": -0.8
+    },
+    "operations": {
+      "production_model": "make_to_stock",
+      "key_inputs": [
+        { "name": "Custom Silicon (TSMC Fabrication)", "annual_cost": 42000000000, "pct_of_cogs": 0.196, "substitutability": "Very low — TSMC is sole advanced node fab partner" },
+        { "name": "OLED Displays (Samsung, LG, BOE)", "annual_cost": 36000000000, "pct_of_cogs": 0.168, "substitutability": "Low — limited suppliers for OLED at scale" },
+        { "name": "Memory & Storage (SK Hynix, Samsung, Micron)", "annual_cost": 28000000000, "pct_of_cogs": 0.131, "substitutability": "Medium — multiple qualified suppliers" },
+        { "name": "Contract Assembly (Foxconn, Pegatron, Luxshare)", "annual_cost": 32000000000, "pct_of_cogs": 0.149, "substitutability": "Medium — diversifying from Foxconn to India/Vietnam" },
+        { "name": "Battery Cells & Components", "annual_cost": 15000000000, "pct_of_cogs": 0.070, "substitutability": "Medium — multiple qualified suppliers" },
+        { "name": "Camera Modules (Sony, LG Innotek)", "annual_cost": 12000000000, "pct_of_cogs": 0.056, "substitutability": "Low — Sony dominates image sensors" }
+      ],
+      "supplier_concentration": 0.65,
+      "capacity_utilization": 0.88,
+      "inventory_model": "Just-in-time with strategic buffer stock for launch periods",
+      "avg_inventory_value": 6331000000,
+      "inventory_turnover": 33.8,
+      "lead_time_days": 45,
+      "defect_rate": 0.005,
+      "customer_satisfaction_score": 82
+    },
+    "strategy": {
+      "primary_objective": "profitability",
+      "strategic_priorities": [
+        "Expand Services ecosystem to $120B+ annual revenue",
+        "Deploy Apple Intelligence across all products",
+        "Grow installed base beyond 2.2 billion active devices",
+        "Diversify supply chain away from China dependency",
+        "Develop Vision Pro spatial computing platform",
+        "Maintain premium pricing power and gross margins",
+        "Achieve carbon neutrality across entire supply chain by 2030"
+      ],
+      "planned_initiatives": [
+        { "name": "Apple Intelligence Rollout", "description": "On-device and Private Cloud Compute AI features across iPhone, Mac, iPad. Partnership with OpenAI for advanced queries.", "priority": 1 },
+        { "name": "Services Bundle Expansion", "description": "Expand Apple One bundles, grow Apple TV+ original content investment to $10B+/yr, and increase advertising revenue.", "priority": 2 },
+        { "name": "India Manufacturing Scale-up", "description": "Increase iPhone production in India to 25%+ of global output, reducing China concentration from 90% to under 70%.", "priority": 3 },
+        { "name": "Vision Pro & Spatial Computing", "description": "Iterate on Vision Pro hardware, develop lower-cost model, build visionOS developer ecosystem.", "priority": 4 },
+        { "name": "Custom Modem Chip", "description": "Replace Qualcomm modem chips with in-house 5G modem design, completing vertical integration of core iPhone components.", "priority": 5 },
+        { "name": "Health Platform Expansion", "description": "Expand Apple Watch health sensors (blood pressure, glucose), pursue FDA clearances, build health data platform.", "priority": 6 }
+      ],
+      "major_risks": [
+        { "name": "Regulatory & Antitrust", "description": "EU DMA compliance forcing App Store changes, US DOJ antitrust lawsuit, Japan/Korea sideloading mandates eroding Services margins", "likelihood": "high", "impact": "high" },
+        { "name": "China Geopolitical Risk", "description": "US-China tensions threatening supply chain (90% of assembly), potential Chinese consumer backlash, Taiwan Strait risk to TSMC supply", "likelihood": "medium", "impact": "critical" },
+        { "name": "AI Competition Gap", "description": "Google and Microsoft have multi-year head start in generative AI; Apple Intelligence must close gap rapidly to avoid ecosystem leakage", "likelihood": "medium", "impact": "high" },
+        { "name": "iPhone Market Saturation", "description": "Smartphone market maturity in developed markets extending upgrade cycles beyond 4 years, pressuring core revenue driver", "likelihood": "high", "impact": "medium" },
+        { "name": "Services Revenue Regulation", "description": "Forced App Store fee reductions (30% → 17-20%) from EU, Japan, and potential US legislation could reduce highest-margin revenue", "likelihood": "high", "impact": "high" }
+      ],
+      "moats": [
+        "Vertically integrated hardware-software-silicon ecosystem",
+        "2.2 billion active device installed base with high switching costs",
+        "Brand premium commanding 40%+ gross margins",
+        "Services lock-in (iCloud, iMessage, Apple Pay, subscriptions)",
+        "Custom silicon (M-series, A-series) performance leadership",
+        "Unmatched retail experience (520+ stores) and support ecosystem",
+        "Privacy-first positioning as key differentiator"
+      ],
+      "simulation_objectives": [
+        "Model impact of Services growth on overall margin expansion",
+        "Simulate regulatory scenarios (App Store fee cuts, sideloading)",
+        "Test supply chain diversification effects on COGS",
+        "Project Apple Intelligence adoption impact on upgrade cycles",
+        "Evaluate Vision Pro market development scenarios"
+      ],
+      "time_horizon_weeks": 52
+    },
+    "sim_params": {
+      "tfp": 1.45,
+      "capital_elasticity": 0.35,
+      "labor_elasticity": 0.65,
+      "fixed_costs": 48000000000,
+      "variable_cost_per_unit": 285,
+      "learning_curve_rate": 0.88,
+      "market_demand_intercept": 1500000000,
+      "market_demand_slope": 0.0012,
+      "marginal_cost": 295,
+      "depreciation_rate": 0.08,
+      "reinvestment_rate": 0.25,
+      "revenue_volatility": 0.06,
+      "demand_seasonality": [0.85, 0.8, 0.82, 0.85, 0.83, 0.88, 0.85, 0.87, 1.15, 1.35, 1.25, 1.3]
+    },
+    "metadata": {
+      "created_by": "Onyx Leopard Sample Data",
+      "source_documents": ["Apple 10-K FY2024", "Apple 10-Q Q1 2025", "Industry analyst estimates"],
+      "completeness_score": 0.95,
+      "last_modified": null,
+      "notes": "Comprehensive Apple Inc. profile based on public financial filings and analyst estimates. Revenue and financial data primarily from FY2024 (ending Sept 2024)."
+    }
+  },
+  "graph": {
+    "name": "Apple Inc.",
+    "description": "Organizational and financial structure of Apple Inc., a $391B consumer electronics and services company",
+    "nodes": [
+      {
+        "id": "node-hw-eng",
+        "label": "Hardware Engineering",
+        "type": "department",
+        "metrics": { "headcount": 32000, "budget": 12000000000 },
+        "agent_prompt": "You manage Apple's hardware engineering division including iPhone, Mac, iPad, Apple Watch, and custom silicon design. Focus on product innovation, chip performance gains, and manufacturing feasibility. Balance cutting-edge design with supply chain constraints."
+      },
+      {
+        "id": "node-sw-eng",
+        "label": "Software Engineering",
+        "type": "department",
+        "metrics": { "headcount": 35000, "budget": 14000000000 },
+        "agent_prompt": "You manage Apple's software engineering including iOS, macOS, Apple Intelligence, and developer tools. Prioritize OS stability, AI feature rollout, and developer ecosystem health. Coordinate closely with hardware on silicon-optimized features."
+      },
+      {
+        "id": "node-services",
+        "label": "Services",
+        "type": "department",
+        "metrics": { "headcount": 18000, "budget": 8000000000, "revenue": 96169000000 },
+        "agent_prompt": "You run Apple's Services division — App Store, Apple Music, TV+, iCloud, Apple Pay. Drive subscriber growth toward 1.5B paid subscriptions. Manage regulatory risk from App Store fee changes while expanding advertising and financial services revenue."
+      },
+      {
+        "id": "node-operations",
+        "label": "Operations & Supply Chain",
+        "type": "department",
+        "metrics": { "headcount": 22000, "budget": 5000000000 },
+        "agent_prompt": "You oversee Apple's global supply chain spanning 40+ countries. Manage supplier relationships (TSMC, Foxconn, Samsung), diversify manufacturing to India/Vietnam, and optimize procurement costs while maintaining quality and sustainability targets."
+      },
+      {
+        "id": "node-retail",
+        "label": "Retail",
+        "type": "department",
+        "metrics": { "headcount": 35000, "budget": 6000000000 },
+        "agent_prompt": "You manage 520+ Apple retail stores globally and the online store. Optimize revenue per square foot, manage AppleCare attach rates, and drive in-store customer experience scores. Balance store expansion with profitability."
+      },
+      {
+        "id": "node-marketing",
+        "label": "Marketing & Communications",
+        "type": "department",
+        "metrics": { "headcount": 8000, "budget": 7500000000 },
+        "agent_prompt": "You lead Apple's global marketing including product launches, brand campaigns, WWDC, and developer relations. Maintain Apple's #1 brand value position while driving awareness for new categories (Vision Pro, AI features)."
+      },
+      {
+        "id": "node-finance",
+        "label": "Finance",
+        "type": "department",
+        "metrics": { "headcount": 5000, "budget": 1200000000 },
+        "agent_prompt": "You manage Apple's financial operations including capital allocation, share buybacks ($90B+ annually), treasury management, and investor relations. Optimize the balance between returning cash to shareholders and investing in growth."
+      },
+      {
+        "id": "node-legal",
+        "label": "Legal & Compliance",
+        "type": "department",
+        "metrics": { "headcount": 4000, "budget": 1500000000 },
+        "agent_prompt": "You handle Apple's legal affairs including IP protection (80K+ patents), antitrust defense (EU DMA, US DOJ), privacy compliance (GDPR, state laws), and regulatory strategy across global markets."
+      },
+      {
+        "id": "node-rev-iphone",
+        "label": "iPhone Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 209590000000, "growth_rate": 0.015, "margin": 0.368 },
+        "agent_prompt": "iPhone is Apple's largest revenue stream at $201B. Simulate upgrade cycle dynamics, ASP trends, and market share in premium segment. iPhone 16 with Apple Intelligence is the key growth driver."
+      },
+      {
+        "id": "node-rev-services",
+        "label": "Services Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 109160000000, "growth_rate": 0.14, "margin": 0.749 },
+        "agent_prompt": "Services is the highest-margin and fastest-growing segment at $96B (74% margin). Model App Store fee regulatory risk, subscription growth trajectory, and advertising revenue expansion."
+      },
+      {
+        "id": "node-rev-mac",
+        "label": "Mac Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 33000000000, "growth_rate": 0.127, "margin": 0.368 },
+        "agent_prompt": "Mac revenue at $30B, boosted by M-series Apple Silicon performance advantage. Model enterprise adoption trends and competitive dynamics vs Windows PCs."
+      },
+      {
+        "id": "node-rev-ipad",
+        "label": "iPad Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 28000000000, "growth_rate": 0.06, "margin": 0.368 },
+        "agent_prompt": "iPad revenue at $28B, refreshed with M-series chips. Model education market dynamics, tablet market trends, and cannibalization effects with Mac."
+      },
+      {
+        "id": "node-rev-wearables",
+        "label": "Wearables & Accessories Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 35000000000, "growth_rate": 0.03, "margin": 0.368 },
+        "agent_prompt": "Wearables at $37B including Apple Watch, AirPods, and Vision Pro. Model health feature expansion, AirPods growth, and Vision Pro ramp trajectory."
+      },
+      {
+        "id": "node-cogs",
+        "label": "Cost of Goods Sold",
+        "type": "cost_center",
+        "metrics": { "annual_cost": 220960000000 },
+        "agent_prompt": "Apple's COGS at $214B covers component procurement, assembly, freight, and warranty. Model impact of supply chain diversification, component price trends, and scale economics."
+      },
+      {
+        "id": "node-ext-tsmc",
+        "label": "TSMC (Key Supplier)",
+        "type": "external",
+        "metrics": { "annual_cost": 42000000000, "dependency_score": 0.95 },
+        "agent_prompt": "TSMC fabricates all Apple Silicon chips. Critical single-source dependency. Model geopolitical risk (Taiwan Strait), capacity allocation competition, and technology node advancement."
+      },
+      {
+        "id": "node-ext-foxconn",
+        "label": "Foxconn (Assembly Partner)",
+        "type": "external",
+        "metrics": { "annual_cost": 32000000000, "dependency_score": 0.6 },
+        "agent_prompt": "Foxconn is the primary iPhone assembler. Diversification underway to Pegatron, Luxshare, and Tata (India). Model labor cost trends, India ramp-up, and quality consistency."
+      }
+    ],
+    "edges": [
+      { "source": "node-hw-eng", "target": "node-sw-eng", "relationship": "collaborates", "label": "Hardware-software co-design" },
+      { "source": "node-hw-eng", "target": "node-operations", "relationship": "collaborates", "label": "Design for manufacturability" },
+      { "source": "node-hw-eng", "target": "node-rev-iphone", "relationship": "supplies", "label": "iPhone product development" },
+      { "source": "node-hw-eng", "target": "node-rev-mac", "relationship": "supplies", "label": "Mac product development" },
+      { "source": "node-hw-eng", "target": "node-rev-wearables", "relationship": "supplies", "label": "Wearables product development" },
+      { "source": "node-sw-eng", "target": "node-services", "relationship": "collaborates", "label": "Platform & API integration" },
+      { "source": "node-services", "target": "node-rev-services", "relationship": "funds", "label": "Services revenue generation" },
+      { "source": "node-operations", "target": "node-cogs", "relationship": "funds", "label": "Supply chain cost management" },
+      { "source": "node-ext-tsmc", "target": "node-hw-eng", "relationship": "supplies", "label": "Apple Silicon fabrication" },
+      { "source": "node-ext-foxconn", "target": "node-operations", "relationship": "supplies", "label": "Device assembly" },
+      { "source": "node-retail", "target": "node-rev-iphone", "relationship": "serves", "label": "iPhone sales channel" },
+      { "source": "node-retail", "target": "node-rev-mac", "relationship": "serves", "label": "Mac sales channel" },
+      { "source": "node-marketing", "target": "node-retail", "relationship": "collaborates", "label": "Product launch coordination" },
+      { "source": "node-finance", "target": "node-hw-eng", "relationship": "funds", "label": "R&D budget allocation" },
+      { "source": "node-finance", "target": "node-sw-eng", "relationship": "funds", "label": "Software R&D funding" },
+      { "source": "node-legal", "target": "node-services", "relationship": "collaborates", "label": "Regulatory compliance" },
+      { "source": "node-rev-iphone", "target": "node-finance", "relationship": "funds", "label": "Primary revenue contribution" },
+      { "source": "node-rev-services", "target": "node-finance", "relationship": "funds", "label": "High-margin revenue contribution" }
+    ],
+    "global_metrics": {
+      "annual_revenue": 416160000000,
+      "gross_margin": 0.469,
+      "net_income": 112010000000,
+      "total_headcount": 164000,
+      "market_cap_estimate": 3400000000000,
+      "services_pct_of_revenue": 0.262,
+      "active_devices": 2200000000
+    }
+  },
+  "simulation_snapshot": null,
+  "checksum": ""
+}

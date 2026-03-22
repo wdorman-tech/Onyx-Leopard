@@ -48,12 +48,22 @@ export interface AgentAction {
   reasoning: string;
 }
 
+export interface BioNodeSummary {
+  health_score: number;
+  capacity_utilization: number;
+  signal_activation: number;
+  apoptosis_triggered: boolean;
+  cell_cycle_phase?: string;
+  adoption_r0?: number;
+}
+
 export interface TickEvent {
   type: "tick";
   tick: number;
   graph: CompanyGraph;
   actions: AgentAction[];
   global_metrics: Record<string, number>;
+  bio_summary?: Record<string, BioNodeSummary>;
 }
 
 export interface SimulationEvent {
@@ -62,4 +72,5 @@ export interface SimulationEvent {
   graph?: CompanyGraph;
   actions?: AgentAction[];
   global_metrics?: Record<string, number>;
+  bio_summary?: Record<string, BioNodeSummary>;
 }
