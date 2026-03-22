@@ -4,9 +4,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { CompanyProfile } from "@/types/profile";
 import type { CompanyGraph } from "@/types/graph";
 import { useOnboarding, type OnboardingPhase } from "@/hooks/useOnboarding";
+import { loadImport } from "@/lib/api";
 import { Logo } from "@/components/ui/Logo";
 import { Spinner } from "@/components/ui/Spinner";
-import { MessageSquare, Zap, ChevronLeft, Send } from "@/components/ui/icons";
+import { MessageSquare, Zap, ChevronLeft, Send, Building2 } from "@/components/ui/icons";
 
 const PHASES: OnboardingPhase[] = [
   "identity",
@@ -26,6 +27,14 @@ const PHASE_LABELS: Record<OnboardingPhase, string> = {
   strategy: "Strategy",
 };
 
+interface CompanyEntry {
+  filename: string;
+  name: string;
+  industry: string;
+  stage: string;
+  node_count: number;
+}
+
 interface OnboardingQuestionnaireProps {
   onComplete: (
     profile: CompanyProfile,
@@ -37,11 +46,40 @@ interface OnboardingQuestionnaireProps {
 export function OnboardingQuestionnaire({
   onComplete,
 }: OnboardingQuestionnaireProps) {
-  const [mode, setMode] = useState<"select" | "guided" | "quick">("select");
+  const [mode, setMode] = useState<"select" | "guided" | "quick" | "sample">("select");
   const [quickText, setQuickText] = useState("");
   const [input, setInput] = useState("");
+  const [sampleCompanies, setSampleCompanies] = useState<CompanyEntry[]>([]);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [sampleError, setSampleError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const onboarding = useOnboarding();
+
+  useEffect(() => {
+    fetch("/api/companies")
+      .then((r) => r.json())
+      .then((data: CompanyEntry[]) => setSampleCompanies(data))
+      .catch(() => setSampleCompanies([]));
+  }, []);
+
+  const handleLoadSample = useCallback(
+    async (filename: string) => {
+      setSampleLoading(true);
+      setSampleError(null);
+      try {
+        const res = await fetch(`/companies/${filename}`);
+        if (!res.ok) throw new Error("Failed to load company file");
+        const data = await res.json();
+        const result = await loadImport(data, null, "replace");
+        onComplete(result.profile, result.graph, result.session_id);
+      } catch (err) {
+        setSampleError(err instanceof Error ? err.message : "Failed to load company");
+      } finally {
+        setSampleLoading(false);
+      }
+    },
+    [onComplete],
+  );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -149,6 +187,94 @@ export function OnboardingQuestionnaire({
               Paste a company description and jump straight to the simulation.
             </p>
           </button>
+
+          {sampleCompanies.length > 0 && (
+            <button
+              onClick={() => setMode("sample")}
+              className="w-full text-left p-5 rounded-2xl border border-surface-200 hover:border-surface-300 hover:bg-surface-50/50 transition-all group"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-surface-100 border border-surface-200 flex items-center justify-center text-surface-500">
+                  <Building2 size={16} />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-surface-800 group-hover:text-surface-900">
+                    Sample Companies
+                  </div>
+                  <div className="text-xs text-surface-500">
+                    {sampleCompanies.length} pre-built {sampleCompanies.length === 1 ? "profile" : "profiles"}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-surface-500 ml-11">
+                Load a detailed company profile and jump straight to the simulation.
+              </p>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Sample companies mode
+  if (mode === "sample") {
+    return (
+      <div className="min-h-screen bg-surface-0 flex items-center justify-center p-6 phase-enter">
+        <div className="w-full max-w-lg space-y-4">
+          <button
+            onClick={() => setMode("select")}
+            className="btn-ghost text-xs flex items-center gap-1"
+          >
+            <ChevronLeft size={12} />
+            Back
+          </button>
+
+          <h2 className="text-lg font-bold text-surface-900">
+            Sample Companies
+          </h2>
+          <p className="text-sm text-surface-500">
+            Select a pre-built company profile to explore the simulation.
+          </p>
+
+          <div className="space-y-2.5">
+            {sampleCompanies.map((company) => (
+              <button
+                key={company.filename}
+                onClick={() => handleLoadSample(company.filename)}
+                disabled={sampleLoading}
+                className="w-full text-left px-4 py-3.5 rounded-xl border border-surface-200 hover:border-surface-300 hover:bg-surface-100/50 transition-all group active:scale-[0.99] disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-surface-800 group-hover:text-surface-900">
+                      {company.name}
+                    </div>
+                    <div className="text-xs text-surface-500 mt-0.5">
+                      {company.industry}
+                      {company.stage && ` · ${company.stage}`}
+                      {company.node_count > 0 && ` · ${company.node_count} nodes`}
+                    </div>
+                  </div>
+                  <div className="text-xs text-surface-400 group-hover:text-accent transition-colors">
+                    Load →
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {sampleLoading && (
+            <div className="flex items-center justify-center gap-2 py-3">
+              <Spinner className="h-4 w-4" />
+              <span className="text-xs text-surface-500">Loading company profile...</span>
+            </div>
+          )}
+
+          {sampleError && (
+            <div className="text-xs text-negative bg-negative/10 px-3 py-2 rounded-lg">
+              {sampleError}
+            </div>
+          )}
         </div>
       </div>
     );

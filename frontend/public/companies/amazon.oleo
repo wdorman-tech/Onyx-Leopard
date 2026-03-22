@@ -1,0 +1,557 @@
+{
+  "format": "onyx-leopard-export",
+  "format_version": "1.0.0",
+  "exported_at": "2026-03-21T00:00:00.000Z",
+  "profile": {
+    "schema_version": "1.0.0",
+    "identity": {
+      "name": "Amazon.com, Inc.",
+      "description": "Amazon is the world's largest online retailer, cloud computing provider (AWS), and a major player in digital advertising, streaming entertainment, grocery, logistics, and AI services. The company operates a massive fulfillment network spanning 1,000+ facilities globally, serves hundreds of millions of Prime members, and runs AWS — the world's largest cloud infrastructure platform. Amazon has pioneered the marketplace model, enabling millions of third-party sellers while building one of the most sophisticated logistics networks ever created.",
+      "industry": "E-Commerce, Cloud Computing & Technology",
+      "naics_code": "454110",
+      "business_model": "marketplace",
+      "company_stage": "mature",
+      "year_founded": 1994,
+      "headquarters": "Seattle, Washington, USA",
+      "geographic_scope": "Global",
+      "operating_regions": ["United States", "Europe (UK, Germany, France, Italy, Spain)", "Japan", "India", "Canada", "Australia", "Brazil", "Mexico", "Middle East (UAE, Saudi Arabia)", "Southeast Asia"]
+    },
+    "organization": {
+      "total_headcount": 1556000,
+      "structure_type": "divisional",
+      "departments": [
+        {
+          "id": "dept-aws",
+          "name": "Amazon Web Services (AWS)",
+          "headcount": 95000,
+          "budget": 35000000000,
+          "function": "World's largest cloud computing platform. Provides 200+ services across compute (EC2), storage (S3), databases (RDS, DynamoDB), AI/ML (Bedrock, SageMaker), networking, and security to millions of customers. 33 regions, 105 availability zones.",
+          "sub_teams": [
+            { "id": "st-aws-compute", "name": "AWS Compute & Containers", "headcount": 15000 },
+            { "id": "st-aws-storage", "name": "AWS Storage & Databases", "headcount": 10000 },
+            { "id": "st-aws-ai", "name": "AWS AI/ML & Bedrock", "headcount": 12000 },
+            { "id": "st-aws-networking", "name": "AWS Networking & CDN", "headcount": 8000 },
+            { "id": "st-aws-security", "name": "AWS Security & Identity", "headcount": 6000 },
+            { "id": "st-aws-sales", "name": "AWS Sales & Solutions Architecture", "headcount": 20000 },
+            { "id": "st-aws-infra", "name": "AWS Infrastructure & Data Centers", "headcount": 24000 }
+          ],
+          "kpis": { "aws_revenue_growth": 0.19, "aws_operating_margin": 0.37, "aws_regions": 33 }
+        },
+        {
+          "id": "dept-na-retail",
+          "name": "North America Retail",
+          "headcount": 800000,
+          "budget": 42000000000,
+          "function": "Amazon.com marketplace, first-party retail, Prime membership, and North American fulfillment operations. Includes 1P retail buying, 3P marketplace, and the complete order-to-delivery pipeline.",
+          "sub_teams": [
+            { "id": "st-na-marketplace", "name": "North America Marketplace", "headcount": 15000 },
+            { "id": "st-na-retail-ops", "name": "Retail Operations & Buying", "headcount": 10000 },
+            { "id": "st-na-fulfillment", "name": "North America Fulfillment Centers", "headcount": 600000 },
+            { "id": "st-na-last-mile", "name": "Last-Mile Delivery (DSP/Flex)", "headcount": 150000 },
+            { "id": "st-na-prime", "name": "Prime Membership & CX", "headcount": 5000 },
+            { "id": "st-na-grocery", "name": "Grocery (Whole Foods, Fresh)", "headcount": 20000 }
+          ],
+          "kpis": { "na_revenue_growth": 0.12, "prime_members_us": 180000000, "same_day_delivery_pct": 0.60 }
+        },
+        {
+          "id": "dept-intl-retail",
+          "name": "International Retail",
+          "headcount": 400000,
+          "budget": 18000000000,
+          "function": "Amazon marketplace operations outside North America. Major markets include UK, Germany, Japan, India, France, Italy, Spain, Australia, and emerging markets. Includes international fulfillment and logistics.",
+          "sub_teams": [
+            { "id": "st-intl-eu", "name": "Europe Operations", "headcount": 200000 },
+            { "id": "st-intl-japan", "name": "Japan Operations", "headcount": 50000 },
+            { "id": "st-intl-india", "name": "India Operations", "headcount": 100000 },
+            { "id": "st-intl-emerging", "name": "Emerging Markets", "headcount": 50000 }
+          ],
+          "kpis": { "intl_revenue_growth": 0.10, "intl_operating_margin": 0.03 }
+        },
+        {
+          "id": "dept-advertising",
+          "name": "Advertising",
+          "headcount": 20000,
+          "budget": 5000000000,
+          "function": "Amazon's high-margin advertising business. Sponsored products, brands, and display ads on Amazon.com, Fire TV, Twitch, and third-party properties. Leverages purchase-intent data for targeting.",
+          "sub_teams": [
+            { "id": "st-ads-search", "name": "Sponsored Ads Platform", "headcount": 6000 },
+            { "id": "st-ads-display", "name": "Display & Video Advertising", "headcount": 4000 },
+            { "id": "st-ads-sales", "name": "Ad Sales & Account Management", "headcount": 5000 },
+            { "id": "st-ads-tech", "name": "Ad Tech & Measurement", "headcount": 5000 }
+          ],
+          "kpis": { "ad_revenue_growth": 0.24, "ad_operating_margin": 0.60 }
+        },
+        {
+          "id": "dept-entertainment",
+          "name": "Entertainment (Prime Video & Studios)",
+          "headcount": 15000,
+          "budget": 18000000000,
+          "function": "Prime Video streaming, Amazon MGM Studios content production, live sports (Thursday Night Football, Champions League), Twitch, and Amazon Music. Content investment to drive Prime membership retention.",
+          "sub_teams": [
+            { "id": "st-studios", "name": "Amazon MGM Studios", "headcount": 5000 },
+            { "id": "st-video-tech", "name": "Prime Video Technology", "headcount": 4000 },
+            { "id": "st-sports", "name": "Live Sports", "headcount": 2000 },
+            { "id": "st-twitch", "name": "Twitch", "headcount": 2000 },
+            { "id": "st-music", "name": "Amazon Music", "headcount": 2000 }
+          ],
+          "kpis": { "prime_video_subscribers": 200000000, "content_spend": 18000000000 }
+        },
+        {
+          "id": "dept-devices",
+          "name": "Devices & Alexa",
+          "headcount": 12000,
+          "budget": 5000000000,
+          "function": "Echo devices, Fire TV, Kindle, Ring, Blink, and Alexa voice assistant platform. Alexa has 500M+ devices enabled. Pivoting from subsidized hardware to AI-powered subscription services.",
+          "sub_teams": [
+            { "id": "st-alexa", "name": "Alexa AI & Voice", "headcount": 5000 },
+            { "id": "st-echo", "name": "Echo & Smart Home", "headcount": 3000 },
+            { "id": "st-firetv", "name": "Fire TV & Kindle", "headcount": 2000 },
+            { "id": "st-ring", "name": "Ring & Blink Security", "headcount": 2000 }
+          ],
+          "kpis": { "alexa_enabled_devices": 500000000, "smart_home_market_share": 0.25 }
+        },
+        {
+          "id": "dept-logistics",
+          "name": "Logistics & Transportation",
+          "headcount": 120000,
+          "budget": 25000000000,
+          "function": "Amazon's internal logistics network including air cargo (Amazon Air, 100+ planes), ground delivery (DSP network), sortation centers, and transportation management. Increasingly fulfilling 3P seller shipments.",
+          "sub_teams": [
+            { "id": "st-amazon-air", "name": "Amazon Air", "headcount": 15000 },
+            { "id": "st-ground-transport", "name": "Ground Transportation", "headcount": 60000 },
+            { "id": "st-sortation", "name": "Sortation & Middle Mile", "headcount": 30000 },
+            { "id": "st-logistics-tech", "name": "Logistics Technology & Robotics", "headcount": 15000 }
+          ],
+          "kpis": { "packages_delivered_per_year": 6000000000, "delivery_speed_avg_hours": 28 }
+        },
+        {
+          "id": "dept-kuiper",
+          "name": "Project Kuiper",
+          "headcount": 4000,
+          "budget": 4000000000,
+          "function": "Low Earth orbit satellite internet constellation to compete with SpaceX Starlink. Planning 3,236 satellites. First prototype launches completed. Targeting commercial service launch and enterprise/government markets.",
+          "sub_teams": [
+            { "id": "st-kuiper-sat", "name": "Satellite Design & Manufacturing", "headcount": 2000 },
+            { "id": "st-kuiper-ground", "name": "Ground Network & Terminals", "headcount": 1000 },
+            { "id": "st-kuiper-ops", "name": "Constellation Operations", "headcount": 1000 }
+          ],
+          "kpis": { "satellites_planned": 3236, "target_launch_year": 2025 }
+        },
+        {
+          "id": "dept-finance",
+          "name": "Finance",
+          "headcount": 12000,
+          "budget": 2500000000,
+          "function": "Financial planning, treasury, investor relations, tax, and financial operations for a $620B revenue company. Manages complex global tax structure and massive capex program.",
+          "sub_teams": [
+            { "id": "st-fpa-amzn", "name": "FP&A", "headcount": 4000 },
+            { "id": "st-treasury-amzn", "name": "Treasury", "headcount": 2000 },
+            { "id": "st-tax-amzn", "name": "Tax", "headcount": 3000 },
+            { "id": "st-ir-amzn", "name": "Investor Relations", "headcount": 500 },
+            { "id": "st-audit-amzn", "name": "Internal Audit", "headcount": 2500 }
+          ],
+          "kpis": { "free_cash_flow": 36000000000, "capex_to_revenue": 0.12 }
+        },
+        {
+          "id": "dept-hr",
+          "name": "People Experience & Technology (HR)",
+          "headcount": 30000,
+          "budget": 3500000000,
+          "function": "HR operations for 1.5M+ employees globally. Talent acquisition, warehouse workforce management, compensation, training, and culture. Managing scale while improving warehouse working conditions.",
+          "sub_teams": [
+            { "id": "st-talent-amzn", "name": "Talent Acquisition", "headcount": 8000 },
+            { "id": "st-workforce", "name": "Workforce Management", "headcount": 10000 },
+            { "id": "st-comp-amzn", "name": "Compensation & Benefits", "headcount": 5000 },
+            { "id": "st-training", "name": "Training & Development", "headcount": 7000 }
+          ],
+          "kpis": { "warehouse_turnover_rate": 0.50, "corporate_turnover_rate": 0.12 }
+        },
+        {
+          "id": "dept-legal",
+          "name": "Legal & Policy",
+          "headcount": 8000,
+          "budget": 2500000000,
+          "function": "Legal affairs, antitrust defense (FTC lawsuit), public policy, regulatory compliance, privacy, and IP management across all Amazon businesses and 20+ countries.",
+          "sub_teams": [
+            { "id": "st-antitrust", "name": "Antitrust & Competition", "headcount": 2000 },
+            { "id": "st-policy", "name": "Public Policy & Government Relations", "headcount": 2000 },
+            { "id": "st-privacy-amzn", "name": "Privacy & Data Protection", "headcount": 2000 },
+            { "id": "st-ip-amzn", "name": "Intellectual Property", "headcount": 2000 }
+          ],
+          "kpis": { "regulatory_jurisdictions": 20, "active_litigation_cases": 150 }
+        }
+      ],
+      "key_roles": [
+        { "id": "role-ceo", "title": "President & Chief Executive Officer", "department_id": "dept-na-retail", "reports_to": "board" },
+        { "id": "role-cfo", "title": "Chief Financial Officer", "department_id": "dept-finance", "reports_to": "role-ceo" },
+        { "id": "role-ceo-aws", "title": "CEO Amazon Web Services", "department_id": "dept-aws", "reports_to": "role-ceo" },
+        { "id": "role-svp-devices", "title": "SVP Devices & Services", "department_id": "dept-devices", "reports_to": "role-ceo" },
+        { "id": "role-svp-na", "title": "SVP North America Stores", "department_id": "dept-na-retail", "reports_to": "role-ceo" },
+        { "id": "role-svp-intl", "title": "SVP International Stores", "department_id": "dept-intl-retail", "reports_to": "role-ceo" },
+        { "id": "role-svp-ops", "title": "SVP Global Operations", "department_id": "dept-logistics", "reports_to": "role-ceo" },
+        { "id": "role-svp-ads", "title": "SVP Advertising", "department_id": "dept-advertising", "reports_to": "role-ceo" },
+        { "id": "role-gc-amzn", "title": "General Counsel & SVP Legal", "department_id": "dept-legal", "reports_to": "role-ceo" },
+        { "id": "role-svp-people", "title": "SVP People Experience & Technology", "department_id": "dept-hr", "reports_to": "role-ceo" }
+      ],
+      "avg_salary": 65000,
+      "turnover_rate": 0.30,
+      "hiring_cost": 8000,
+      "labor_productivity_index": 0.42
+    },
+    "financials": {
+      "currency": "USD",
+      "fiscal_year_end": "December",
+      "annual_revenue": 716924000000,
+      "revenue_growth_rate": 0.124,
+      "revenue_streams": [
+        {
+          "name": "Online Stores (1P Retail)",
+          "annual_revenue": 269290000000,
+          "growth_rate": 0.09,
+          "margin": 0.02,
+          "type": "transactional"
+        },
+        {
+          "name": "Third-Party Seller Services",
+          "annual_revenue": 172160000000,
+          "growth_rate": 0.103,
+          "margin": 0.22,
+          "type": "transactional"
+        },
+        {
+          "name": "Amazon Web Services",
+          "annual_revenue": 128730000000,
+          "growth_rate": 0.197,
+          "margin": 0.37,
+          "type": "recurring"
+        },
+        {
+          "name": "Advertising Services",
+          "annual_revenue": 68640000000,
+          "growth_rate": 0.221,
+          "margin": 0.60,
+          "type": "advertising"
+        },
+        {
+          "name": "Subscription Services (Prime)",
+          "annual_revenue": 49620000000,
+          "growth_rate": 0.118,
+          "margin": 0.35,
+          "type": "recurring"
+        },
+        {
+          "name": "Physical Stores (Whole Foods, Amazon Go)",
+          "annual_revenue": 22560000000,
+          "growth_rate": 0.063,
+          "margin": 0.03,
+          "type": "transactional"
+        }
+      ],
+      "cogs": 356000000000,
+      "gross_margin": 0.503,
+      "operating_expenses": {
+        "sga": 60000000000,
+        "rd": 100000000000,
+        "depreciation": 48000000000
+      },
+      "total_assets": 818000000000,
+      "total_debt": 77000000000,
+      "cash": 100000000000,
+      "equity": 411100000000,
+      "debt_to_equity": 0.187,
+      "capex": 131820000000,
+      "rd_spend": 100000000000,
+      "dso": 27,
+      "dio": 40,
+      "dpo": 64,
+      "net_income": 77670000000,
+      "ebitda": 155000000000,
+      "roe": 0.189,
+      "roa": 0.095
+    },
+    "market": {
+      "tam": 8000000000000,
+      "sam": 2500000000000,
+      "som": 650000000000,
+      "market_share": 0.38,
+      "market_growth_rate": 0.10,
+      "competitive_landscape": "oligopoly",
+      "competitors": [
+        {
+          "name": "Walmart",
+          "est_revenue": 648000000000,
+          "est_market_share": 0.10,
+          "relative_cost": 0.85,
+          "strengths": ["Largest global retailer by revenue", "4,700+ US stores as delivery hubs", "Growing ecommerce (+20% YoY)", "Walmart+ competing with Prime", "Strong grocery dominance"],
+          "weaknesses": ["E-commerce still fraction of Amazon", "No cloud/tech platform equivalent", "Lower margins than Amazon overall", "International operations mixed results", "Technology investment trailing Amazon"]
+        },
+        {
+          "name": "Microsoft Azure",
+          "est_revenue": 96000000000,
+          "est_market_share": 0.23,
+          "relative_cost": 1.0,
+          "strengths": ["Fastest-growing major cloud", "Enterprise relationships (Office 365)", "OpenAI/Copilot AI advantage", "Hybrid cloud (Azure Stack)"],
+          "weaknesses": ["Smaller service catalog than AWS", "Less mature in certain PaaS services", "Higher dependence on AI narrative", "Security reputation challenges"]
+        },
+        {
+          "name": "Google Cloud",
+          "est_revenue": 43000000000,
+          "est_market_share": 0.11,
+          "relative_cost": 0.9,
+          "strengths": ["AI/ML leadership (Gemini, TPUs)", "BigQuery analytics dominance", "Strong developer tools", "YouTube/data advantages"],
+          "weaknesses": ["Distant third in cloud share", "Enterprise sales weaker", "Product discontinuation reputation", "Profitability still thin"]
+        },
+        {
+          "name": "Shopify",
+          "est_revenue": 10000000000,
+          "est_market_share": 0.02,
+          "relative_cost": 0.7,
+          "strengths": ["#1 DTC e-commerce platform", "500K+ merchants", "Shopify Fulfillment Network", "Strong brand with SMBs"],
+          "weaknesses": ["Not a marketplace (no demand generation)", "Logistics network much smaller", "No AWS equivalent", "Enterprise penetration limited"]
+        },
+        {
+          "name": "Alibaba Group",
+          "est_revenue": 130000000000,
+          "est_market_share": 0.08,
+          "relative_cost": 0.6,
+          "strengths": ["Dominant in China e-commerce", "Alibaba Cloud (#1 in Asia)", "AliExpress global reach", "Strong fintech (Ant Group)"],
+          "weaknesses": ["Locked out of US market effectively", "Chinese regulatory crackdowns", "Slowing domestic growth", "Cloud business small vs AWS"]
+        }
+      ],
+      "primary_competition_dimension": "Logistics speed, ecosystem breadth (Prime), cloud platform maturity, and advertising effectiveness",
+      "barriers_to_entry": "Extreme — requires massive fulfillment infrastructure ($100B+ invested), global logistics network (1,000+ facilities), cloud data center footprint ($74B/yr capex), Prime ecosystem with 200M+ members, and marketplace network effects with millions of sellers",
+      "pricing_model": "usage_based",
+      "price_elasticity_estimate": -1.2
+    },
+    "operations": {
+      "production_model": "service_delivery",
+      "key_inputs": [
+        { "name": "Fulfillment Center Operations & Labor", "annual_cost": 120000000000, "pct_of_cogs": 0.324, "substitutability": "Very low — proprietary network, massive scale required" },
+        { "name": "Data Center Infrastructure (AWS)", "annual_cost": 45000000000, "pct_of_cogs": 0.122, "substitutability": "Low — Nvidia GPUs critical, custom Graviton/Trainium chips" },
+        { "name": "Shipping & Last-Mile Delivery", "annual_cost": 85000000000, "pct_of_cogs": 0.230, "substitutability": "Medium — mix of own fleet, USPS, UPS, DSPs" },
+        { "name": "Content Licensing & Production", "annual_cost": 18000000000, "pct_of_cogs": 0.049, "substitutability": "Medium — original content + licensed catalog" },
+        { "name": "Energy & Power (fulfillment + data centers)", "annual_cost": 12000000000, "pct_of_cogs": 0.032, "substitutability": "Medium — diversifying to renewables" },
+        { "name": "Technology Infrastructure & Software", "annual_cost": 15000000000, "pct_of_cogs": 0.041, "substitutability": "Low — built on proprietary systems" }
+      ],
+      "supplier_concentration": 0.20,
+      "capacity_utilization": 0.78,
+      "inventory_model": "Sophisticated demand forecasting with regional distribution, cross-docking, and vendor-managed inventory for 1P; 3P sellers manage own inventory or use FBA",
+      "avg_inventory_value": 40000000000,
+      "inventory_turnover": 9.3,
+      "lead_time_days": 1.5,
+      "defect_rate": 0.008,
+      "customer_satisfaction_score": 79
+    },
+    "strategy": {
+      "primary_objective": "growth",
+      "strategic_priorities": [
+        "Accelerate AWS growth through AI/Bedrock adoption",
+        "Expand advertising to $80B+ with video ads on Prime",
+        "Drive same-day/next-day delivery to 60%+ of orders",
+        "Scale Amazon Pharmacy and healthcare services",
+        "Launch Project Kuiper satellite internet constellation",
+        "Improve international retail profitability",
+        "Reduce logistics cost per package through automation and robotics",
+        "Grow third-party seller services (higher margin than 1P)"
+      ],
+      "planned_initiatives": [
+        { "name": "AWS AI & Bedrock Expansion", "description": "Position AWS as the leading AI cloud platform with Bedrock (managed foundation models), Trainium/Inferentia custom AI chips, and SageMaker. Target $150B+ AWS revenue.", "priority": 1 },
+        { "name": "Advertising Scaling (Prime Video Ads)", "description": "Introduce ads on Prime Video (200M+ viewers), expand sponsored product formats, and grow retail media network to $80B+. Highest-margin business segment.", "priority": 2 },
+        { "name": "Logistics Automation & Robotics", "description": "Deploy 750K+ robots in fulfillment centers, expand drone delivery (Prime Air), and build autonomous delivery vehicles. Target 30% reduction in per-package cost.", "priority": 3 },
+        { "name": "Same-Day Delivery Expansion", "description": "Build network of sub-same-day delivery facilities near metro areas. Target same-day availability for 60%+ of orders in top 100 cities.", "priority": 4 },
+        { "name": "Project Kuiper Launch", "description": "Deploy 3,236 LEO satellites for global broadband. Compete with Starlink in enterprise, government, and underserved consumer markets. $10B+ total investment.", "priority": 5 },
+        { "name": "Amazon Healthcare (Pharmacy + One Medical)", "description": "Scale Amazon Pharmacy with RxPass subscription, integrate One Medical primary care, and expand telehealth. Target disruption of $500B US healthcare market.", "priority": 6 }
+      ],
+      "major_risks": [
+        { "name": "FTC Antitrust Lawsuit", "description": "FTC lawsuit alleging monopolistic practices in marketplace, Buy Box manipulation, and self-preferencing. Could force marketplace structural changes.", "likelihood": "high", "impact": "high" },
+        { "name": "AWS Growth Deceleration", "description": "Cloud market maturation, aggressive Microsoft Azure/Google Cloud competition, and enterprise cost optimization could slow AWS growth below 15%", "likelihood": "medium", "impact": "high" },
+        { "name": "Labor Cost & Unionization", "description": "Warehouse worker unionization (Amazon Labor Union), minimum wage increases, and improved working condition requirements increasing labor costs for 1.5M workforce", "likelihood": "high", "impact": "medium" },
+        { "name": "Retail Margin Pressure", "description": "1P retail margins near zero; rising logistics costs, returns processing, and competition from Temu/Shein on low-end goods pressuring profitability", "likelihood": "high", "impact": "medium" },
+        { "name": "AI Capex Returns", "description": "$74B+ annual capex heavily weighted toward AI infrastructure; slower-than-expected enterprise AI adoption could pressure returns on investment", "likelihood": "medium", "impact": "high" },
+        { "name": "International Regulatory", "description": "EU Digital Markets Act, India FDI restrictions, and country-specific marketplace regulations limiting growth and increasing compliance costs", "likelihood": "high", "impact": "medium" }
+      ],
+      "moats": [
+        "Fulfillment network: 1,000+ facilities, 6B+ packages/year, same-day in top metros",
+        "Prime ecosystem: 200M+ members with video, music, pharmacy, grocery lock-in",
+        "AWS: 31% cloud market share, broadest service catalog, enterprise relationships",
+        "Marketplace network effects: millions of 3P sellers + hundreds of millions of buyers",
+        "Data flywheel: purchase data enables targeting for $56B advertising business",
+        "Logistics as a service: increasingly fulfilling non-Amazon shipments",
+        "Custom silicon: Graviton (compute), Trainium (AI training), Inferentia (AI inference)"
+      ],
+      "simulation_objectives": [
+        "Model AWS AI workload revenue growth trajectory",
+        "Simulate advertising expansion impact on overall margins",
+        "Evaluate fulfillment automation ROI and labor cost reduction",
+        "Project international retail path to meaningful profitability",
+        "Test impact of antitrust outcomes on marketplace economics",
+        "Model Project Kuiper capital requirements and competitive positioning"
+      ],
+      "time_horizon_weeks": 52
+    },
+    "sim_params": {
+      "tfp": 1.15,
+      "capital_elasticity": 0.5,
+      "labor_elasticity": 0.5,
+      "fixed_costs": 95000000000,
+      "variable_cost_per_unit": 8.5,
+      "learning_curve_rate": 0.92,
+      "market_demand_intercept": 5000000000,
+      "market_demand_slope": 0.0002,
+      "marginal_cost": 7.2,
+      "depreciation_rate": 0.10,
+      "reinvestment_rate": 0.55,
+      "revenue_volatility": 0.04,
+      "demand_seasonality": [0.82, 0.78, 0.85, 0.88, 0.88, 0.92, 1.05, 0.90, 0.92, 1.05, 1.18, 1.77]
+    },
+    "metadata": {
+      "created_by": "Onyx Leopard Sample Data",
+      "source_documents": ["Amazon 10-K 2024", "Amazon Q4 2024 Earnings", "Industry analyst estimates"],
+      "completeness_score": 0.95,
+      "last_modified": null,
+      "notes": "Comprehensive Amazon profile based on public financial filings. Revenue and headcount from FY2024. AWS, advertising, and logistics figures use Q4 2024 run-rate estimates."
+    }
+  },
+  "graph": {
+    "name": "Amazon.com, Inc.",
+    "description": "Organizational and financial structure of Amazon, a $620B e-commerce, cloud, and advertising company",
+    "nodes": [
+      {
+        "id": "node-aws",
+        "label": "Amazon Web Services",
+        "type": "department",
+        "metrics": { "headcount": 95000, "budget": 35000000000, "revenue": 105000000000 },
+        "agent_prompt": "You run AWS — the world's largest cloud platform at $105B revenue and 37% operating margin. Drive AI/Bedrock adoption, expand Trainium/Inferentia custom silicon, and compete with Azure and GCP. AWS is Amazon's profit engine."
+      },
+      {
+        "id": "node-na-retail",
+        "label": "North America Retail",
+        "type": "department",
+        "metrics": { "headcount": 800000, "budget": 42000000000 },
+        "agent_prompt": "You manage Amazon's North America retail operation — 800K employees, 1,000+ facilities. Optimize marketplace economics, grow 3P seller services (higher margin), and drive same-day delivery expansion. Balance volume growth with profitability."
+      },
+      {
+        "id": "node-intl-retail",
+        "label": "International Retail",
+        "type": "department",
+        "metrics": { "headcount": 400000, "budget": 18000000000 },
+        "agent_prompt": "You oversee Amazon's international retail across Europe, Japan, India, and emerging markets. Drive toward profitability (currently ~3% margin), manage regulatory complexity, and compete with local champions (Flipkart, Mercado Libre)."
+      },
+      {
+        "id": "node-advertising",
+        "label": "Advertising",
+        "type": "department",
+        "metrics": { "headcount": 20000, "budget": 5000000000, "revenue": 56000000000 },
+        "agent_prompt": "You run Amazon's $56B advertising business — highest-margin segment at 60%. Expand Prime Video ads (200M+ viewers), grow sponsored products, and build retail media network. This is the key margin expansion lever for Amazon."
+      },
+      {
+        "id": "node-entertainment",
+        "label": "Entertainment",
+        "type": "department",
+        "metrics": { "headcount": 15000, "budget": 18000000000 },
+        "agent_prompt": "You manage Prime Video, Amazon Studios, live sports, Twitch, and Music. $18B content spend to drive Prime retention. Balance original content investment with advertising revenue from Prime Video ads."
+      },
+      {
+        "id": "node-logistics",
+        "label": "Logistics & Transportation",
+        "type": "department",
+        "metrics": { "headcount": 120000, "budget": 25000000000, "packages_per_year": 6000000000 },
+        "agent_prompt": "You run Amazon's logistics network — 100+ aircraft, 100K+ delivery vehicles, and a sortation network delivering 6B+ packages/year. Deploy 750K+ robots, expand drone delivery, and reduce per-package cost by 30%."
+      },
+      {
+        "id": "node-devices",
+        "label": "Devices & Alexa",
+        "type": "department",
+        "metrics": { "headcount": 12000, "budget": 5000000000 },
+        "agent_prompt": "You manage Echo, Fire TV, Kindle, Ring, and Alexa (500M+ devices). Pivot from subsidized hardware to AI-powered subscription services. Alexa must generate meaningful revenue or face continued investment scrutiny."
+      },
+      {
+        "id": "node-kuiper",
+        "label": "Project Kuiper",
+        "type": "department",
+        "metrics": { "headcount": 4000, "budget": 4000000000 },
+        "agent_prompt": "You lead Project Kuiper — Amazon's $10B+ satellite internet constellation (3,236 planned satellites). Compete with Starlink in enterprise, government, and consumer broadband. Must execute faster to close gap with SpaceX."
+      },
+      {
+        "id": "node-rev-online",
+        "label": "Online Stores Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 269290000000, "growth_rate": 0.09, "margin": 0.02 },
+        "agent_prompt": "1P online retail at $246B — massive revenue but near-zero margins. Model selection expansion, pricing dynamics, and the shift toward higher-margin 3P marketplace."
+      },
+      {
+        "id": "node-rev-3p",
+        "label": "Third-Party Seller Services Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 172160000000, "growth_rate": 0.103, "margin": 0.22 },
+        "agent_prompt": "3P seller services at $152B (FBA, referral fees, advertising). Growing 18% YoY with better margins than 1P. Model seller growth, FBA adoption, and competitive dynamics with Shopify and direct channels."
+      },
+      {
+        "id": "node-rev-aws",
+        "label": "AWS Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 128730000000, "growth_rate": 0.197, "margin": 0.37 },
+        "agent_prompt": "AWS at $105B, 37% operating margin. The primary profit engine. Model AI workload growth (Bedrock), enterprise migration trends, and competitive pressure from Azure and GCP."
+      },
+      {
+        "id": "node-rev-ads",
+        "label": "Advertising Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 68640000000, "growth_rate": 0.221, "margin": 0.60 },
+        "agent_prompt": "Advertising at $56B with 60% margins and 24% growth — Amazon's highest-margin segment. Model Prime Video ad revenue ramp, retail media expansion, and competition with Google/Meta."
+      },
+      {
+        "id": "node-rev-prime",
+        "label": "Prime Subscription Revenue",
+        "type": "revenue_stream",
+        "metrics": { "annual_revenue": 49620000000, "growth_rate": 0.118, "margin": 0.35 },
+        "agent_prompt": "Prime subscriptions at $42B from 200M+ members ($139/year US). Model membership growth, price elasticity, and the expanding value proposition (video, pharmacy, grocery, delivery speed)."
+      },
+      {
+        "id": "node-cogs",
+        "label": "Cost of Revenue",
+        "type": "cost_center",
+        "metrics": { "annual_cost": 356000000000 },
+        "agent_prompt": "Amazon COGS at $370B dominated by fulfillment operations, shipping costs, and AWS infrastructure. Model automation impact, labor cost trends, and the shift toward higher-margin revenue streams."
+      },
+      {
+        "id": "node-ext-usps",
+        "label": "USPS / UPS / Carriers",
+        "type": "external",
+        "metrics": { "annual_cost": 30000000000, "dependency_score": 0.35 },
+        "agent_prompt": "External carriers handle ~40% of Amazon deliveries. Amazon building internal capacity to reduce dependency. Model the transition to owned logistics and the cost savings from vertical integration."
+      }
+    ],
+    "edges": [
+      { "source": "node-aws", "target": "node-rev-aws", "relationship": "funds", "label": "AWS cloud revenue" },
+      { "source": "node-na-retail", "target": "node-rev-online", "relationship": "funds", "label": "1P retail revenue" },
+      { "source": "node-na-retail", "target": "node-rev-3p", "relationship": "funds", "label": "3P marketplace revenue" },
+      { "source": "node-intl-retail", "target": "node-rev-online", "relationship": "funds", "label": "International retail revenue" },
+      { "source": "node-advertising", "target": "node-rev-ads", "relationship": "funds", "label": "Advertising revenue" },
+      { "source": "node-entertainment", "target": "node-rev-prime", "relationship": "funds", "label": "Prime Video drives retention" },
+      { "source": "node-logistics", "target": "node-na-retail", "relationship": "supplies", "label": "Fulfillment & delivery" },
+      { "source": "node-logistics", "target": "node-intl-retail", "relationship": "supplies", "label": "International logistics" },
+      { "source": "node-logistics", "target": "node-cogs", "relationship": "funds", "label": "Logistics costs" },
+      { "source": "node-ext-usps", "target": "node-logistics", "relationship": "supplies", "label": "Last-mile delivery partner" },
+      { "source": "node-devices", "target": "node-advertising", "relationship": "collaborates", "label": "Fire TV ad inventory" },
+      { "source": "node-devices", "target": "node-rev-prime", "relationship": "serves", "label": "Echo/Alexa drives Prime engagement" },
+      { "source": "node-aws", "target": "node-na-retail", "relationship": "supplies", "label": "Cloud infrastructure for retail" },
+      { "source": "node-aws", "target": "node-advertising", "relationship": "supplies", "label": "Ad tech infrastructure" },
+      { "source": "node-rev-aws", "target": "node-kuiper", "relationship": "funds", "label": "AWS profits fund Kuiper" },
+      { "source": "node-rev-ads", "target": "node-entertainment", "relationship": "funds", "label": "Ad revenue funds content" },
+      { "source": "node-advertising", "target": "node-na-retail", "relationship": "collaborates", "label": "Sponsored products on marketplace" },
+      { "source": "node-kuiper", "target": "node-aws", "relationship": "collaborates", "label": "Kuiper + AWS enterprise integration" }
+    ],
+    "global_metrics": {
+      "annual_revenue": 716924000000,
+      "gross_margin": 0.503,
+      "net_income": 77670000000,
+      "total_headcount": 1556000,
+      "market_cap_estimate": 2200000000000,
+      "aws_pct_of_operating_income": 0.59,
+      "prime_members": 200000000
+    }
+  },
+  "simulation_snapshot": null,
+  "checksum": ""
+}

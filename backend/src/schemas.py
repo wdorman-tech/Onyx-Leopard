@@ -303,6 +303,12 @@ class SimulationParameters(BaseModel):
     demand_seasonality: list[float] = Field(
         default_factory=lambda: [1.0] * 12,
     )
+    # Bio-math parameters
+    logistic_growth_rate: float = 0.05
+    carrying_capacity_multiplier: float = 1.5
+    hill_coefficient: float = 2.0
+    apoptosis_threshold: float = 0.3
+    competition_alpha_default: float = 0.5
 
 
 class ProfileMetadata(BaseModel):

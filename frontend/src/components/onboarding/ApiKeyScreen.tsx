@@ -4,6 +4,7 @@ import { useState } from "react";
 import { setApiKey } from "@/lib/api";
 import { Logo } from "@/components/ui/Logo";
 import { Spinner } from "@/components/ui/Spinner";
+import { MessageSquare, Zap, Share2 } from "@/components/ui/icons";
 
 interface ApiKeyScreenProps {
   onComplete: () => void;
@@ -116,12 +117,14 @@ export function ApiKeyScreen({ onComplete }: ApiKeyScreenProps) {
         {/* Features preview */}
         <div className="mt-8 grid grid-cols-3 gap-3">
           {[
-            { icon: "\u{1F4AC}", label: "Natural Language", desc: "Describe companies in plain English" },
-            { icon: "\u{1F500}", label: "Live Simulation", desc: "Multi-agent weekly decisions" },
-            { icon: "\u{1F4CA}", label: "Strategy Testing", desc: "Fork scenarios & compare" },
+            { Icon: MessageSquare, label: "Natural Language", desc: "Describe companies in plain English" },
+            { Icon: Zap, label: "Live Simulation", desc: "Multi-agent weekly decisions" },
+            { Icon: Share2, label: "Strategy Testing", desc: "Fork scenarios & compare" },
           ].map((f) => (
             <div key={f.label} className="bg-surface-50/50 border border-surface-200/50 rounded-xl p-3 text-center">
-              <div className="text-xl mb-1">{f.icon}</div>
+              <div className="flex justify-center mb-1">
+                <f.Icon size={18} className="text-surface-500" />
+              </div>
               <div className="text-xs font-medium text-surface-700">{f.label}</div>
               <div className="text-xs text-surface-500 mt-0.5">{f.desc}</div>
             </div>
