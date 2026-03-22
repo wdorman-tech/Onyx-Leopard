@@ -1,65 +1,53 @@
-# Onyx Leopard
+# BioSim
 
-**AI-powered business strategy simulator.** Describe your company, watch it come to life as an interactive org graph, then run a multi-agent simulation where every department makes autonomous decisions — hiring, investing, cutting costs — based on market conditions and events you throw at them.
+Biological Agent-Based Business Simulation Engine. Companies are living organisms on a petri dish — departments are colored cells that grow, compete, and die based on ODE-driven economics.
 
-## What It Does
-
-1. **Build your company** — Use the guided questionnaire, paste a description, upload documents, or pull data from SEC filings via EDGAR. Claude turns it into a structured company profile.
-2. **Visualize the org** — Departments, teams, roles, revenue streams, and their relationships render as an interactive graph you can refine through chat.
-3. **Run the simulation** — Hit play. Each node becomes a Claude-powered agent that analyzes its metrics, reacts to market outlook, and makes strategic decisions every tick. Watch headcount, revenue, and costs evolve in real time.
-4. **Inject chaos** — Drop events mid-simulation ("supplier goes bankrupt", "competitor launches rival product") and see how your org adapts.
-5. **Compare scenarios** — Fork simulations, change the outlook, and compare outcomes side by side.
+**Black Lily LLC** | Phase 1: Minimal Viable Simulation
 
 ## Quick Start
 
-**Prerequisites:** [Node.js 18+](https://nodejs.org/), [Python 3.12+](https://www.python.org/downloads/), [pnpm](https://pnpm.io/installation), and an [Anthropic API key](https://console.anthropic.com/)
+Requires **Python 3.12+** and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/wdorman-tech/Onyx-Leopard.git
 cd Onyx-Leopard
-python start.py
+uv sync
+uv run python -m biosim
 ```
 
-The start script checks prerequisites, installs dependencies, prompts for your API key, and launches both servers. Open [http://localhost:3000](http://localhost:3000) when it's ready.
+Three default companies launch automatically. Press **Play** to start the simulation.
+
+## Controls
+
+- **Play/Pause** — start or pause the tick loop
+- **Step** — advance one tick (1 simulated week)
+- **Speed slider** — 1x to 20x simulation speed
+- **Tab: Petri Dish** — biological visualization with organism blobs and colored department cells
+- **Tab: Dashboard** — real-time revenue, market share, and cash charts with KPI cards
 
 ## Tech Stack
 
-| Layer | Stack |
-|-------|-------|
-| Frontend | Next.js 16, React 19, React Flow, Recharts, TailwindCSS 4 |
-| Backend | FastAPI, Python 3.12+, Pydantic 2, CAMEL-AI |
-| AI | Claude Sonnet (questionnaire/parsing), Claude Haiku (simulation agents) |
-| Streaming | Server-Sent Events for real-time tick updates |
+| Layer | Technology |
+|-------|-----------|
+| GUI | PyQt6, pyqtgraph |
+| Agents | Mesa 3.x |
+| Math | numpy, scipy (vectorized ODE solving) |
+| State | Struct-of-arrays numpy (column-oriented) |
 
-## Project Structure
+## Math Models (Phase 1)
 
+- **Logistic growth** — firm size dynamics with carrying capacity
+- **Cobb-Douglas production** — Y = A * K^alpha * L^beta
+- **Lotka-Volterra competition** — N-species market share dynamics
+
+## Development
+
+```bash
+uv sync --all-extras
+uv run pytest tests/ -v        # 132 tests
+uv run ruff check src/ tests/  # lint
 ```
-├── frontend/src/
-│   ├── app/              # Next.js app router (single-page app)
-│   ├── components/       # Chat, flow canvas, simulation controls, onboarding
-│   ├── hooks/            # useSimulation, useOnboarding, useScenarios
-│   ├── lib/              # API client, layout utilities
-│   └── types/            # TypeScript types for graph & profile
-├── backend/src/
-│   ├── agents/           # Claude-powered parsers, questionnaire, graph generator
-│   ├── simulation/       # Engine, session manager, state, agent prompts
-│   ├── routes/           # FastAPI endpoints
-│   └── schemas.py        # All Pydantic models
-└── references/           # Research docs
-```
-
-## How the Simulation Works
-
-Each org node gets its own Claude Haiku agent with a tailored system prompt. Every tick, all agents run in parallel — they see global metrics, their own node's state, the current market outlook, and any injected events. Each agent returns a structured decision (hire, invest, cut costs, etc.) that gets applied to the simulation state. Results stream to the frontend via SSE so you watch it unfold live.
-
-**Cost:** ~$0.08 for a full 50-tick run with 20 nodes. Haiku keeps it cheap.
-
-## Configuration
-
-| Variable | Location | Purpose |
-|----------|----------|---------|
-| `ANTHROPIC_API_KEY` | `backend/.env` | Required for all AI features |
 
 ## License
 
-[MIT](LICENSE)
+MIT
