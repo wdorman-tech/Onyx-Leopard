@@ -17,4 +17,10 @@ export {
   DollarSign,
   CircleDot,
   Check,
+  Building2,
+  Activity,
+  AlertTriangle,
+  Gauge,
+  Target,
+  Layers,
 } from "lucide-react";

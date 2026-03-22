@@ -88,6 +88,7 @@ export function ExportButton({
         disabled={disabled}
         className="btn-ghost flex items-center gap-1.5 text-xs px-2.5 py-1.5"
         data-tooltip="Export simulation"
+        data-tooltip-pos="below"
       >
         <Download size={14} />
         Export

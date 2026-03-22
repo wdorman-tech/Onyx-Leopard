@@ -14,7 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { CompanyGraph } from "@/types/graph";
+import type { CompanyGraph, BioNodeSummary } from "@/types/graph";
 import { getLayoutedElements } from "@/lib/layout";
 import { BusinessNode } from "./BusinessNode";
 import { Share2 } from "@/components/ui/icons";
@@ -24,11 +24,13 @@ const nodeTypes = { business: BusinessNode };
 interface FlowCanvasProps {
   graph: CompanyGraph | null;
   previousGraph?: CompanyGraph | null;
+  bioSummary?: Record<string, BioNodeSummary> | null;
 }
 
 function buildFlowElements(
   graph: CompanyGraph,
-  previousGraph?: CompanyGraph | null
+  previousGraph?: CompanyGraph | null,
+  bioSummary?: Record<string, BioNodeSummary> | null,
 ): { nodes: Node[]; edges: Edge[] } {
   const prevMetrics = new Map<string, Record<string, number>>();
   if (previousGraph) {
@@ -53,32 +55,67 @@ function buildFlowElements(
     };
   });
 
-  const rawEdges: Edge[] = graph.edges.map((e, i) => ({
-    id: `edge-${i}`,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-    animated: e.relationship === "funds",
-    style: { stroke: "#cbd5e1", strokeWidth: 1.5 },
-    labelStyle: { fill: "#64748b", fontSize: 10, fontWeight: 500 },
-    labelBgStyle: { fill: "#ffffff", fillOpacity: 0.9 },
-    labelBgPadding: [6, 3] as [number, number],
-    labelBgBorderRadius: 6,
-  }));
+  // Compute max flux for edge scaling (from bio_summary / resource_efficiency)
+  const maxRevenue = Math.max(
+    1,
+    ...graph.nodes
+      .filter((n) => n.type === "revenue_stream")
+      .map((n) => n.metrics.revenue ?? 0),
+  );
+
+  const rawEdges: Edge[] = graph.edges.map((e, i) => {
+    const isFunds = e.relationship === "funds";
+    const isSupplies = e.relationship === "supplies";
+
+    // Scale edge width by source node's revenue for funds edges
+    let strokeWidth = 1.5;
+    if (isFunds || isSupplies) {
+      const sourceNode = graph.nodes.find((n) => n.id === e.source);
+      if (sourceNode) {
+        const value = sourceNode.metrics.revenue ?? sourceNode.metrics.budget ?? 0;
+        strokeWidth = 1.5 + (value / maxRevenue) * 3;
+      }
+    }
+
+    // Highlight bottleneck edges: if source node health is low, edge is stressed
+    let strokeColor = "#cbd5e1";
+    if (isFunds || isSupplies) {
+      const sourceState = bioSummary?.[e.source];
+      if (sourceState && sourceState.health_score < 0.3) {
+        strokeColor = "#ef4444"; // red for bottleneck
+      } else if (sourceState && sourceState.health_score < 0.6) {
+        strokeColor = "#f59e0b"; // yellow for stressed
+      }
+    }
+
+    return {
+      id: `edge-${i}`,
+      type: "smoothstep",
+      source: e.source,
+      target: e.target,
+      label: e.label,
+      animated: isFunds || isSupplies,
+      style: { stroke: strokeColor, strokeWidth },
+      labelStyle: { fill: "#64748b", fontSize: 10, fontWeight: 500 },
+      labelBgStyle: { fill: "#ffffff", fillOpacity: 0.9 },
+      labelBgPadding: [6, 3] as [number, number],
+      labelBgBorderRadius: 6,
+    };
+  });
 
   return getLayoutedElements(rawNodes, rawEdges);
 }
 
-export function FlowCanvas({ graph, previousGraph }: FlowCanvasProps) {
+export function FlowCanvas({ graph, previousGraph, bioSummary }: FlowCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
     if (!graph) return;
-    const { nodes: ln, edges: le } = buildFlowElements(graph, previousGraph);
+    const { nodes: ln, edges: le } = buildFlowElements(graph, previousGraph, bioSummary);
     setNodes(ln);
     setEdges(le);
-  }, [graph, previousGraph, setNodes, setEdges]);
+  }, [graph, previousGraph, bioSummary, setNodes, setEdges]);
 
   return (
     <div className="h-full w-full bg-surface-0">

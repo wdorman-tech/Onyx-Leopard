@@ -79,6 +79,17 @@ are likely. Budget is flexible for high-impact initiatives.
 """,
 }
 
+BIOMATH_CONTEXT = """\
+Mathematical state:
+- Growth: {growth_rate:.1%}/week | Capacity: {population:.0f}/{capacity:.0f} ({utilization:.0%})
+- Cash flow: ${revenue_rate:,.0f} revenue - ${cost_rate:,.0f} costs = ${net:,.0f}/week
+- Health: {health_score:.0%} ({health_status})
+
+CONSTRAINTS (actions outside these will be rejected):
+- Max hires: {max_hire} | Max fires: {max_fire} | Budget available: ${max_budget:,.0f}
+{extra_context}\
+"""
+
 TICK_PROMPT = """\
 It is Week {tick} of the simulation.
 
@@ -86,6 +97,8 @@ Company state:
 {company_context}
 
 Your current metrics: {node_metrics}
+
+{biomath_context}
 
 {outlook_context}
 

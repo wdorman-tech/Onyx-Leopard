@@ -30,6 +30,7 @@ export function TimeControls({
         disabled={isComplete}
         className="flex items-center justify-center w-7 h-7 rounded-lg bg-surface-100 hover:bg-surface-200 disabled:opacity-40 text-surface-900 transition-all active:scale-[0.97]"
         data-tooltip={playing ? "Pause" : "Play"}
+        data-tooltip-pos="below"
       >
         {playing ? (
           <Pause size={12} fill="currentColor" strokeWidth={0} />
@@ -46,6 +47,7 @@ export function TimeControls({
             key={s}
             onClick={() => onSetSpeed(s)}
             data-tooltip={`${s}x speed`}
+            data-tooltip-pos="below"
             className={`text-[10px] font-medium px-2 py-1 rounded-md transition-all active:scale-[0.97] ${
               speed === s
                 ? "bg-accent text-surface-0 shadow-sm shadow-accent/30"

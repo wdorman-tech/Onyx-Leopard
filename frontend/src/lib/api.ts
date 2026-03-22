@@ -40,10 +40,16 @@ export function startSimulation(
   graph: CompanyGraph,
   maxTicks = 50,
   outlook = "normal",
+  simParams?: Record<string, unknown>,
 ): Promise<{ session_id: string }> {
   return request("/api/simulate/start", {
     method: "POST",
-    body: JSON.stringify({ graph, max_ticks: maxTicks, outlook }),
+    body: JSON.stringify({
+      graph,
+      max_ticks: maxTicks,
+      outlook,
+      sim_params: simParams ?? undefined,
+    }),
   });
 }
 

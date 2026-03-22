@@ -11,7 +11,7 @@ export function getLayoutedElements(
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: direction, nodesep: 80, ranksep: 200 });
+  g.setGraph({ rankdir: direction, nodesep: 80, ranksep: 200, acyclicer: "greedy" });
 
   nodes.forEach((node) => {
     g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
@@ -34,5 +34,24 @@ export function getLayoutedElements(
     };
   });
 
-  return { nodes: layoutedNodes, edges };
+  // For edges going "backward" (source right of target in LR, or below in TB),
+  // route through bottom→top handles to avoid long smoothstep detours.
+  const posMap = new Map<string, { x: number; y: number }>();
+  layoutedNodes.forEach((n) => posMap.set(n.id, n.position));
+
+  const annotatedEdges = edges.map((edge) => {
+    const src = posMap.get(edge.source);
+    const tgt = posMap.get(edge.target);
+    if (!src || !tgt) return edge;
+
+    const isBackward =
+      direction === "LR" ? src.x >= tgt.x : src.y >= tgt.y;
+
+    if (isBackward) {
+      return { ...edge, sourceHandle: "bottom", targetHandle: "top" };
+    }
+    return { ...edge, sourceHandle: "right", targetHandle: "left" };
+  });
+
+  return { nodes: layoutedNodes, edges: annotatedEdges };
 }

@@ -64,6 +64,47 @@ def compute_sim_params(profile: CompanyProfile) -> SimulationParameters:
     if fin.revenue_growth_rate != 0:
         revenue_volatility = min(abs(fin.revenue_growth_rate) * 0.5, 0.5)
 
+    # Bio-math: logistic growth rate from revenue growth
+    logistic_growth_rate = 0.05
+    if fin.revenue_growth_rate > 0:
+        logistic_growth_rate = min(fin.revenue_growth_rate / 52.0, 0.2)  # annual -> weekly, capped
+
+    # Bio-math: carrying capacity multiplier by company stage
+    stage = profile.identity.company_stage
+    stage_multipliers = {
+        "pre_revenue": 3.0,
+        "early": 2.0,
+        "growth": 1.5,
+        "mature": 1.2,
+        "turnaround": 1.0,
+    }
+    carrying_capacity_multiplier = stage_multipliers.get(stage.value if stage else "", 1.5)
+
+    # Bio-math: Hill coefficient from org structure
+    structure = org.structure_type
+    hill_map = {"flat": 1.0, "matrix": 2.0, "functional": 2.0, "divisional": 3.0, "hierarchical": 4.0}
+    hill_coefficient = hill_map.get(structure.value if structure else "", 2.0)
+
+    # Bio-math: apoptosis threshold by stage
+    apoptosis_thresholds = {
+        "pre_revenue": 0.15,
+        "early": 0.2,
+        "growth": 0.25,
+        "mature": 0.3,
+        "turnaround": 0.35,
+    }
+    apoptosis_threshold = apoptosis_thresholds.get(stage.value if stage else "", 0.3)
+
+    # Bio-math: competition alpha from competitive landscape
+    landscape = mkt.competitive_landscape
+    alpha_map = {
+        "monopoly": 0.1,
+        "oligopoly": 0.7,
+        "monopolistic_competition": 0.5,
+        "perfect_competition": 0.9,
+    }
+    competition_alpha = alpha_map.get(landscape.value if landscape else "", 0.5)
+
     return SimulationParameters(
         tfp=round(tfp, 4),
         capital_elasticity=round(capital_share, 4),
@@ -78,6 +119,11 @@ def compute_sim_params(profile: CompanyProfile) -> SimulationParameters:
         reinvestment_rate=round(reinvestment_rate, 4),
         revenue_volatility=round(revenue_volatility, 4),
         demand_seasonality=[1.0] * 12,
+        logistic_growth_rate=round(logistic_growth_rate, 4),
+        carrying_capacity_multiplier=round(carrying_capacity_multiplier, 2),
+        hill_coefficient=round(hill_coefficient, 1),
+        apoptosis_threshold=round(apoptosis_threshold, 2),
+        competition_alpha_default=round(competition_alpha, 2),
     )
 
 
