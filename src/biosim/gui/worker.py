@@ -34,11 +34,13 @@ class SimulationWorker(QThread):
             if not self._running:
                 break
 
-            snapshot = self.model.step()
-            snapshot["tick"] = self.model.tick_count
+            self.model.step()
+            snapshot = self.model.last_snapshot.copy()
+            tick = self.model.state_manager.tick_count
+            snapshot["tick"] = tick
 
             self.state_updated.emit(snapshot)
-            self.tick_updated.emit(self.model.tick_count)
+            self.tick_updated.emit(tick)
 
             if step_once:
                 self._paused = True

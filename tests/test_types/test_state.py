@@ -113,6 +113,8 @@ class TestSnapshotDict:
             "health_score",
             "carrying_capacity",
             "signal_activation",
+            "capital",
+            "labor",
             "dept_headcount",
             "dept_budget",
             "alive",

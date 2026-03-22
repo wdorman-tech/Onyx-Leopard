@@ -29,6 +29,31 @@ def sim_config() -> SimConfig:
     return SimConfig()
 
 
+@pytest.fixture()
+def tick_engine(bio_config, sim_config):
+    from biosim.engine.tick import TickEngine
+
+    return TickEngine(bio_config, sim_config)
+
+
+@pytest.fixture()
+def state_manager(sim_config):
+    from biosim.engine.state_manager import StateManager
+
+    return StateManager(sim_config)
+
+
+@pytest.fixture()
+def populated_state_manager(sim_config):
+    from biosim.engine.state_manager import StateManager
+
+    sm = StateManager(sim_config)
+    sm.add_company("Alpha Corp", "#E74C3C", size="large")
+    sm.add_company("Beta Inc", "#3498DB", size="medium")
+    sm.add_company("Gamma Ltd", "#2ECC71", size="small")
+    return sm
+
+
 @pytest.fixture
 def n_agents():
     return 5

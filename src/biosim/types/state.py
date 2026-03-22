@@ -30,6 +30,14 @@ class StateArrays:
         "health_score",
         "carrying_capacity",
         "signal_activation",
+        # Production params (max_capacity,)
+        "tfp",
+        "capital",
+        "labor",
+        "alpha_prod",
+        "beta_prod",
+        "fixed_costs",
+        "variable_cost_rate",
         # Per-department arrays (max_capacity, 12)
         "dept_headcount",
         "dept_budget",
@@ -64,6 +72,15 @@ class StateArrays:
         self.carrying_capacity = np.zeros(max_capacity, dtype=np.float64)
         self.signal_activation = np.zeros(max_capacity, dtype=np.float64)
 
+        # Production parameters
+        self.tfp = np.ones(max_capacity, dtype=np.float64)
+        self.capital = np.zeros(max_capacity, dtype=np.float64)
+        self.labor = np.zeros(max_capacity, dtype=np.float64)
+        self.alpha_prod = np.full(max_capacity, 0.3, dtype=np.float64)
+        self.beta_prod = np.full(max_capacity, 0.7, dtype=np.float64)
+        self.fixed_costs = np.zeros(max_capacity, dtype=np.float64)
+        self.variable_cost_rate = np.zeros(max_capacity, dtype=np.float64)
+
         # Per-department arrays
         self.dept_headcount = np.zeros((max_capacity, NUM_DEPARTMENTS), dtype=np.float64)
         self.dept_budget = np.zeros((max_capacity, NUM_DEPARTMENTS), dtype=np.float64)
@@ -95,17 +112,20 @@ class StateArrays:
         self.company_names[idx] = name
         self.company_colors[idx] = color
 
-        # Apply initial params to scalar arrays
+        # Apply initial params to arrays
         for key, value in initial_params.items():
             arr = getattr(self, key, None)
             if arr is None:
                 raise ValueError(f"Unknown parameter '{key}' — not a StateArrays field")
-            if isinstance(arr, np.ndarray) and arr.ndim == 1 and arr.shape[0] == self.max_capacity:
-                arr[idx] = value
+            if isinstance(arr, np.ndarray) and arr.shape[0] == self.max_capacity:
+                if arr.ndim == 1:
+                    arr[idx] = value
+                elif arr.ndim == 2:
+                    arr[idx] = value
             else:
                 raise ValueError(
-                    f"Parameter '{key}' is not a scalar agent array — "
-                    "use direct array access for multi-dimensional fields"
+                    f"Parameter '{key}' is not a valid agent array — "
+                    "check shape matches max_capacity"
                 )
 
         self.n_active = int(np.count_nonzero(self.alive))
@@ -174,6 +194,8 @@ class StateArrays:
             "health_score": self.health_score[idx].tolist(),
             "carrying_capacity": self.carrying_capacity[idx].tolist(),
             "signal_activation": self.signal_activation[idx].tolist(),
+            "capital": self.capital[idx].tolist(),
+            "labor": self.labor[idx].tolist(),
             "dept_headcount": self.dept_headcount[idx].tolist(),
             "dept_budget": self.dept_budget[idx].tolist(),
             "alive": self.alive[idx].tolist(),

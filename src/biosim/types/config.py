@@ -21,3 +21,5 @@ class SimConfig(BaseModel):
     tick_interval_ms: int = 1000
     max_speed: int = 20
     insolvent_ticks_to_death: int = 3
+    default_carrying_capacity: float = 100.0
+    growth_division_threshold: float = 0.8

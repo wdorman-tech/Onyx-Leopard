@@ -18,4 +18,4 @@ def test_main_window_has_controls(qtbot):
 def test_default_companies_created(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
-    assert len(window.worker.model._companies) == 3
+    assert len(window.worker.model.agents_list) == 3
