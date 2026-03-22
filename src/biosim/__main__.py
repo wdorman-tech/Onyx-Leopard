@@ -1,12 +1,6 @@
-"""BioSim entry point — delegates to GUI app once implemented."""
+"""BioSim entry point. Run with: python -m biosim"""
 
-import sys
-
-
-def main() -> None:
-    print("BioSim - not yet implemented")
-    sys.exit(0)
-
+from biosim.gui.app import main
 
 if __name__ == "__main__":
     main()
