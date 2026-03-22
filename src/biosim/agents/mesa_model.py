@@ -1,54 +1,72 @@
-"""Stub -- real implementation in Unit 3."""
+from __future__ import annotations
 
-import numpy as np
+import mesa
+
+from biosim.agents.firm_agent import BioFirmAgent
+from biosim.engine.state_manager import StateManager
+from biosim.engine.tick import TickEngine
+from biosim.types.config import BioConfig, SimConfig
 
 
-class BioSimModel:
-    def __init__(self, bio_config=None, sim_config=None):
-        self.tick_count = 0
-        self._companies: list[dict] = []
+class BioSimModel(mesa.Model):
+    """Mesa model that wraps the BioSim simulation engine."""
 
-    def add_company(self, name: str, color: str, **kwargs) -> None:
-        self._companies.append({"name": name, "color": color})
+    def __init__(
+        self,
+        bio_config: BioConfig | None = None,
+        sim_config: SimConfig | None = None,
+    ) -> None:
+        super().__init__()
+        self.bio_config = bio_config or BioConfig()
+        self.sim_config = sim_config or SimConfig()
+        self.state_manager = StateManager(self.sim_config)
+        self.tick_engine = TickEngine(self.bio_config, self.sim_config)
+        self.agents_list: list[BioFirmAgent] = []
+        self.last_snapshot: dict = {}
 
-    def step(self) -> dict:
-        """Returns a state snapshot dict."""
-        self.tick_count += 1
-        n = len(self._companies)
-        if n == 0:
-            return {
-                "n_active": 0,
-                "indices": [],
-                "company_names": [],
-                "company_colors": [],
-                "cash": [],
-                "firm_size": [],
-                "growth_rate": [],
-                "revenue": [],
-                "costs": [],
-                "market_share": [],
-                "health_score": [],
-                "dept_headcount": [],
-                "capital": [],
-                "labor": [],
-                "carrying_capacity": [],
-            }
+        self.datacollector = mesa.DataCollector(
+            model_reporters={
+                "total_market_size": _total_market_size,
+                "n_active_companies": _n_active_companies,
+            },
+            agent_reporters={
+                "firm_size": _agent_firm_size,
+                "cash": _agent_cash,
+            },
+        )
 
-        rng = np.random.default_rng(self.tick_count)
-        return {
-            "n_active": n,
-            "indices": list(range(n)),
-            "company_names": [c["name"] for c in self._companies],
-            "company_colors": [c["color"] for c in self._companies],
-            "cash": (rng.uniform(5e5, 5e6, n)).tolist(),
-            "firm_size": (rng.uniform(5, 50, n)).tolist(),
-            "growth_rate": (rng.uniform(0.02, 0.08, n)).tolist(),
-            "revenue": (rng.uniform(5e4, 5e5, n)).tolist(),
-            "costs": (rng.uniform(3e4, 3e5, n)).tolist(),
-            "market_share": (np.ones(n) / n).tolist(),
-            "health_score": (rng.uniform(0.5, 1.0, n)).tolist(),
-            "dept_headcount": (rng.uniform(2, 15, (n, 12))).tolist(),
-            "capital": (rng.uniform(5e5, 5e6, n)).tolist(),
-            "labor": (rng.uniform(25, 200, n)).tolist(),
-            "carrying_capacity": (rng.uniform(50, 200, n)).tolist(),
-        }
+    def add_company(self, name: str, color: str, **kwargs: str) -> BioFirmAgent:
+        idx = self.state_manager.add_company(name, color, **kwargs)
+        agent = BioFirmAgent(self, idx)
+        self.agents_list.append(agent)
+        return agent
+
+    def step(self) -> None:
+        """Execute one simulation tick."""
+        self.last_snapshot = self.tick_engine.step(self.state_manager.state)
+        self.state_manager.tick_count += 1
+        self.state_manager.record_snapshot()
+        self.datacollector.collect(self)
+
+
+def _total_market_size(m: BioSimModel) -> float:
+    indices = m.state_manager.state.active_indices()
+    if len(indices) > 0:
+        return float(m.state_manager.state.firm_size[indices].sum())
+    return 0.0
+
+
+def _n_active_companies(m: BioSimModel) -> int:
+    return len(m.state_manager.state.active_indices())
+
+
+def _agent_firm_size(a: BioFirmAgent) -> float:
+    if a.model.state_manager.state.alive[a.state_index]:
+        return float(a.model.state_manager.state.firm_size[a.state_index])
+    return 0.0
+
+
+def _agent_cash(a: BioFirmAgent) -> float:
+    if a.model.state_manager.state.alive[a.state_index]:
+        return float(a.model.state_manager.state.cash[a.state_index])
+    return 0.0
