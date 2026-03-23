@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QGraphicsItemGroup, QGraphicsPathItem, QGraphicsSimp
 from scipy.spatial import ConvexHull
 
 from biosim.gui.petri.cell import CellItem
+from biosim.gui.petri.cluster import ClusterPhysics
 
 
 class OrganismBoundary(QGraphicsPathItem):
@@ -79,6 +80,11 @@ class OrganismItem(QGraphicsItemGroup):
         self.setPos(position[0], position[1])
         self.setToolTip(name)
         self._current_radius = 30.0
+        self._physics = ClusterPhysics()
+        self._sector_targets: dict[int, tuple[float, float]] = {}
+        self._rng = np.random.default_rng()
+        self._last_dept_headcount: list[float] = []
+        self._last_sector_radius: float = 0.0
 
     def update_from_state(
         self,
@@ -90,6 +96,11 @@ class OrganismItem(QGraphicsItemGroup):
         """Update organism visuals from simulation state data."""
         radius = 20 + 30 * np.log1p(firm_size)
         self._current_radius = radius
+
+        if dept_headcount != self._last_dept_headcount or radius != self._last_sector_radius:
+            self._sector_targets = self._physics.compute_sector_targets(dept_headcount, radius)
+            self._last_dept_headcount = list(dept_headcount)
+            self._last_sector_radius = radius
 
         self._sync_cells(dept_headcount, radius)
         self._update_boundary(radius, health_score)
@@ -104,7 +115,7 @@ class OrganismItem(QGraphicsItemGroup):
         self._label.setPos(-len(self.name) * 3, radius + 8)
 
     def _sync_cells(self, dept_headcount: list[float], radius: float) -> None:
-        """Add/remove cells to match current department headcounts."""
+        """Add/remove cells to match current department headcounts, then run physics."""
         total = sum(dept_headcount)
         target_cells: list[int] = []
         for dept_idx, count in enumerate(dept_headcount):
@@ -124,7 +135,7 @@ class OrganismItem(QGraphicsItemGroup):
 
         while len(self.cells) < len(target_cells):
             dept_idx = target_cells[len(self.cells)]
-            cell = CellItem(dept_idx, radius)
+            cell = CellItem(dept_idx, radius, seed_spawn=True)
             self.cells.append(cell)
             self.addToGroup(cell)
 
@@ -132,7 +143,23 @@ class OrganismItem(QGraphicsItemGroup):
             if i < len(target_cells):
                 cell.dept_index = target_cells[i]
                 cell.update_color()
-                cell.brownian_step(radius)
+
+        self._apply_physics(radius)
+
+    def _apply_physics(self, radius: float) -> None:
+        """Gather cell positions, run vectorized physics, write back."""
+        if not self.cells:
+            return
+
+        positions = np.array([[c.x(), c.y()] for c in self.cells])
+        dept_indices = np.array([c.dept_index for c in self.cells])
+
+        new_positions = self._physics.step(
+            positions, dept_indices, self._sector_targets, radius, self._rng
+        )
+
+        for cell, (x, y) in zip(self.cells, new_positions, strict=False):
+            cell.setPos(float(x), float(y))
 
     def _update_boundary(self, radius: float, health_score: float) -> None:
         self.boundary.update_from_cells(self.cells, radius, health_score, self.color)
