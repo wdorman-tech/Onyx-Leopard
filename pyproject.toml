@@ -11,6 +11,7 @@ dependencies = [
     "pyqtgraph>=0.13",
     "pydantic>=2.0",
     "networkx>=3.6.1",
+    "camel-ai[anthropic]>=0.2.20",
 ]
 
 [project.optional-dependencies]
