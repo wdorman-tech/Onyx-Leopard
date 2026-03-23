@@ -119,6 +119,11 @@ class TestSnapshotDict:
             "dept_budget",
             "alive",
             "consecutive_insolvent",
+            "directives",
+            "charter",
+            "last_decision_tick",
+            "decision_tier_counts",
+            "agent_state_deltas",
         }
         assert set(snap.keys()) == expected_keys
 
