@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import deque
 
 import numpy as np
@@ -15,6 +17,7 @@ class StateManager:
         self.tick_count: int = 0
         self.max_history: int = max_history
         self.history: deque[dict] = deque(maxlen=max_history)
+        self.decision_log: list[dict] = []
 
     def add_company(
         self,
@@ -74,6 +77,18 @@ class StateManager:
         snapshot["tick"] = self.tick_count
         self.history.append(snapshot)
         return snapshot
+
+    def record_decisions(self, decisions: list[tuple[int, int, dict]]) -> None:
+        """Store decisions from current tick for dashboard display."""
+        for company_idx, dept_idx, result in decisions:
+            self.decision_log.append({
+                "tick": self.tick_count,
+                "company": company_idx,
+                "dept": dept_idx,
+                **result,
+            })
+        if len(self.decision_log) > 500:
+            self.decision_log = self.decision_log[-500:]
 
     def get_history(self) -> list[dict]:
         return list(self.history)
