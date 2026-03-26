@@ -12,7 +12,7 @@ interface TimeControlsProps {
   onSetSpeed: (speed: number) => void;
 }
 
-const SPEEDS = [1, 2, 5, 10];
+const SPEEDS = [1, 2, 5, 10, 50];
 
 export function TimeControls({
   playing,
@@ -64,7 +64,7 @@ export function TimeControls({
       <div className="flex items-center gap-1.5 px-1">
         <div className={`w-1.5 h-1.5 rounded-full ${playing ? "bg-accent animate-pulse" : isComplete ? "bg-complete" : "bg-surface-400"}`} />
         <span className="text-xs text-surface-600">
-          Week <span className="text-surface-800 font-mono font-medium">{tick}</span>
+          Day <span className="text-surface-800 font-mono font-medium">{tick}</span>
         </span>
       </div>
 

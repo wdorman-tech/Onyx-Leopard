@@ -39,27 +39,7 @@ def check_prerequisites() -> None:
 
 
 def setup_env() -> None:
-    if ENV_FILE.exists():
-        text = ENV_FILE.read_text()
-        for line in text.splitlines():
-            if line.startswith("ANTHROPIC_API_KEY="):
-                val = line.split("=", 1)[1].strip()
-                if val and val != "sk-ant-your-key-here":
-                    return  # Already configured
-    else:
-        if ENV_EXAMPLE.exists():
-            shutil.copy(ENV_EXAMPLE, ENV_FILE)
-        else:
-            ENV_FILE.write_text("ANTHROPIC_API_KEY=\n")
-
-    step("Anthropic API key required")
-    print("    Get one at https://console.anthropic.com/\n")
-    key = input("    Paste your API key (or Enter to skip): ").strip()
-    if key:
-        ENV_FILE.write_text(f"ANTHROPIC_API_KEY={key}\n")
-        print("    Saved!")
-    else:
-        print(f"    Skipped -- edit {ENV_FILE} before using AI features.")
+    pass  # No API key needed for MVP
 
 
 def install_backend() -> None:

@@ -1,59 +1,61 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import type { GraphData, TickData } from "@/types/graph";
+import type { AgentSnapshot, MarketTickData } from "@/types/market";
 import {
-  startSimulation,
+  startMarketSimulation,
   controlSimulation,
   createSimulationStream,
 } from "@/lib/api";
 
-interface UseSimulationReturn {
+export interface UseMarketSimulationReturn {
   sessionId: string | null;
   tick: number;
-  stage: number;
   playing: boolean;
   speed: number;
-  metrics: Record<string, number>;
+  tam: number;
+  captured: number;
+  hhi: number;
+  agentCount: number;
+  agents: AgentSnapshot[];
   status: string;
-  graph: GraphData | null;
-  metricsHistory: TickData[];
+  history: MarketTickData[];
   eventLog: string[];
   isComplete: boolean;
-  start: (industry?: string) => Promise<void>;
+  start: (preset: string) => Promise<void>;
   play: () => Promise<void>;
   pause: () => Promise<void>;
   setSpeed: (multiplier: number) => Promise<void>;
 }
 
-export function useSimulation(): UseSimulationReturn {
+export function useMarketSimulation(): UseMarketSimulationReturn {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
-  const [stage, setStage] = useState(1);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeedState] = useState(1);
-  const [metrics, setMetrics] = useState<Record<string, number>>({});
+  const [tam, setTam] = useState(0);
+  const [captured, setCaptured] = useState(0);
+  const [hhi, setHhi] = useState(0);
+  const [agentCount, setAgentCount] = useState(0);
+  const [agents, setAgents] = useState<AgentSnapshot[]>([]);
   const [status, setStatus] = useState("operating");
-  const [graph, setGraph] = useState<GraphData | null>(null);
-  const [metricsHistory, setMetricsHistory] = useState<TickData[]>([]);
+  const [history, setHistory] = useState<MarketTickData[]>([]);
   const [eventLog, setEventLog] = useState<string[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const start = useCallback(async (industry = "restaurant") => {
+  const start = useCallback(async (preset: string) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
-    const { session_id } = await startSimulation(0, industry);
+    const { session_id } = await startMarketSimulation(preset, 0);
     setSessionId(session_id);
     setTick(0);
-    setStage(1);
     setIsComplete(false);
-    setMetrics({});
     setStatus("operating");
-    setGraph(null);
-    setMetricsHistory([]);
+    setAgents([]);
+    setHistory([]);
     setEventLog([]);
     setPlaying(true);
 
@@ -64,37 +66,30 @@ export function useSimulation(): UseSimulationReturn {
       const data = JSON.parse(event.data);
       switch (data.type) {
         case "tick": {
-          const tickData: TickData = {
+          if (data.mode !== "market") break;
+          const tickData: MarketTickData = {
             tick: data.tick,
-            stage: data.stage,
-            metrics: data.metrics,
-            status: data.status,
+            tam: data.tam,
+            captured: data.captured,
+            hhi: data.hhi,
+            agent_count: data.agent_count,
+            agents: data.agents,
             events: data.events,
-            graph: data.graph,
+            status: data.status,
           };
           setTick(data.tick);
-          setStage(data.stage ?? 1);
-          setMetrics(data.metrics);
+          setTam(data.tam);
+          setCaptured(data.captured);
+          setHhi(data.hhi);
+          setAgentCount(data.agent_count);
+          setAgents(data.agents);
           setStatus(data.status);
-          if (data.graph) {
-            setGraph(data.graph);
-          }
-          setMetricsHistory((prev) => [...prev, tickData]);
+          setHistory((prev) => [...prev, tickData]);
           if (data.events?.length > 0) {
-            // Filter out noise (reorders, spoilage) for the event log
-            const significant = (data.events as string[]).filter(
-              (e) =>
-                !e.includes("spoiled") &&
-                !e.includes("Ordered") &&
-                !e.includes("Turned away") &&
-                !e.includes("Cannot reorder"),
-            );
-            if (significant.length > 0) {
-              setEventLog((prev) => [
-                ...prev,
-                ...significant.map((e: string) => `Day ${data.tick}: ${e}`),
-              ]);
-            }
+            setEventLog((prev) => [
+              ...prev,
+              ...data.events.map((e: string) => `Day ${data.tick}: ${e}`),
+            ]);
           }
           break;
         }
@@ -140,13 +135,15 @@ export function useSimulation(): UseSimulationReturn {
   return {
     sessionId,
     tick,
-    stage,
     playing,
     speed,
-    metrics,
+    tam,
+    captured,
+    hhi,
+    agentCount,
+    agents,
     status,
-    graph,
-    metricsHistory,
+    history,
     eventLog,
     isComplete,
     start,

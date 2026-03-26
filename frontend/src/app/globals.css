@@ -161,33 +161,6 @@ body {
   background: var(--color-surface-400);
 }
 
-/* ─── React Flow overrides ─── */
-
-.react-flow__node {
-  font-family: inherit;
-}
-
-.react-flow__attribution {
-  display: none;
-}
-
-.react-flow__controls button {
-  background-color: var(--color-surface-0) !important;
-  border-color: var(--color-surface-200) !important;
-  fill: var(--color-surface-600) !important;
-}
-
-.react-flow__controls button:hover {
-  background-color: var(--color-surface-50) !important;
-}
-
-.react-flow__minimap {
-  background-color: var(--color-surface-50) !important;
-  border: 1px solid var(--color-surface-200) !important;
-  border-radius: 12px !important;
-  overflow: hidden;
-}
-
 /* ─── Pulse animation for metric changes ─── */
 
 @keyframes metric-pulse {
@@ -234,3 +207,4 @@ body {
   mask-composite: exclude;
   pointer-events: none;
 }
+

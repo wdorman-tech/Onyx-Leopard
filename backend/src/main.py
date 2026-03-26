@@ -7,16 +7,9 @@ from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 
-from src.routes.company import router as company_router
 from src.routes.simulation import router as simulation_router
-from src.routes.scenarios import router as scenarios_router
-from src.routes.settings import router as settings_router
-from src.routes.onboarding import router as onboarding_router
-from src.routes.documents import router as documents_router
-from src.routes.export import router as export_router
-from src.routes.import_profile import router as import_router
 
-app = FastAPI(title="Black Jaguar", version="0.2.0")
+app = FastAPI(title="Onyx Leopard", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,14 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(company_router)
 app.include_router(simulation_router)
-app.include_router(scenarios_router)
-app.include_router(settings_router)
-app.include_router(onboarding_router)
-app.include_router(documents_router)
-app.include_router(export_router)
-app.include_router(import_router)
 
 
 @app.exception_handler(Exception)

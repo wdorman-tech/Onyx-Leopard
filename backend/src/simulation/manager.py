@@ -2,15 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from typing import TYPE_CHECKING
 
-from src.schemas import CompanyGraph, SimulationParameters
-from src.simulation.engine import SimulationEngine
+from src.simulation.growth import GrowthEngine
+from src.simulation.market.engine import MarketEngine
+from src.simulation.unified import UnifiedEngine
+from src.simulation.unified_models import UnifiedStartConfig
+
+if TYPE_CHECKING:
+    pass
 
 
 class SimulationSession:
-    def __init__(self, engine: SimulationEngine):
+    def __init__(
+        self,
+        engine: GrowthEngine | MarketEngine | UnifiedEngine,
+        mode: str = "growth",
+    ):
         self.id = str(uuid.uuid4())
         self.engine = engine
+        self.mode = mode
         self.playing = False
         self.speed: float = 2.0  # seconds per tick
         self._pause_event = asyncio.Event()
@@ -27,10 +38,10 @@ class SimulationSession:
 
     def stop(self) -> None:
         self._stop = True
-        self._pause_event.set()  # unblock if paused
+        self._pause_event.set()
 
     def set_speed(self, multiplier: float) -> None:
-        speed_map = {1: 2.0, 2: 1.0, 5: 0.4, 10: 0.2}
+        speed_map = {1: 2.0, 2: 1.0, 5: 0.4, 10: 0.2, 50: 0.02}
         self.speed = speed_map.get(int(multiplier), 2.0)
 
     async def wait_if_paused(self) -> bool:
@@ -39,27 +50,33 @@ class SimulationSession:
         return not self._stop
 
 
-SPEED_MAP = {1: 2.0, 2: 1.0, 5: 0.4, 10: 0.2}
-
-
 class SessionManager:
     def __init__(self):
         self._sessions: dict[str, SimulationSession] = {}
 
     def create_session(
         self,
-        graph: CompanyGraph,
-        max_ticks: int = 50,
-        outlook: str = "normal",
-        sim_params: SimulationParameters | None = None,
+        max_ticks: int = 0,
+        industry: str = "restaurant",
+        mode: str = "growth",
+        preset: str | None = None,
+        unified_config: UnifiedStartConfig | None = None,
     ) -> SimulationSession:
-        engine = SimulationEngine(
-            graph,
-            max_ticks=max_ticks,
-            outlook=outlook,
-            sim_params=sim_params,
-        )
-        session = SimulationSession(engine)
+        if mode == "market":
+            from src.simulation.market.presets import MARKET_PRESETS
+
+            if preset not in MARKET_PRESETS:
+                raise ValueError(f"Unknown market preset: {preset}")
+            params = MARKET_PRESETS[preset].params
+            engine = MarketEngine(params=params, max_ticks=max_ticks)
+            session = SimulationSession(engine, mode="market")
+        elif mode == "unified":
+            config = unified_config or UnifiedStartConfig(max_ticks=max_ticks)
+            engine = UnifiedEngine(config=config)
+            session = SimulationSession(engine, mode="unified")
+        else:
+            engine = GrowthEngine(max_ticks=max_ticks, industry=industry)
+            session = SimulationSession(engine, mode="growth")
         self._sessions[session.id] = session
         return session
 
@@ -70,22 +87,6 @@ class SessionManager:
         session = self._sessions.pop(session_id, None)
         if session:
             session.stop()
-
-    def fork_session(self, session_id: str) -> SimulationSession | None:
-        original = self.get_session(session_id)
-        if original is None:
-            return None
-        graph_copy = original.engine.state.graph.model_copy(deep=True)
-        new_engine = SimulationEngine(
-            graph_copy,
-            max_ticks=original.engine.state.max_ticks,
-            outlook=original.engine.state.outlook,
-            sim_params=original.engine.sim_params,
-        )
-        new_engine.state.tick = original.engine.state.tick
-        new_session = SimulationSession(new_engine)
-        self._sessions[new_session.id] = new_session
-        return new_session
 
 
 session_manager = SessionManager()
