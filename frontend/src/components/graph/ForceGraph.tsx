@@ -19,6 +19,17 @@ import { NodeTooltip } from "./NodeTooltip";
 
 const BG = "#ffffff";
 const EDGE_COLOR = "rgba(148, 163, 184, 0.35)";
+const DEAD_COLOR = "#94a3b8";
+const DEAD_EDGE_COLOR = "rgba(148, 163, 184, 0.15)";
+
+/* ── Minimap constants ── */
+const MINIMAP_W = 160;
+const MINIMAP_H = 120;
+const MINIMAP_PAD = 12;
+const MINIMAP_BG = "rgba(248, 250, 252, 0.92)";
+const MINIMAP_BORDER = "rgba(148, 163, 184, 0.4)";
+const MINIMAP_VIEWPORT = "rgba(59, 130, 246, 0.25)";
+const MINIMAP_VIEWPORT_STROKE = "rgba(59, 130, 246, 0.6)";
 
 const CATEGORY_COLORS: Record<NodeCategory, string> = {
   root: "#ec4899",
@@ -47,9 +58,14 @@ interface ForceNode extends SimulationNodeDatum {
   radius: number;
   color: string;
   depth: number;
+  companyId?: string;
+  companyColor?: string;
+  alive?: boolean;
+  rootX?: number;
+  rootY?: number;
 }
 
-interface ForceLink extends SimulationLinkDatum<ForceNode> {
+interface ForceLinkDatum extends SimulationLinkDatum<ForceNode> {
   source: string | ForceNode;
   target: string | ForceNode;
 }
@@ -67,17 +83,20 @@ function computeDepths(nodes: ForceNode[], edges: SimEdge[]): void {
     adj.get(t)!.push(s);
   }
   const depthMap = new Map<string, number>();
-  const root = nodes.find((n) => n.category === "root");
-  if (!root) return;
-  depthMap.set(root.id, 0);
-  const queue = [root.id];
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    const d = depthMap.get(cur)!;
-    for (const neighbor of adj.get(cur) ?? []) {
-      if (!depthMap.has(neighbor)) {
-        depthMap.set(neighbor, d + 1);
-        queue.push(neighbor);
+  const roots = nodes.filter((n) => n.category === "root");
+  if (roots.length === 0) return;
+
+  for (const root of roots) {
+    depthMap.set(root.id, 0);
+    const queue = [root.id];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      const d = depthMap.get(cur)!;
+      for (const neighbor of adj.get(cur) ?? []) {
+        if (!depthMap.has(neighbor)) {
+          depthMap.set(neighbor, d + 1);
+          queue.push(neighbor);
+        }
       }
     }
   }
@@ -106,7 +125,6 @@ function injectRoot(graph: GraphData, companyName: string): { nodes: SimNode[]; 
     }
   }
 
-  // If nothing connected (edge case), connect to first node
   if (rootEdges.length === 0 && graph.nodes.length > 0) {
     rootEdges.push({ source: rootId, target: graph.nodes[0].id, relationship: "owns" });
   }
@@ -117,17 +135,115 @@ function injectRoot(graph: GraphData, companyName: string): { nodes: SimNode[]; 
   };
 }
 
-function toForceNodes(simNodes: SimNode[]): ForceNode[] {
-  return simNodes.map((n) => ({
-    id: n.id,
-    label: n.label,
-    type: n.type,
-    category: n.category,
-    metrics: n.metrics,
-    radius: CATEGORY_RADIUS[n.category] ?? 5,
-    color: CATEGORY_COLORS[n.category] ?? "#94a3b8",
-    depth: 0,
-  }));
+/** Multi-company: inject a root node per company and connect orphans to it. */
+function injectMultiRoots(graph: GraphData): { nodes: SimNode[]; edges: SimEdge[] } {
+  const companiesInGraph = new Set<string>();
+  for (const n of graph.nodes) {
+    if (n.companyId) companiesInGraph.add(n.companyId);
+  }
+
+  const allNodes: SimNode[] = [...graph.nodes];
+  const allEdges: SimEdge[] = [...graph.edges];
+  const incomingSet = new Set(graph.edges.map((e) => e.target));
+
+  for (const companyId of companiesInGraph) {
+    const rootId = `${companyId}::__root__`;
+    const companyNodes = graph.nodes.filter((n) => n.companyId === companyId);
+    if (companyNodes.length === 0) continue;
+
+    const sample = companyNodes[0];
+    const rootNode: SimNode = {
+      id: rootId,
+      type: "company_root",
+      label: companyId,
+      category: "root",
+      spawned_at: 0,
+      metrics: {},
+      companyId,
+      companyColor: sample.companyColor,
+      alive: sample.alive,
+    };
+    allNodes.push(rootNode);
+
+    for (const n of companyNodes) {
+      if (n.type === "owner_operator" || !incomingSet.has(n.id)) {
+        allEdges.push({ source: rootId, target: n.id, relationship: "owns" });
+      }
+    }
+  }
+
+  return { nodes: allNodes, edges: allEdges };
+}
+
+function toForceNodes(simNodes: SimNode[], multiCompany: boolean): ForceNode[] {
+  return simNodes.map((n) => {
+    const isDead = multiCompany && n.alive === false;
+    let color: string;
+    if (isDead) {
+      color = DEAD_COLOR;
+    } else if (multiCompany && n.category === "root" && n.companyColor) {
+      color = n.companyColor;
+    } else {
+      color = CATEGORY_COLORS[n.category] ?? "#94a3b8";
+    }
+
+    return {
+      id: n.id,
+      label: n.label,
+      type: n.type,
+      category: n.category,
+      metrics: n.metrics,
+      radius: CATEGORY_RADIUS[n.category] ?? 5,
+      color,
+      depth: 0,
+      companyId: n.companyId,
+      companyColor: n.companyColor,
+      alive: n.alive,
+    };
+  });
+}
+
+/** Custom force that pulls each node toward its own company root. */
+function forceCluster(strength = 0.12) {
+  let nodes: ForceNode[];
+
+  function force(alpha: number) {
+    for (const node of nodes) {
+      if (node.category === "root" || node.rootX == null || node.rootY == null) continue;
+      const targetR = 50 + (node.depth ?? 1) * 40;
+      const dx = (node.x ?? 0) - node.rootX;
+      const dy = (node.y ?? 0) - node.rootY;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const targetX = node.rootX + (dx / dist) * targetR;
+      const targetY = node.rootY + (dy / dist) * targetR;
+      node.vx! += (targetX - node.x!) * strength * alpha;
+      node.vy! += (targetY - node.y!) * strength * alpha;
+    }
+  }
+
+  force.initialize = (n: ForceNode[]) => {
+    nodes = n;
+  };
+  return force;
+}
+
+/** Update rootX/rootY on non-root nodes to track their company root's current position. */
+function syncRootPositions(nodes: ForceNode[]) {
+  const rootPositions = new Map<string, { x: number; y: number }>();
+  for (const n of nodes) {
+    if (n.category === "root" && n.companyId && n.x != null) {
+      rootPositions.set(n.companyId, { x: n.x, y: n.y ?? 0 });
+    }
+  }
+  for (const n of nodes) {
+    if (n.category !== "root" && n.companyId) {
+      const pos = rootPositions.get(n.companyId);
+      if (pos) {
+        n.rootX = pos.x;
+        n.rootY = pos.y;
+      }
+    }
+  }
 }
 
 /* ── Component ── */
@@ -135,14 +251,21 @@ function toForceNodes(simNodes: SimNode[]): ForceNode[] {
 interface ForceGraphProps {
   graph: GraphData | null;
   companyName?: string;
+  multiCompany?: boolean;
+  onFocusCompany?: (companyId: string) => void;
 }
 
-export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) {
+export function ForceGraph({
+  graph,
+  companyName = "Company",
+  multiCompany = false,
+  onFocusCompany,
+}: ForceGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const simRef = useRef<Simulation<ForceNode, ForceLink> | null>(null);
+  const simRef = useRef<Simulation<ForceNode, ForceLinkDatum> | null>(null);
   const nodesRef = useRef<ForceNode[]>([]);
-  const linksRef = useRef<ForceLink[]>([]);
+  const linksRef = useRef<ForceLinkDatum[]>([]);
   const edgesRef = useRef<SimEdge[]>([]);
   const transformRef = useRef({ x: 0, y: 0, k: 1 });
   const dragRef = useRef<{ active: boolean; startX: number; startY: number; originX: number; originY: number }>({
@@ -151,6 +274,15 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
   const hoveredRef = useRef<ForceNode | null>(null);
   const rafRef = useRef<number>(0);
   const prevNodeCountRef = useRef(0);
+  const minimapRef = useRef<{
+    x: number; y: number; w: number; h: number;
+    simCX: number; simCY: number; scale: number;
+    canvasW: number; canvasH: number;
+  } | null>(null);
+  const multiCompanyRef = useRef(multiCompany);
+  multiCompanyRef.current = multiCompany;
+  const onFocusCompanyRef = useRef(onFocusCompany);
+  onFocusCompanyRef.current = onFocusCompany;
 
   const [selected, setSelected] = useState<{ node: ForceNode; sx: number; sy: number } | null>(null);
 
@@ -175,6 +307,11 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
     const w = canvas.width / dpr;
     const h = canvas.height / dpr;
 
+    // Sync root positions each frame so clustering force has up-to-date targets
+    if (multiCompanyRef.current) {
+      syncRootPositions(nodesRef.current);
+    }
+
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = BG;
@@ -186,12 +323,13 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
     ctx.scale(t.k, t.k);
 
     // Draw edges
-    ctx.strokeStyle = EDGE_COLOR;
     ctx.lineWidth = 1 / t.k;
     for (const link of linksRef.current) {
       const s = link.source as ForceNode;
       const tgt = link.target as ForceNode;
       if (s.x == null || tgt.x == null) continue;
+      const isDead = multiCompanyRef.current && (s.alive === false || tgt.alive === false);
+      ctx.strokeStyle = isDead ? DEAD_EDGE_COLOR : EDGE_COLOR;
       ctx.beginPath();
       ctx.moveTo(s.x, s.y!);
       ctx.lineTo(tgt.x, tgt.y!);
@@ -205,18 +343,22 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
       const r = node.radius;
       const isHovered = hovered?.id === node.id;
       const isSelected = selected?.node.id === node.id;
+      const isDead = multiCompanyRef.current && node.alive === false;
 
       // Glow halo
       ctx.beginPath();
       ctx.arc(node.x, node.y!, r * (isHovered || isSelected ? 3 : 2.2), 0, Math.PI * 2);
-      ctx.fillStyle = node.color + (isHovered || isSelected ? "30" : "18");
+      const haloColor = isDead ? DEAD_COLOR : node.color;
+      ctx.fillStyle = haloColor + (isHovered || isSelected ? "30" : isDead ? "10" : "18");
       ctx.fill();
 
       // Core dot
       ctx.beginPath();
       ctx.arc(node.x, node.y!, r, 0, Math.PI * 2);
-      ctx.fillStyle = isHovered || isSelected ? "#0f172a" : node.color;
+      ctx.fillStyle = isHovered || isSelected ? "#0f172a" : isDead ? DEAD_COLOR : node.color;
+      ctx.globalAlpha = isDead ? 0.5 : 1;
       ctx.fill();
+      ctx.globalAlpha = 1;
 
       // Brighter ring on hover/select
       if (isHovered || isSelected) {
@@ -225,6 +367,23 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
         ctx.strokeStyle = node.color;
         ctx.lineWidth = 1.5 / t.k;
         ctx.stroke();
+        ctx.lineWidth = 1 / t.k;
+      }
+    }
+
+    // Company name labels under root nodes (multi-company mode)
+    if (multiCompanyRef.current) {
+      for (const node of nodesRef.current) {
+        if (node.category !== "root" || node.x == null) continue;
+        const isDead = node.alive === false;
+        const fontSize = Math.max(10, 13 / t.k);
+        ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = isDead ? DEAD_COLOR : (node.companyColor ?? "#334155");
+        ctx.globalAlpha = isDead ? 0.5 : 0.9;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        ctx.fillText(node.label, node.x, node.y! + node.radius + 6);
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -240,13 +399,87 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
 
     ctx.restore();
 
+    // ── Minimap (drawn in screen space) ──
+    const nodes = nodesRef.current;
+    if (nodes.length > 0) {
+      const mmX = w - MINIMAP_W - MINIMAP_PAD;
+      const mmY = h - MINIMAP_H - MINIMAP_PAD;
+
+      // Compute bounding box of all nodes in sim space
+      let minSX = Infinity, maxSX = -Infinity, minSY = Infinity, maxSY = -Infinity;
+      for (const n of nodes) {
+        if (n.x == null) continue;
+        if (n.x < minSX) minSX = n.x;
+        if (n.x > maxSX) maxSX = n.x;
+        if (n.y! < minSY) minSY = n.y!;
+        if (n.y! > maxSY) maxSY = n.y!;
+      }
+      const pad = 40;
+      minSX -= pad; maxSX += pad; minSY -= pad; maxSY += pad;
+      const rangeX = maxSX - minSX || 1;
+      const rangeY = maxSY - minSY || 1;
+      const mmScale = Math.min((MINIMAP_W - 8) / rangeX, (MINIMAP_H - 8) / rangeY);
+
+      // Store geometry for click handling
+      const simCX = (minSX + maxSX) / 2;
+      const simCY = (minSY + maxSY) / 2;
+      minimapRef.current = { x: mmX, y: mmY, w: MINIMAP_W, h: MINIMAP_H, simCX, simCY, scale: mmScale, canvasW: w, canvasH: h };
+
+      // Background
+      ctx.fillStyle = MINIMAP_BG;
+      ctx.strokeStyle = MINIMAP_BORDER;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(mmX, mmY, MINIMAP_W, MINIMAP_H, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(mmX, mmY, MINIMAP_W, MINIMAP_H, 6);
+      ctx.clip();
+
+      const mmCX = mmX + MINIMAP_W / 2;
+      const mmCY = mmY + MINIMAP_H / 2;
+
+      // Draw nodes as dots
+      for (const n of nodes) {
+        if (n.x == null) continue;
+        const dx = (n.x - simCX) * mmScale + mmCX;
+        const dy = (n.y! - simCY) * mmScale + mmCY;
+        const r = Math.max(1.5, n.radius * mmScale * 0.5);
+        ctx.beginPath();
+        ctx.arc(dx, dy, r, 0, Math.PI * 2);
+        ctx.fillStyle = n.alive === false ? DEAD_COLOR : n.color;
+        ctx.globalAlpha = n.alive === false ? 0.3 : 0.7;
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Draw viewport rectangle
+      const vl = (0 - t.x) / t.k;  // left edge in sim coords
+      const vt = (0 - t.y) / t.k;  // top edge
+      const vr = (w - t.x) / t.k;
+      const vb = (h - t.y) / t.k;
+      const rvl = (vl - simCX) * mmScale + mmCX;
+      const rvt = (vt - simCY) * mmScale + mmCY;
+      const rvr = (vr - simCX) * mmScale + mmCX;
+      const rvb = (vb - simCY) * mmScale + mmCY;
+      ctx.fillStyle = MINIMAP_VIEWPORT;
+      ctx.strokeStyle = MINIMAP_VIEWPORT_STROKE;
+      ctx.lineWidth = 1;
+      ctx.fillRect(rvl, rvt, rvr - rvl, rvb - rvt);
+      ctx.strokeRect(rvl, rvt, rvr - rvl, rvb - rvt);
+
+      ctx.restore();
+    }
+
     rafRef.current = requestAnimationFrame(draw);
   }, [selected]);
 
   /* ── Initialize and manage simulation ── */
   useEffect(() => {
     if (!graph || graph.nodes.length === 0) {
-      // Clear everything
       nodesRef.current = [];
       linksRef.current = [];
       edgesRef.current = [];
@@ -254,20 +487,26 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
       return;
     }
 
-    const { nodes: injectedNodes, edges: injectedEdges } = injectRoot(graph, companyName);
+    const { nodes: injectedNodes, edges: injectedEdges } = multiCompany
+      ? injectMultiRoots(graph)
+      : injectRoot(graph, companyName);
     const newNodeCount = injectedNodes.length;
     const nodeCountChanged = newNodeCount !== prevNodeCountRef.current;
     prevNodeCountRef.current = newNodeCount;
 
     const existingMap = new Map(nodesRef.current.map((n) => [n.id, n]));
-    const forceNodes = toForceNodes(injectedNodes);
+    const forceNodes = toForceNodes(injectedNodes, multiCompany);
 
-    // Preserve positions for existing nodes, initialize new ones near parent
     const container = containerRef.current;
     const cx = (container?.clientWidth ?? 800) / 2;
     const cy = (container?.clientHeight ?? 600) / 2;
 
-    for (const fn of forceNodes) {
+    // In multi-company mode, spread initial root positions around center
+    const rootNodes = forceNodes.filter((n) => n.category === "root");
+    const spreadRadius = Math.min(container?.clientWidth ?? 800, container?.clientHeight ?? 600) * 0.25;
+
+    for (let i = 0; i < forceNodes.length; i++) {
+      const fn = forceNodes[i];
       const existing = existingMap.get(fn.id);
       if (existing) {
         fn.x = existing.x;
@@ -275,12 +514,19 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
         fn.vx = existing.vx;
         fn.vy = existing.vy;
       } else if (fn.category === "root") {
-        fn.x = cx;
-        fn.y = cy;
-        fn.fx = cx;
-        fn.fy = cy;
+        if (multiCompany) {
+          // Spread roots around center
+          const rootIdx = rootNodes.indexOf(fn);
+          const angle = (2 * Math.PI * rootIdx) / rootNodes.length - Math.PI / 2;
+          fn.x = cx + spreadRadius * Math.cos(angle);
+          fn.y = cy + spreadRadius * Math.sin(angle);
+        } else {
+          fn.x = cx;
+          fn.y = cy;
+          fn.fx = cx;
+          fn.fy = cy;
+        }
       } else {
-        // Find a connected existing node to spawn near
         const parentEdge = injectedEdges.find(
           (e) => e.target === fn.id && existingMap.has(e.source),
         ) ?? injectedEdges.find(
@@ -293,59 +539,91 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
         if (parent && parent.x != null) {
           fn.x = parent.x + (Math.random() - 0.5) * 30;
           fn.y = (parent.y ?? cy) + (Math.random() - 0.5) * 30;
+        } else if (multiCompany && fn.companyId) {
+          // Spawn near company root
+          const root = rootNodes.find((r) => r.companyId === fn.companyId);
+          if (root && root.x != null) {
+            fn.x = root.x + (Math.random() - 0.5) * 40;
+            fn.y = (root.y ?? cy) + (Math.random() - 0.5) * 40;
+          } else {
+            fn.x = cx + (Math.random() - 0.5) * 60;
+            fn.y = cy + (Math.random() - 0.5) * 60;
+          }
         } else {
           fn.x = cx + (Math.random() - 0.5) * 60;
           fn.y = cy + (Math.random() - 0.5) * 60;
         }
       }
 
-      // Update metrics from latest tick
       const source = injectedNodes.find((n) => n.id === fn.id);
       if (source) fn.metrics = source.metrics;
     }
 
     computeDepths(forceNodes, injectedEdges);
 
-    const forceLinks: ForceLink[] = injectedEdges
-      .filter((e) => forceNodes.some((n) => n.id === e.source) && forceNodes.some((n) => n.id === e.target))
+    // Set initial rootX/rootY
+    if (multiCompany) {
+      syncRootPositions(forceNodes);
+    }
+
+    const nodeIdSet = new Set(forceNodes.map((n) => n.id));
+    const forceLinks: ForceLinkDatum[] = injectedEdges
+      .filter((e) => nodeIdSet.has(e.source) && nodeIdSet.has(e.target))
       .map((e) => ({ source: e.source, target: e.target }));
 
     nodesRef.current = forceNodes;
     linksRef.current = forceLinks;
     edgesRef.current = injectedEdges;
 
-    // Update or create simulation
     if (simRef.current) {
       simRef.current.nodes(forceNodes);
-      simRef.current
-        .force("link", forceLink<ForceNode, ForceLink>(forceLinks).id((d) => d.id).distance(60).strength(0.4))
-        .force("radial", forceRadial<ForceNode>((d) => (d.category === "root" ? 0 : 80 + d.depth * 50), cx, cy).strength(0.25));
+      if (multiCompany) {
+        simRef.current
+          .force("link", forceLink<ForceNode, ForceLinkDatum>(forceLinks).id((d) => d.id).distance(50).strength(0.3));
+      } else {
+        simRef.current
+          .force("link", forceLink<ForceNode, ForceLinkDatum>(forceLinks).id((d) => d.id).distance(60).strength(0.4))
+          .force("radial", forceRadial<ForceNode>((d) => (d.category === "root" ? 0 : 80 + d.depth * 50), cx, cy).strength(0.25));
+      }
       if (nodeCountChanged) {
         simRef.current.alpha(0.3).restart();
       }
     } else {
-      const sim = forceSimulation(forceNodes)
-        .force("charge", forceManyBody<ForceNode>().strength(-120))
-        .force("link", forceLink<ForceNode, ForceLink>(forceLinks).id((d) => d.id).distance(60).strength(0.4))
-        .force("center", forceCenter(cx, cy).strength(0.05))
-        .force("collide", forceCollide<ForceNode>().radius((d) => d.radius + 4))
-        .force("radial", forceRadial<ForceNode>((d) => (d.category === "root" ? 0 : 80 + d.depth * 50), cx, cy).strength(0.25))
-        .alphaDecay(0.02)
-        .velocityDecay(0.3);
+      let sim: Simulation<ForceNode, ForceLinkDatum>;
+      if (multiCompany) {
+        sim = forceSimulation(forceNodes)
+          .force("charge", forceManyBody<ForceNode>().strength((d) => {
+            // Strong repulsion between roots to push companies apart
+            return (d as ForceNode).category === "root" ? -600 : -80;
+          }))
+          .force("link", forceLink<ForceNode, ForceLinkDatum>(forceLinks).id((d) => d.id).distance(50).strength(0.3))
+          .force("center", forceCenter(cx, cy).strength(0.02))
+          .force("collide", forceCollide<ForceNode>().radius((d) => d.radius + 3))
+          .force("cluster", forceCluster(0.12))
+          .alphaDecay(0.05)
+          .velocityDecay(0.5);
+      } else {
+        sim = forceSimulation(forceNodes)
+          .force("charge", forceManyBody<ForceNode>().strength(-120))
+          .force("link", forceLink<ForceNode, ForceLinkDatum>(forceLinks).id((d) => d.id).distance(60).strength(0.4))
+          .force("center", forceCenter(cx, cy).strength(0.05))
+          .force("collide", forceCollide<ForceNode>().radius((d) => d.radius + 4))
+          .force("radial", forceRadial<ForceNode>((d) => (d.category === "root" ? 0 : 80 + d.depth * 50), cx, cy).strength(0.25))
+          .alphaDecay(0.05)
+          .velocityDecay(0.5);
+      }
       simRef.current = sim;
     }
 
-    // Clear selected if its node no longer exists
     setSelected((prev) => {
       if (prev && !forceNodes.some((n) => n.id === prev.node.id)) return null;
-      // Update metrics on selected node
       if (prev) {
         const updated = forceNodes.find((n) => n.id === prev.node.id);
         if (updated) return { ...prev, node: updated };
       }
       return prev;
     });
-  }, [graph, companyName]);
+  }, [graph, companyName, multiCompany]);
 
   /* ── Canvas sizing ── */
   useEffect(() => {
@@ -362,24 +640,28 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
 
-      // Re-center the transform if first render
       if (transformRef.current.x === 0 && transformRef.current.y === 0) {
         transformRef.current = { x: 0, y: 0, k: 1 };
       }
 
-      // Update center force and root fix
       const cx = w / 2;
       const cy = h / 2;
       if (simRef.current) {
-        simRef.current.force("center", forceCenter(cx, cy).strength(0.05));
-        simRef.current.force("radial", forceRadial<ForceNode>(
-          (d) => (d.category === "root" ? 0 : 80 + d.depth * 50), cx, cy,
-        ).strength(0.25));
+        if (!multiCompanyRef.current) {
+          simRef.current.force("center", forceCenter(cx, cy).strength(0.05));
+          simRef.current.force("radial", forceRadial<ForceNode>(
+            (d) => (d.category === "root" ? 0 : 80 + d.depth * 50), cx, cy,
+          ).strength(0.25));
+        } else {
+          simRef.current.force("center", forceCenter(cx, cy).strength(0.02));
+        }
       }
-      const root = nodesRef.current.find((n) => n.category === "root");
-      if (root) {
-        root.fx = cx;
-        root.fy = cy;
+      if (!multiCompanyRef.current) {
+        const root = nodesRef.current.find((n) => n.category === "root");
+        if (root) {
+          root.fx = cx;
+          root.fy = cy;
+        }
       }
     };
 
@@ -436,15 +718,32 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
     if (!rect) return;
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
+
+    // Click-to-pan on minimap
+    const mm = minimapRef.current;
+    if (mm && sx >= mm.x && sx <= mm.x + mm.w && sy >= mm.y && sy <= mm.y + mm.h) {
+      const mmCX = mm.x + mm.w / 2;
+      const mmCY = mm.y + mm.h / 2;
+      const simX = (sx - mmCX) / mm.scale + mm.simCX;
+      const simY = (sy - mmCY) / mm.scale + mm.simCY;
+      const t = transformRef.current;
+      t.x = mm.canvasW / 2 - simX * t.k;
+      t.y = mm.canvasH / 2 - simY * t.k;
+      return;
+    }
+
     const hit = hitTest(sx, sy);
 
     if (hit) {
       const { sx: screenX, sy: screenY } = simToScreen(hit.x!, hit.y!);
       setSelected({ node: hit, sx: screenX, sy: screenY });
+      // In multi-company mode, clicking a node focuses that company
+      if (multiCompanyRef.current && hit.companyId && onFocusCompanyRef.current) {
+        onFocusCompanyRef.current(hit.companyId);
+      }
       return;
     }
 
-    // Start pan
     dragRef.current = {
       active: true,
       startX: e.clientX,
@@ -471,7 +770,6 @@ export function ForceGraph({ graph, companyName = "Company" }: ForceGraphProps) 
     const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     const newK = Math.max(0.3, Math.min(3, t.k * factor));
 
-    // Zoom toward cursor
     t.x = mx - (mx - t.x) * (newK / t.k);
     t.y = my - (my - t.y) * (newK / t.k);
     t.k = newK;

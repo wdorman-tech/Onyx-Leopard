@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import Enum
 
+import numpy as np
 from pydantic import BaseModel, Field
 
 
@@ -101,9 +103,63 @@ class LocationState(BaseModel):
     max_local_customers: float = 120.0
 
 
+@dataclass
+class LocationArrays:
+    """Struct-of-arrays layout for vectorized location economics."""
+
+    node_ids: list[str] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)
+
+    # Mutable state (updated every tick)
+    customers: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    inventory: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    satisfaction: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+
+    # Read-only params (set at location creation)
+    price: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    max_capacity: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    food_cost_per_plate: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    daily_fixed_costs: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    reorder_point: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    reorder_qty: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    chicken_cost_per_lb: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    spoilage_rate: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+
+    @property
+    def size(self) -> int:
+        return len(self.node_ids)
+
+    def append_location(self, node_id: str, label: str, ls: LocationState) -> None:
+        """Append a single location's data to the arrays."""
+        self.node_ids.append(node_id)
+        self.labels.append(label)
+        self.customers = np.append(self.customers, ls.customers)
+        self.inventory = np.append(self.inventory, ls.inventory)
+        self.satisfaction = np.append(self.satisfaction, ls.satisfaction)
+        self.price = np.append(self.price, ls.price)
+        self.max_capacity = np.append(self.max_capacity, float(ls.max_capacity))
+        self.food_cost_per_plate = np.append(self.food_cost_per_plate, ls.food_cost_per_plate)
+        self.daily_fixed_costs = np.append(self.daily_fixed_costs, ls.daily_fixed_costs)
+        self.reorder_point = np.append(self.reorder_point, ls.reorder_point)
+        self.reorder_qty = np.append(self.reorder_qty, ls.reorder_qty)
+        self.chicken_cost_per_lb = np.append(self.chicken_cost_per_lb, ls.chicken_cost_per_lb)
+        self.spoilage_rate = np.append(self.spoilage_rate, ls.spoilage_rate)
+
+
+@dataclass
+class BatchTickResult:
+    """Result of vectorized batch location ticking."""
+
+    total_revenue: float = 0.0
+    total_costs: float = 0.0
+    total_profit: float = 0.0
+    total_reorder_cost: float = 0.0
+    events: list[str] = field(default_factory=list)
+
+
 class SimNode(BaseModel):
     id: str
-    type: NodeType
+    type: str
     label: str
     category: NodeCategory
     spawned_at: int = 0

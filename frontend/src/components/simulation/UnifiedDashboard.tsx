@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -16,7 +16,7 @@ import {
   Activity,
   Target,
 } from "@/components/ui/icons";
-import type { UnifiedAgentSnapshot, UnifiedTickData } from "@/types/unified";
+import type { CEOReport, UnifiedAgentSnapshot, UnifiedTickData } from "@/types/unified";
 
 interface UnifiedDashboardProps {
   tam: number;
@@ -30,6 +30,7 @@ interface UnifiedDashboardProps {
   history: UnifiedTickData[];
   eventLog: string[];
   onFocusCompany: (companyId: string) => void;
+  reports?: CEOReport[] | null;
 }
 
 function fmt$(n: number): string {
@@ -63,8 +64,19 @@ export function UnifiedDashboard({
   history,
   eventLog,
   onFocusCompany,
+  reports,
 }: UnifiedDashboardProps) {
   const logRef = useRef<HTMLDivElement>(null);
+  const [showReports, setShowReports] = useState(false);
+  const [activeReportIdx, setActiveReportIdx] = useState(0);
+
+  // Auto-show reports when they arrive
+  useEffect(() => {
+    if (reports && reports.length > 0) {
+      setShowReports(true);
+      setActiveReportIdx(0);
+    }
+  }, [reports]);
 
   useEffect(() => {
     if (logRef.current) {
@@ -426,6 +438,7 @@ export function UnifiedDashboard({
         </div>
       )}
 
+
       {/* Event log */}
       {eventLog.length > 0 && (
         <div className="bg-surface-50/50 border border-surface-200/50 rounded-xl overflow-hidden">
@@ -443,6 +456,135 @@ export function UnifiedDashboard({
                 {entry}
               </p>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* View reports button (after sim completes) */}
+      {reports && reports.length > 0 && !showReports && (
+        <button
+          onClick={() => setShowReports(true)}
+          className="w-full py-2 rounded-xl bg-accent text-white text-xs font-semibold transition-all hover:bg-accent/90"
+        >
+          View CEO Reports ({reports.length})
+        </button>
+      )}
+
+      {/* Report modal overlay */}
+      {showReports && reports && reports.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-surface-0 rounded-2xl shadow-2xl w-[600px] max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-surface-200/50">
+              <h2 className="text-sm font-bold text-surface-900">
+                CEO Performance Reports
+              </h2>
+              <button
+                onClick={() => setShowReports(false)}
+                className="text-surface-400 hover:text-surface-600 text-lg"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-surface-200/50 px-3 gap-1 overflow-x-auto">
+              {reports.map((r, i) => {
+                const agent = agents.find((a) => a.name === r.company_name);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setActiveReportIdx(i)}
+                    className={`px-3 py-2 text-[11px] font-medium whitespace-nowrap border-b-2 transition-colors ${
+                      activeReportIdx === i
+                        ? "border-accent text-accent"
+                        : "border-transparent text-surface-500 hover:text-surface-700"
+                    }`}
+                  >
+                    <span
+                      className="inline-block w-2 h-2 rounded-full mr-1.5"
+                      style={{ backgroundColor: agent?.color ?? "#94a3b8" }}
+                    />
+                    {r.company_name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Report content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {(() => {
+                const r = reports[activeReportIdx];
+                if (!r) return null;
+                return (
+                  <>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-medium text-accent bg-accent/10 px-2 py-0.5 rounded">
+                        {r.strategy.replace(/_/g, " ").toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-1">
+                        Summary
+                      </h4>
+                      <p className="text-xs text-surface-700 leading-relaxed">
+                        {r.performance_summary}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <h4 className="text-[10px] font-semibold text-green-600 uppercase tracking-wider mb-1">
+                          What Went Well
+                        </h4>
+                        <p className="text-xs text-surface-700 leading-relaxed">
+                          {r.what_went_well}
+                        </p>
+                      </div>
+                      <div>
+                        <h4 className="text-[10px] font-semibold text-red-500 uppercase tracking-wider mb-1">
+                          What Went Wrong
+                        </h4>
+                        <p className="text-xs text-surface-700 leading-relaxed">
+                          {r.what_went_wrong}
+                        </p>
+                      </div>
+                    </div>
+
+                    {r.key_decisions.length > 0 && (
+                      <div>
+                        <h4 className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-1">
+                          Key Decisions
+                        </h4>
+                        <ul className="space-y-1">
+                          {r.key_decisions.map((d, j) => (
+                            <li
+                              key={j}
+                              className="text-xs text-surface-700 flex gap-2"
+                            >
+                              <span className="text-surface-400 flex-shrink-0">
+                                &bull;
+                              </span>
+                              {d}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="border-t border-surface-200/50 pt-3">
+                      <h4 className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-1">
+                        Final Assessment
+                      </h4>
+                      <p className="text-xs text-surface-800 font-medium leading-relaxed">
+                        {r.final_assessment}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         </div>
       )}

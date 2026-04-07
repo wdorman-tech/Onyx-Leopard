@@ -7,7 +7,9 @@ export interface SimNode {
   category: NodeCategory;
   spawned_at: number;
   metrics: Record<string, number>;
-  [key: string]: unknown;
+  companyId?: string;
+  companyColor?: string;
+  alive?: boolean;
 }
 
 export interface SimEdge {

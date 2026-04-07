@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -19,11 +20,13 @@ router = APIRouter(prefix="/api/simulate", tags=["simulation"])
 class StartRequest(BaseModel):
     max_ticks: int = 0
     industry: str = "restaurant"
-    mode: str = "growth"  # "growth" | "market" | "unified"
+    mode: Literal["growth", "market", "unified"] = "growth"
     preset: str | None = None
-    # Unified mode options
-    start_mode: str = "identical"  # "identical" | "randomized" | "staggered"
+    start_mode: Literal["identical", "randomized", "staggered"] = "identical"
     num_companies: int = 4
+    ai_ceo_enabled: bool = False
+    duration_years: int = 5
+    company_strategies: dict[int, str] | None = None
 
 
 class ControlRequest(BaseModel):
@@ -80,10 +83,25 @@ async def start_simulation(request: StartRequest) -> dict:
         return {"session_id": session.id}
 
     if request.mode == "unified":
+        max_ticks = request.max_ticks
+        if request.ai_ceo_enabled:
+            from src.simulation.ceo_agent import validate_api_key
+            ok, err = await validate_api_key()
+            if not ok:
+                raise HTTPException(status_code=400, detail=err)
+            max_ticks = request.duration_years * 365
+
         config = UnifiedStartConfig(
+            industry=request.industry,
             start_mode=request.start_mode,
             num_companies=request.num_companies,
-            max_ticks=request.max_ticks,
+            max_ticks=max_ticks,
+            ai_ceo_enabled=request.ai_ceo_enabled,
+            duration_years=request.duration_years,
+            company_strategies={
+                int(k): v
+                for k, v in (request.company_strategies or {}).items()
+            },
         )
         session = session_manager.create_session(
             mode="unified",
@@ -111,17 +129,44 @@ async def stream_simulation(session_id: str):
     async def event_generator():
         session.play()
         last_tick = 0
-        while not session.engine.is_complete:
+        engine = session.engine
+        is_unified = isinstance(engine, UnifiedEngine)
+
+        while not engine.is_complete:
             should_continue = await session.wait_if_paused()
             if not should_continue:
                 yield f"data: {json.dumps({'type': 'stopped'})}\n\n"
                 return
 
-            result = session.engine.tick()
-            last_tick = result.get("tick", last_tick)
+            # At very high speeds, batch multiple ticks per SSE event
+            # to reduce network overhead and make the sim feel faster.
+            ticks_per_frame = max(1, int(0.016 / max(session.speed, 0.001)))
+            for _ in range(ticks_per_frame):
+                if engine.is_complete:
+                    break
+                result = engine.tick()
+                last_tick = result.get("tick", last_tick)
+
+                # Check if CEO agents need to act (breaks the batch)
+                if is_unified and engine._pending_ceo_calls:
+                    break
+
             event_data = {"type": "tick", "mode": session.mode, **result}
             yield f"data: {json.dumps(event_data)}\n\n"
+
+            # Handle CEO agent decisions
+            if is_unified and engine._pending_ceo_calls:
+                yield f"data: {json.dumps({'type': 'ceo_thinking', 'tick': last_tick})}\n\n"
+                decisions = await engine.run_ceo_agents()
+                yield f"data: {json.dumps({'type': 'ceo_decisions', 'tick': last_tick, 'decisions': decisions})}\n\n"
+
             await asyncio.sleep(session.speed)
+
+        # End-of-simulation reports for AI CEO mode
+        if is_unified and engine.ai_ceo_enabled:
+            yield f"data: {json.dumps({'type': 'generating_reports'})}\n\n"
+            reports = await engine.generate_reports()
+            yield f"data: {json.dumps({'type': 'reports', 'reports': reports})}\n\n"
 
         yield f"data: {json.dumps({'type': 'complete', 'tick': last_tick})}\n\n"
 
@@ -140,24 +185,14 @@ async def control_simulation(session_id: str, request: ControlRequest) -> dict:
         case "pause":
             session.pause()
         case "set_speed":
-            if request.speed is not None:
-                session.set_speed(request.speed)
+            if request.speed is None:
+                raise HTTPException(status_code=400, detail="speed is required for set_speed action")
+            session.set_speed(request.speed)
         case "focus_company":
             if not isinstance(session.engine, UnifiedEngine):
                 raise HTTPException(status_code=400, detail="focus_company only works in unified mode")
             if request.company_id is not None:
                 session.engine.focused_company_id = request.company_id
-                # Return the graph immediately so the frontend doesn't wait for the next tick
-                focused = next(
-                    (c for c in session.engine.companies if c.state.name == request.company_id),
-                    None,
-                )
-                if focused:
-                    return {
-                        "status": "ok",
-                        "action": request.action,
-                        "graph": focused.build_graph_snapshot().model_dump(),
-                    }
         case _:
             raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")
 

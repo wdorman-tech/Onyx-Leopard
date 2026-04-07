@@ -5,25 +5,27 @@ from __future__ import annotations
 import pytest
 
 from src.simulation.bridge import (
-    MARKETING_BASELINE,
-    MARKETING_PER_LOCATION,
-    SUSTAINABLE_UTILIZATION,
     allocate_demand_to_locations,
     derive_competitive_attributes,
 )
+from src.simulation.config_loader import load_industry
 from src.simulation.models import (
     CompanyState,
     LocationState,
     NodeCategory,
-    NodeType,
     SimNode,
 )
+
+_spec = load_industry("restaurant")
+MARKETING_BASELINE = _spec.bridge.marketing_baseline
+MARKETING_PER_LOCATION = _spec.bridge.marketing_per_location
+SUSTAINABLE_UTILIZATION = _spec.bridge.sustainable_utilization
 
 
 def _make_company(
     num_locations: int = 1,
     satisfaction: float = 0.7,
-    extra_nodes: list[NodeType] | None = None,
+    extra_nodes: list[str] | None = None,
 ) -> CompanyState:
     """Build a CompanyState with the given number of locations and optional nodes."""
     state = CompanyState(name="Test Co")
@@ -33,7 +35,7 @@ def _make_company(
     counter += 1
     state.nodes[f"owner-{counter}"] = SimNode(
         id=f"owner-{counter}",
-        type=NodeType.OWNER_OPERATOR,
+        type="owner_operator",
         label="Owner",
         category=NodeCategory.CORPORATE,
     )
@@ -44,7 +46,7 @@ def _make_company(
         node_id = f"restaurant-{counter}"
         state.nodes[node_id] = SimNode(
             id=node_id,
-            type=NodeType.RESTAURANT,
+            type="restaurant",
             label=f"Location #{i + 1}",
             category=NodeCategory.LOCATION,
             location_state=LocationState(satisfaction=satisfaction),
@@ -53,35 +55,14 @@ def _make_company(
     # Extra nodes
     for nt in extra_nodes or []:
         counter += 1
-        node_id = f"{nt.value}-{counter}"
-        cat = NodeCategory.CORPORATE
-        mods: dict[str, float] = {}
-        if nt == NodeType.COMMISSARY:
-            cat = NodeCategory.LOCATION
-        elif nt == NodeType.DISTRIBUTION_CENTER:
-            cat = NodeCategory.LOCATION
-        elif nt == NodeType.MARKETING:
-            cat = NodeCategory.CORPORATE
-        elif nt == NodeType.DELIVERY_PARTNERSHIP:
-            cat = NodeCategory.REVENUE
-        elif nt == NodeType.CATERING:
-            cat = NodeCategory.REVENUE
-        elif nt == NodeType.QUALITY_ASSURANCE:
-            cat = NodeCategory.CORPORATE
-            mods = {"satisfaction_baseline": 0.03}
-        elif nt == NodeType.RND_MENU:
-            cat = NodeCategory.CORPORATE
-            mods = {"menu_innovation": 0.05}
-        elif nt == NodeType.TRAINING:
-            cat = NodeCategory.CORPORATE
-            mods = {"new_location_satisfaction": 0.05}
-
+        node_id = f"{nt}-{counter}"
+        node_def = _spec.nodes[nt]
         state.nodes[node_id] = SimNode(
             id=node_id,
             type=nt,
-            label=nt.value,
-            category=cat,
-            revenue_modifiers=mods,
+            label=node_def.label,
+            category=NodeCategory(node_def.category),
+            revenue_modifiers=dict(node_def.revenue_modifiers),
         )
 
     return state
@@ -93,14 +74,14 @@ def _make_company(
 class TestDeriveCompetitiveAttributes:
     def test_no_locations_returns_minimum(self):
         state = CompanyState(name="Empty Co")
-        q, m, k = derive_competitive_attributes(state)
+        q, m, k = derive_competitive_attributes(state, _spec)
         assert q == pytest.approx(0.01)
         assert m == MARKETING_BASELINE
         assert k == 0.0
 
     def test_single_location_baseline(self):
         state = _make_company(num_locations=1, satisfaction=0.7)
-        q, m, k = derive_competitive_attributes(state)
+        q, m, k = derive_competitive_attributes(state, _spec)
 
         # Quality = avg_satisfaction * quality_mult (no quality nodes = mult 1.0)
         assert q == pytest.approx(0.7, abs=0.01)
@@ -114,58 +95,58 @@ class TestDeriveCompetitiveAttributes:
 
     def test_multiple_locations_scale_capacity(self):
         state = _make_company(num_locations=3, satisfaction=0.7)
-        q, m, k = derive_competitive_attributes(state)
+        _q, m, k = derive_competitive_attributes(state, _spec)
 
         expected_k = (80 * 3) * 14.0 * 1.0 * SUSTAINABLE_UTILIZATION
         assert k == pytest.approx(expected_k, abs=0.01)
         assert m == pytest.approx(MARKETING_BASELINE + 3 * MARKETING_PER_LOCATION)
 
     def test_commissary_boosts_capacity(self):
-        state = _make_company(num_locations=2, extra_nodes=[NodeType.COMMISSARY])
-        _, _, k_with = derive_competitive_attributes(state)
+        state = _make_company(num_locations=2, extra_nodes=["commissary"])
+        _, _, k_with = derive_competitive_attributes(state, _spec)
 
         state_without = _make_company(num_locations=2)
-        _, _, k_without = derive_competitive_attributes(state_without)
+        _, _, k_without = derive_competitive_attributes(state_without, _spec)
 
         assert k_with == pytest.approx(k_without * 1.15, abs=1.0)
 
     def test_distribution_center_boosts_capacity(self):
-        state = _make_company(num_locations=2, extra_nodes=[NodeType.DISTRIBUTION_CENTER])
-        _, _, k_with = derive_competitive_attributes(state)
+        state = _make_company(num_locations=2, extra_nodes=["distribution_center"])
+        _, _, k_with = derive_competitive_attributes(state, _spec)
 
         state_without = _make_company(num_locations=2)
-        _, _, k_without = derive_competitive_attributes(state_without)
+        _, _, k_without = derive_competitive_attributes(state_without, _spec)
 
         assert k_with == pytest.approx(k_without * 1.10, abs=1.0)
 
     def test_both_infra_nodes_stack(self):
         state = _make_company(
             num_locations=2,
-            extra_nodes=[NodeType.COMMISSARY, NodeType.DISTRIBUTION_CENTER],
+            extra_nodes=["commissary", "distribution_center"],
         )
-        _, _, k = derive_competitive_attributes(state)
+        _, _, k = derive_competitive_attributes(state, _spec)
 
         base_k = (80 * 2) * 14.0 * SUSTAINABLE_UTILIZATION
         expected_k = base_k * 1.15 * 1.10
         assert k == pytest.approx(expected_k, abs=1.0)
 
     def test_marketing_node_increases_marketing(self):
-        state = _make_company(num_locations=1, extra_nodes=[NodeType.MARKETING])
-        _, m, _ = derive_competitive_attributes(state)
+        state = _make_company(num_locations=1, extra_nodes=["marketing"])
+        _, m, _ = derive_competitive_attributes(state, _spec)
 
         base_m = MARKETING_BASELINE + MARKETING_PER_LOCATION
         assert m == pytest.approx(base_m + 15.0)
 
     def test_delivery_partnership_increases_marketing(self):
-        state = _make_company(num_locations=1, extra_nodes=[NodeType.DELIVERY_PARTNERSHIP])
-        _, m, _ = derive_competitive_attributes(state)
+        state = _make_company(num_locations=1, extra_nodes=["delivery_partnership"])
+        _, m, _ = derive_competitive_attributes(state, _spec)
 
         base_m = MARKETING_BASELINE + MARKETING_PER_LOCATION
         assert m == pytest.approx(base_m + 10.0)
 
     def test_catering_increases_marketing(self):
-        state = _make_company(num_locations=1, extra_nodes=[NodeType.CATERING])
-        _, m, _ = derive_competitive_attributes(state)
+        state = _make_company(num_locations=1, extra_nodes=["catering"])
+        _, m, _ = derive_competitive_attributes(state, _spec)
 
         base_m = MARKETING_BASELINE + MARKETING_PER_LOCATION
         assert m == pytest.approx(base_m + 5.0)
@@ -174,9 +155,9 @@ class TestDeriveCompetitiveAttributes:
         state = _make_company(
             num_locations=1,
             satisfaction=0.7,
-            extra_nodes=[NodeType.QUALITY_ASSURANCE, NodeType.RND_MENU, NodeType.TRAINING],
+            extra_nodes=["quality_assurance", "rnd_menu", "training"],
         )
-        q, _, _ = derive_competitive_attributes(state)
+        q, _, _ = derive_competitive_attributes(state, _spec)
 
         # q = 0.7 * (1.03) * (1.05) * (1.05) = 0.7 * 1.1355... ≈ 0.7949
         expected_q = 0.7 * 1.03 * 1.05 * 1.05
@@ -184,7 +165,7 @@ class TestDeriveCompetitiveAttributes:
 
     def test_quality_bounded_below(self):
         state = _make_company(num_locations=1, satisfaction=0.0)
-        q, _, _ = derive_competitive_attributes(state)
+        q, _, _ = derive_competitive_attributes(state, _spec)
         assert q >= 0.01
 
     def test_inactive_nodes_ignored(self):
@@ -192,12 +173,12 @@ class TestDeriveCompetitiveAttributes:
         # Add an inactive marketing node
         state.nodes["dead-marketing"] = SimNode(
             id="dead-marketing",
-            type=NodeType.MARKETING,
+            type="marketing",
             label="Dead Marketing",
             category=NodeCategory.CORPORATE,
             active=False,
         )
-        _, m, _ = derive_competitive_attributes(state)
+        _, m, _ = derive_competitive_attributes(state, _spec)
         base_m = MARKETING_BASELINE + MARKETING_PER_LOCATION
         assert m == pytest.approx(base_m)  # no boost from inactive
 
@@ -210,7 +191,7 @@ class TestAllocateDemand:
         locations = [
             SimNode(
                 id="loc-1",
-                type=NodeType.RESTAURANT,
+                type="restaurant",
                 label="L1",
                 category=NodeCategory.LOCATION,
                 location_state=LocationState(satisfaction=0.7),
@@ -223,7 +204,7 @@ class TestAllocateDemand:
         locations = [
             SimNode(
                 id="loc-1",
-                type=NodeType.RESTAURANT,
+                type="restaurant",
                 label="L1",
                 category=NodeCategory.LOCATION,
                 location_state=LocationState(satisfaction=0.7),
@@ -236,7 +217,7 @@ class TestAllocateDemand:
         locations = [
             SimNode(
                 id=f"loc-{i}",
-                type=NodeType.RESTAURANT,
+                type="restaurant",
                 label=f"L{i}",
                 category=NodeCategory.LOCATION,
                 location_state=LocationState(satisfaction=0.7, max_capacity=80),
@@ -250,14 +231,14 @@ class TestAllocateDemand:
     def test_higher_satisfaction_gets_more(self):
         loc_good = SimNode(
             id="good",
-            type=NodeType.RESTAURANT,
+            type="restaurant",
             label="Good",
             category=NodeCategory.LOCATION,
             location_state=LocationState(satisfaction=0.9, max_capacity=80),
         )
         loc_bad = SimNode(
             id="bad",
-            type=NodeType.RESTAURANT,
+            type="restaurant",
             label="Bad",
             category=NodeCategory.LOCATION,
             location_state=LocationState(satisfaction=0.3, max_capacity=80),
@@ -269,14 +250,14 @@ class TestAllocateDemand:
     def test_larger_capacity_gets_more(self):
         loc_big = SimNode(
             id="big",
-            type=NodeType.RESTAURANT,
+            type="restaurant",
             label="Big",
             category=NodeCategory.LOCATION,
             location_state=LocationState(satisfaction=0.7, max_capacity=120),
         )
         loc_small = SimNode(
             id="small",
-            type=NodeType.RESTAURANT,
+            type="restaurant",
             label="Small",
             category=NodeCategory.LOCATION,
             location_state=LocationState(satisfaction=0.7, max_capacity=40),
@@ -295,7 +276,7 @@ class TestAllocateDemand:
         locations = [
             SimNode(
                 id=f"loc-{i}",
-                type=NodeType.RESTAURANT,
+                type="restaurant",
                 label=f"L{i}",
                 category=NodeCategory.LOCATION,
                 location_state=LocationState(

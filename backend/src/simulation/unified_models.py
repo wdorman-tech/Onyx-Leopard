@@ -50,9 +50,9 @@ class UnifiedTickData(BaseModel):
     # Per-company
     agents: list[UnifiedAgentSnapshot]
 
-    # Graph of the focused company (only one company's graph per tick)
+    # Graphs for all companies, keyed by company name
     focused_company_id: str
-    graph: GraphSnapshot
+    graphs: dict[str, GraphSnapshot]
 
     events: list[str] = Field(default_factory=list)
 
@@ -85,7 +85,13 @@ class UnifiedParams(BaseModel):
 class UnifiedStartConfig(BaseModel):
     """Configuration for starting a unified simulation."""
 
+    industry: str = "restaurant"
     start_mode: str = "identical"  # "identical" | "randomized" | "staggered"
-    num_companies: int = 4
-    max_ticks: int = 0
+    num_companies: int = Field(default=4, ge=1, le=20)
+    max_ticks: int = Field(default=0, ge=0)
     params: UnifiedParams = UnifiedParams()
+
+    # AI CEO agent settings
+    ai_ceo_enabled: bool = False
+    duration_years: int = Field(default=5)  # 5, 10, or 20
+    company_strategies: dict[int, str] = Field(default_factory=dict)  # index → strategy

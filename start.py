@@ -39,7 +39,29 @@ def check_prerequisites() -> None:
 
 
 def setup_env() -> None:
-    pass  # No API key needed for MVP
+    import os
+
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return
+
+    # Check .env file
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            if line.strip().startswith("ANTHROPIC_API_KEY=") and line.split("=", 1)[1].strip():
+                return
+
+    step("AI CEO agents require an Anthropic API key.")
+    key = input("    Enter your ANTHROPIC_API_KEY (or press Enter to skip): ").strip()
+    if key:
+        os.environ["ANTHROPIC_API_KEY"] = key
+        # Persist to .env so it's available on next run
+        lines = ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []
+        lines = [l for l in lines if not l.strip().startswith("ANTHROPIC_API_KEY=")]
+        lines.append(f"ANTHROPIC_API_KEY={key}")
+        ENV_FILE.write_text("\n".join(lines) + "\n")
+        print("    Saved to backend/.env")
+    else:
+        print("    Skipped. AI CEO mode will not be available.")
 
 
 def install_backend() -> None:

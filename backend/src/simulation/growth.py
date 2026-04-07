@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.simulation.config_loader import IndustrySpec, load_industry
 from src.simulation.location import tick_location
 from src.simulation.models import (
     CompanyState,
@@ -9,45 +10,40 @@ from src.simulation.models import (
     LocationState,
     NodeCategory,
     NodeSnapshot,
-    NodeType,
     SimEdge,
     SimNode,
 )
-from src.simulation.nodes import NODE_REGISTRY
-from src.simulation.triggers import TRIGGER_REGISTRY
-
-# Volume-based food cost discount (from real chain research)
-VOLUME_DISCOUNTS = [
-    (21, 0.72),
-    (11, 0.80),
-    (6, 0.87),
-    (3, 0.93),
-    (1, 1.00),
-]
-
-LOCATION_OPEN_COST = 50_000.0
-EMPLOYEES_PER_LOCATION = 15
-NEW_LOCATION_STARTING_CUSTOMERS = 20.0
-NEW_LOCATION_STARTING_SATISFACTION = 0.5
+from src.simulation.triggers import build_triggers
 
 
 class GrowthEngine:
-    def __init__(self, max_ticks: int = 0, industry: str = "restaurant") -> None:
+    def __init__(
+        self,
+        max_ticks: int = 0,
+        industry: str = "restaurant",
+        spec: IndustrySpec | None = None,
+    ) -> None:
+        self.spec = spec or load_industry(industry)
         self.max_ticks = max_ticks
-        self.industry = industry
-        self.state = CompanyState(cash=50_000.0)
+        self.state = CompanyState(cash=self.spec.constants.starting_cash)
         self._status = "operating"
         self._node_counter = 0
+        self._triggers = build_triggers(self.spec)
 
-        # Seed initial nodes
-        self._add_node(NodeType.OWNER_OPERATOR, edges_to=[])
-        loc_id = self._add_node(NodeType.RESTAURANT, edges_to=[])
-        # Give first location the default starting state
-        self.state.nodes[loc_id].location_state = LocationState()
-        self._add_node(NodeType.CHICKEN_SUPPLIER, edges_to=[loc_id], rel="supplies")
-        self._add_node(NodeType.PRODUCE_SUPPLIER, edges_to=[loc_id], rel="supplies")
+        # Seed initial nodes from config
+        self._add_node(self.spec.roles.founder_type, edges_to=[])
+        loc_id = self._add_node(self.spec.roles.location_type, edges_to=[])
+        self.state.nodes[loc_id].location_state = LocationState(
+            **self.spec.location_defaults.model_dump(
+                exclude={"unified_reorder_qty", "unified_reorder_point"}
+            )
+        )
+        self._supplier_ids: list[str] = []
+        for supplier_type in self.spec.roles.supplier_types:
+            sid = self._add_node(supplier_type, edges_to=[loc_id], rel="supplies")
+            self._supplier_ids.append(sid)
 
-        self.state.total_employees = EMPLOYEES_PER_LOCATION
+        self.state.total_employees = self.spec.constants.employees_per_location
 
     @property
     def is_complete(self) -> bool:
@@ -63,24 +59,24 @@ class GrowthEngine:
 
     def _add_node(
         self,
-        node_type: NodeType,
+        node_type: str,
         edges_to: list[str] | None = None,
         rel: str = "manages",
     ) -> str:
-        config = NODE_REGISTRY[node_type]
-        node_id = self._next_id(node_type.value)
+        config = self.spec.nodes[node_type]
+        node_id = self._next_id(node_type)
         count = sum(1 for n in self.state.nodes.values() if n.type == node_type)
+
         label = config.label
-        if node_type == NodeType.RESTAURANT:
-            label = f"Location #{count + 1}"
-        elif node_type == NodeType.AREA_MANAGER:
-            label = f"Area Manager #{count + 1}"
+        if node_type in self.spec.roles.numbered_labels:
+            prefix = self.spec.roles.numbered_labels[node_type]
+            label = f"{prefix} #{count + 1}"
 
         node = SimNode(
             id=node_id,
             type=node_type,
             label=label,
-            category=config.category,
+            category=NodeCategory(config.category),
             spawned_at=self.state.tick,
             annual_cost=config.annual_cost,
             cost_modifiers=dict(config.cost_modifiers),
@@ -95,9 +91,10 @@ class GrowthEngine:
         return node_id
 
     def _location_count(self) -> int:
+        loc_type = self.spec.roles.location_type
         return sum(
             1 for n in self.state.nodes.values()
-            if n.type == NodeType.RESTAURANT and n.active
+            if n.type == loc_type and n.active
         )
 
     def _aggregate_modifiers(self) -> dict[str, float]:
@@ -115,7 +112,7 @@ class GrowthEngine:
         # Volume discount on food cost
         loc_count = self._location_count()
         volume_mult = 1.0
-        for threshold, mult in VOLUME_DISCOUNTS:
+        for threshold, mult in self.spec.constants.volume_discounts:
             if loc_count >= threshold:
                 volume_mult = mult
                 break
@@ -123,42 +120,89 @@ class GrowthEngine:
 
         return mods
 
+    def _compute_metrics(self) -> tuple[dict[str, float], dict[str, int]]:
+        """Compute metrics and node type counts for trigger evaluation."""
+        loc_type = self.spec.roles.location_type
+        node_type_counts: dict[str, int] = {}
+        total_daily_revenue = 0.0
+        location_margins: list[float] = []
+        satisfaction_sum = 0.0
+        location_count = 0
+
+        for node in self.state.nodes.values():
+            if not node.active:
+                continue
+            node_type_counts[node.type] = node_type_counts.get(node.type, 0) + 1
+
+            if node.type == loc_type and node.location_state is not None:
+                location_count += 1
+                ls = node.location_state
+                satisfaction_sum += ls.satisfaction
+                served = min(ls.customers, ls.max_capacity, ls.inventory)
+                total_daily_revenue += served * ls.price
+                rev = ls.customers * ls.price
+                costs = ls.daily_fixed_costs + ls.customers * ls.food_cost_per_plate
+                if rev > 0:
+                    location_margins.append((rev - costs) / rev)
+
+        metrics: dict[str, float] = {
+            "location_count": location_count,
+            "monthly_revenue": total_daily_revenue * 30,
+            "cash": self.state.cash,
+            "total_employees": self.state.total_employees,
+            "avg_satisfaction": (
+                satisfaction_sum / location_count if location_count > 0 else 0.0
+            ),
+            "avg_location_margin": (
+                sum(location_margins) / len(location_margins)
+                if location_margins else 0.0
+            ),
+            "locations_opened_this_year": self.state.locations_opened_this_year,
+        }
+        return metrics, node_type_counts
+
     def _check_triggers(self) -> list[str]:
         """Check all growth triggers and spawn nodes. Returns event messages."""
         events: list[str] = []
+        metrics, node_type_counts = self._compute_metrics()
+        consts = self.spec.constants
+        loc_type = self.spec.roles.location_type
 
-        for trigger in TRIGGER_REGISTRY:
-            if not trigger.can_fire(self):
+        for trigger in self._triggers:
+            if not trigger.can_fire(metrics, node_type_counts, self.state.tick):
                 continue
 
-            # Special handling for new locations
-            if trigger.node_type == NodeType.RESTAURANT:
-                if self.state.cash < LOCATION_OPEN_COST:
+            if trigger.is_location_expansion:
+                if self.state.cash < consts.location_open_cost:
                     continue
-                loc_id = self._add_node(NodeType.RESTAURANT)
+                loc_id = self._add_node(loc_type)
                 self.state.nodes[loc_id].location_state = LocationState(
-                    customers=NEW_LOCATION_STARTING_CUSTOMERS,
-                    satisfaction=NEW_LOCATION_STARTING_SATISFACTION,
+                    customers=consts.new_location_starting_customers,
+                    satisfaction=consts.new_location_starting_satisfaction,
                 )
-                self.state.cash -= LOCATION_OPEN_COST
-                self.state.total_employees += EMPLOYEES_PER_LOCATION
+                self.state.cash -= consts.location_open_cost
+                self.state.total_employees += consts.employees_per_location
                 self.state.locations_opened_this_year += 1
-                # Connect suppliers to new location
-                for n in self.state.nodes.values():
-                    if n.type in (NodeType.CHICKEN_SUPPLIER, NodeType.PRODUCE_SUPPLIER):
-                        self.state.edges.append(
-                            SimEdge(source=n.id, target=loc_id, relationship="supplies")
-                        )
+                for sid in self._supplier_ids:
+                    self.state.edges.append(
+                        SimEdge(source=sid, target=loc_id, relationship="supplies")
+                    )
+                # Update metrics for subsequent triggers
+                node_type_counts[loc_type] = node_type_counts.get(loc_type, 0) + 1
+                metrics["location_count"] = node_type_counts[loc_type]
+                metrics["cash"] = self.state.cash
             else:
-                # Connect corporate nodes to the owner
                 owner_ids = [
                     n.id for n in self.state.nodes.values()
-                    if n.type == NodeType.OWNER_OPERATOR
+                    if n.type == self.spec.roles.founder_type
                 ]
                 self._add_node(
                     trigger.node_type,
                     edges_to=owner_ids,
                     rel="reports_to",
+                )
+                node_type_counts[trigger.node_type] = (
+                    node_type_counts.get(trigger.node_type, 0) + 1
                 )
 
             trigger.mark_fired(self.state.tick)
@@ -174,6 +218,7 @@ class GrowthEngine:
             self.state.locations_opened_this_year = 0
 
         events: list[str] = []
+        loc_type = self.spec.roles.location_type
 
         # 1. Check growth triggers
         trigger_events = self._check_triggers()
@@ -190,7 +235,7 @@ class GrowthEngine:
         loc_count = 0
 
         for node in list(self.state.nodes.values()):
-            if node.type != NodeType.RESTAURANT or not node.active or not node.location_state:
+            if node.type != loc_type or not node.active or not node.location_state:
                 continue
 
             result, reorder_cost = tick_location(node.location_state, mods, self.state.cash)
@@ -211,17 +256,15 @@ class GrowthEngine:
             n.daily_cost for n in self.state.nodes.values()
             if n.active and n.category == NodeCategory.CORPORATE and n.annual_cost > 0
         )
-        # Revenue-adjacent node costs too
         corporate_overhead += sum(
             n.daily_cost for n in self.state.nodes.values()
             if n.active and n.category == NodeCategory.REVENUE
         )
-        # Infrastructure costs (commissary, DC)
         corporate_overhead += sum(
             n.daily_cost for n in self.state.nodes.values()
             if n.active
             and n.category == NodeCategory.LOCATION
-            and n.type != NodeType.RESTAURANT
+            and n.type != loc_type
         )
         self.state.cash -= corporate_overhead
 
@@ -230,14 +273,7 @@ class GrowthEngine:
         avg_satisfaction = satisfaction_sum / loc_count if loc_count > 0 else 0.0
 
         # 5. Update stage
-        if loc_count >= 51:
-            self.state.stage = 4
-        elif loc_count >= 11:
-            self.state.stage = 3
-        elif loc_count >= 2:
-            self.state.stage = 2
-        else:
-            self.state.stage = 1
+        self._update_stage(loc_count)
 
         # 6. Bankruptcy check
         if self.state.cash <= 0:
@@ -259,7 +295,7 @@ class GrowthEngine:
                 }
             node_snapshots.append(NodeSnapshot(
                 id=n.id,
-                type=n.type.value,
+                type=n.type,
                 label=n.label,
                 category=n.category.value,
                 spawned_at=n.spawned_at,
@@ -289,3 +325,9 @@ class GrowthEngine:
             "events": events,
             "graph": graph.model_dump(),
         }
+
+    def _update_stage(self, loc_count: int) -> None:
+        self.state.stage = 1
+        for stage_def in self.spec.stages:
+            if loc_count >= stage_def.min_locations:
+                self.state.stage = stage_def.stage

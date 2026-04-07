@@ -41,7 +41,7 @@ class SimulationSession:
         self._pause_event.set()
 
     def set_speed(self, multiplier: float) -> None:
-        speed_map = {1: 2.0, 2: 1.0, 5: 0.4, 10: 0.2, 50: 0.02}
+        speed_map = {1: 2.0, 2: 1.0, 5: 0.4, 10: 0.2, 50: 0.02, 100: 0.005, 500: 0.001}
         self.speed = speed_map.get(int(multiplier), 2.0)
 
     async def wait_if_paused(self) -> bool:

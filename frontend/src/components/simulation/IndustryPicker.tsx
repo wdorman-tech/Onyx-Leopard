@@ -24,8 +24,9 @@ import {
   Layers,
   TrendingUp,
   GitBranch,
+  ArrowLeft,
+  type LucideIcon,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { getIndustries, type Industry } from "@/lib/api";
 import { Logo } from "@/components/ui/Logo";
 
@@ -57,17 +58,21 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 interface IndustryPickerProps {
   onSelect: (slug: string) => void;
+  onBack: () => void;
 }
 
-export function IndustryPicker({ onSelect }: IndustryPickerProps) {
+export function IndustryPicker({ onSelect, onBack }: IndustryPickerProps) {
   const [industries, setIndustries] = useState<Industry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Industry | null>(null);
 
   useEffect(() => {
     getIndustries()
       .then(setIndustries)
-      .catch(() => {
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        setFetchError(`Failed to load industries: ${msg}`);
         setIndustries([
           {
             slug: "restaurant",
@@ -107,16 +112,25 @@ export function IndustryPicker({ onSelect }: IndustryPickerProps) {
     <div className="h-screen flex flex-col bg-surface-0 phase-enter">
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 overflow-auto">
         <div className="flex items-center gap-3 mb-2">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-surface-100 to-surface-50 border border-surface-200/50">
-            <Logo size={20} className="text-accent" />
-          </div>
-          <h1 className="text-2xl font-bold text-surface-900 tracking-wide">
-            ONYX LEOPARD
+          <button
+            onClick={onBack}
+            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-surface-100 transition-colors"
+          >
+            <ArrowLeft size={16} className="text-surface-500" />
+          </button>
+          <h1 className="text-xl font-bold text-surface-900 tracking-wide">
+            Company Growth
           </h1>
         </div>
         <p className="text-sm text-surface-500 mb-10">
           Choose an industry to simulate
         </p>
+
+        {fetchError && (
+          <div className="max-w-4xl w-full mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+            {fetchError}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-w-4xl w-full">
           {industries.map((ind) => {

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { ArrowLeft, Building2, Swords, Network } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { TimeControls } from "@/components/simulation/TimeControls";
 import { CompanyDashboard } from "@/components/simulation/CompanyDashboard";
@@ -14,7 +14,7 @@ import { useSimulation } from "@/hooks/useSimulation";
 import { useMarketSimulation } from "@/hooks/useMarketSimulation";
 import { useUnifiedSimulation } from "@/hooks/useUnifiedSimulation";
 
-type AppMode = "select" | "growth-pick" | "growth-sim" | "market-pick" | "market-sim" | "unified-pick" | "unified-sim";
+type AppMode = "unified-pick" | "growth-pick" | "growth-sim" | "market-pick" | "market-sim" | "unified-sim";
 
 const STAGE_LABELS: Record<number, string> = {
   1: "Single Location",
@@ -23,96 +23,32 @@ const STAGE_LABELS: Record<number, string> = {
   4: "National Chain",
 };
 
-function ModeSelector({
-  onSelectGrowth,
-  onSelectMarket,
-  onSelectUnified,
-}: {
-  onSelectGrowth: () => void;
-  onSelectMarket: () => void;
-  onSelectUnified: () => void;
-}) {
-  return (
-    <div className="h-screen flex flex-col bg-surface-0 phase-enter">
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-surface-100 to-surface-50 border border-surface-200/50">
-            <Logo size={20} className="text-accent" />
-          </div>
-          <h1 className="text-2xl font-bold text-surface-900 tracking-wide">
-            ONYX LEOPARD
-          </h1>
-        </div>
-        <p className="text-sm text-surface-500 mb-10">
-          Choose a simulation mode
-        </p>
+const AGENT_NAMES = [
+  "Alpha Corp", "Beta Inc", "Gamma Ltd", "Delta Co", "Epsilon Group",
+  "Zeta Holdings", "Eta Ventures", "Theta Partners",
+];
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl w-full">
-          <button
-            onClick={onSelectGrowth}
-            className="group flex flex-col items-center gap-4 p-8 rounded-xl border border-surface-200 bg-surface-0 transition-all duration-150 hover:border-accent/40 hover:shadow-lg hover:shadow-accent/5"
-          >
-            <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-green-50 text-green-600 border border-green-200">
-              <Building2 size={28} />
-            </div>
-            <div className="text-center">
-              <div className="text-base font-semibold text-surface-800">
-                Company Growth
-              </div>
-              <div className="text-xs text-surface-500 mt-1 max-w-[200px]">
-                Watch a single company grow from one location to a national chain
-              </div>
-            </div>
-          </button>
-
-          <button
-            onClick={onSelectMarket}
-            className="group flex flex-col items-center gap-4 p-8 rounded-xl border border-surface-200 bg-surface-0 transition-all duration-150 hover:border-accent/40 hover:shadow-lg hover:shadow-accent/5"
-          >
-            <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-violet-50 text-violet-600 border border-violet-200">
-              <Swords size={28} />
-            </div>
-            <div className="text-center">
-              <div className="text-base font-semibold text-surface-800">
-                Market Competition
-              </div>
-              <div className="text-xs text-surface-500 mt-1 max-w-[200px]">
-                Simulate multiple firms competing for market share in a dynamic TAM
-              </div>
-            </div>
-          </button>
-
-          <button
-            onClick={onSelectUnified}
-            className="group flex flex-col items-center gap-4 p-8 rounded-xl border border-surface-200 bg-surface-0 transition-all duration-150 hover:border-accent/40 hover:shadow-lg hover:shadow-accent/5"
-          >
-            <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-amber-50 text-amber-600 border border-amber-200">
-              <Network size={28} />
-            </div>
-            <div className="text-center">
-              <div className="text-base font-semibold text-surface-800">
-                Unified Compete
-              </div>
-              <div className="text-xs text-surface-500 mt-1 max-w-[200px]">
-                Multiple companies with full org charts competing in a shared market
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+const CEO_STRATEGIES = [
+  { value: "aggressive_growth", label: "Aggressive Growth", desc: "Rapid expansion, heavy marketing" },
+  { value: "quality_focus", label: "Quality Focus", desc: "Satisfaction and quality above all" },
+  { value: "cost_leader", label: "Cost Leader", desc: "Minimize costs, operational efficiency" },
+  { value: "balanced", label: "Balanced", desc: "Steady growth, no overextension" },
+  { value: "market_dominator", label: "Market Dominator", desc: "Pursue market share aggressively" },
+  { value: "survivor", label: "Survivor", desc: "Cash preservation, strong margins" },
+];
 
 export default function Home() {
   const sim = useSimulation();
   const market = useMarketSimulation();
   const unified = useUnifiedSimulation();
-  const [mode, setMode] = useState<AppMode>("select");
+  const [mode, setMode] = useState<AppMode>("unified-pick");
   const [industrySlug, setIndustrySlug] = useState<string | null>(null);
   const [presetSlug, setPresetSlug] = useState<string | null>(null);
   const [unifiedStartMode, setUnifiedStartMode] = useState<string>("identical");
   const [unifiedCompanyCount, setUnifiedCompanyCount] = useState(4);
+  const [aiCeoEnabled, setAiCeoEnabled] = useState(false);
+  const [durationYears, setDurationYears] = useState(5);
+  const [companyStrategies, setCompanyStrategies] = useState<Record<number, string>>({});
 
   // ── Growth mode handlers ──
   const handleSelectIndustry = useCallback(
@@ -137,29 +73,24 @@ export default function Home() {
   // ── Unified mode handlers ──
   const handleStartUnified = useCallback(() => {
     setMode("unified-sim");
-    unified.start(unifiedStartMode, unifiedCompanyCount);
-  }, [unified, unifiedStartMode, unifiedCompanyCount]);
+    unified.start(
+      unifiedStartMode,
+      unifiedCompanyCount,
+      aiCeoEnabled,
+      durationYears,
+      companyStrategies,
+    );
+  }, [unified, unifiedStartMode, unifiedCompanyCount, aiCeoEnabled, durationYears, companyStrategies]);
 
   const handleBack = useCallback(() => {
-    setMode("select");
+    setMode("unified-pick");
     setIndustrySlug(null);
     setPresetSlug(null);
   }, []);
 
-  // ── Mode selection ──
-  if (mode === "select") {
-    return (
-      <ModeSelector
-        onSelectGrowth={() => setMode("growth-pick")}
-        onSelectMarket={() => setMode("market-pick")}
-        onSelectUnified={() => setMode("unified-pick")}
-      />
-    );
-  }
-
   // ── Growth: Industry picker ──
   if (mode === "growth-pick") {
-    return <IndustryPicker onSelect={handleSelectIndustry} />;
+    return <IndustryPicker onSelect={handleSelectIndustry} onBack={handleBack} />;
   }
 
   // ── Market: Preset picker ──
@@ -167,7 +98,7 @@ export default function Home() {
     return <PresetPicker onSelect={handleSelectPreset} onBack={handleBack} />;
   }
 
-  // ── Unified: Config picker ──
+  // ── Home: Unified Compete config (default) ──
   if (mode === "unified-pick") {
     const START_MODES = [
       { value: "identical", label: "Identical", desc: "All companies start with equal resources" },
@@ -175,17 +106,14 @@ export default function Home() {
       { value: "staggered", label: "Staggered", desc: "Companies enter the market at different times" },
     ];
     return (
-      <div className="h-screen flex flex-col bg-surface-0 phase-enter">
+      <div className="h-screen flex flex-col bg-surface-0 phase-enter relative">
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
           <div className="flex items-center gap-3 mb-2">
-            <button
-              onClick={handleBack}
-              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-surface-100 transition-colors"
-            >
-              <ArrowLeft size={16} className="text-surface-500" />
-            </button>
-            <h1 className="text-xl font-bold text-surface-900 tracking-wide">
-              Unified Compete
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-surface-100 to-surface-50 border border-surface-200/50">
+              <Logo size={20} className="text-accent" />
+            </div>
+            <h1 className="text-2xl font-bold text-surface-900 tracking-wide">
+              ONYX LEOPARD
             </h1>
           </div>
           <p className="text-sm text-surface-500 mb-8">
@@ -246,6 +174,92 @@ export default function Home() {
               </div>
             </div>
 
+            <div>
+              <label className="text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2 block">
+                AI CEO Agents
+              </label>
+              <button
+                onClick={() => setAiCeoEnabled(!aiCeoEnabled)}
+                className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${
+                  aiCeoEnabled
+                    ? "border-accent bg-accent/5 ring-1 ring-accent/30"
+                    : "border-surface-200 hover:border-surface-300"
+                }`}
+              >
+                <div className="text-left">
+                  <div className="text-sm font-medium text-surface-800">
+                    {aiCeoEnabled ? "Enabled" : "Disabled"}
+                  </div>
+                  <div className="text-[11px] text-surface-500">
+                    Each company gets a Claude AI CEO making strategic decisions
+                  </div>
+                </div>
+                <div
+                  className={`w-10 h-6 rounded-full transition-all flex items-center ${
+                    aiCeoEnabled ? "bg-accent justify-end" : "bg-surface-300 justify-start"
+                  }`}
+                >
+                  <div className="w-4 h-4 bg-white rounded-full mx-1" />
+                </div>
+              </button>
+            </div>
+
+            {aiCeoEnabled && (
+              <>
+                <div>
+                  <label className="text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2 block">
+                    Duration
+                  </label>
+                  <div className="flex gap-2">
+                    {[5, 10, 20].map((y) => (
+                      <button
+                        key={y}
+                        onClick={() => setDurationYears(y)}
+                        className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-all ${
+                          durationYears === y
+                            ? "border-accent bg-accent/5 text-accent ring-1 ring-accent/30"
+                            : "border-surface-200 text-surface-600 hover:border-surface-300"
+                        }`}
+                      >
+                        {y} Years
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2 block">
+                    CEO Strategies
+                  </label>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto">
+                    {Array.from({ length: unifiedCompanyCount }, (_, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs text-surface-500 w-24 truncate flex-shrink-0">
+                          {AGENT_NAMES[i]}
+                        </span>
+                        <select
+                          value={companyStrategies[i] || "balanced"}
+                          onChange={(e) =>
+                            setCompanyStrategies((prev) => ({
+                              ...prev,
+                              [i]: e.target.value,
+                            }))
+                          }
+                          className="flex-1 text-xs bg-surface-0 border border-surface-200 rounded-lg px-2 py-1.5 text-surface-700 focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none"
+                        >
+                          {CEO_STRATEGIES.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
             <button
               onClick={handleStartUnified}
               className="w-full py-3 rounded-xl bg-accent text-white font-semibold text-sm transition-all hover:bg-accent/90 hover:shadow-lg hover:shadow-accent/20"
@@ -253,6 +267,21 @@ export default function Home() {
               Start Simulation
             </button>
           </div>
+        </div>
+
+        <div className="absolute bottom-4 right-5 flex items-center gap-4">
+          <button
+            onClick={() => setMode("market-pick")}
+            className="text-xs text-surface-400 hover:text-surface-600 transition-colors"
+          >
+            Market Competition
+          </button>
+          <button
+            onClick={() => setMode("growth-pick")}
+            className="text-xs text-surface-400 hover:text-surface-600 transition-colors"
+          >
+            Company Growth
+          </button>
         </div>
       </div>
     );
@@ -262,7 +291,7 @@ export default function Home() {
   if (mode === "unified-sim") {
     return (
       <div className="h-screen flex flex-col bg-surface-0 phase-enter">
-        <header className="flex items-center justify-between px-5 py-3 bg-surface-0/80 backdrop-blur-md border-b border-surface-200/50 z-10">
+        <header className="relative flex items-center justify-between px-5 py-3 bg-surface-0/80 backdrop-blur-md border-b border-surface-200/50 z-[60]">
           <div className="flex items-center gap-3">
             <button
               onClick={handleBack}
@@ -292,16 +321,36 @@ export default function Home() {
                 onPlay={unified.play}
                 onPause={unified.pause}
                 onSetSpeed={unified.setSpeed}
+                durationYears={aiCeoEnabled ? durationYears : undefined}
               />
             )}
           </div>
         </header>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden relative">
+          {unified.ceoThinking && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-900/60 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-4 px-8 py-6 rounded-2xl bg-surface-0/95 border border-accent/30 shadow-2xl shadow-accent/10">
+                <div className="flex gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-accent animate-[bounce_1s_ease-in-out_infinite_0ms]" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-accent animate-[bounce_1s_ease-in-out_infinite_200ms]" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-accent animate-[bounce_1s_ease-in-out_infinite_400ms]" />
+                </div>
+                <p className="text-sm font-semibold text-surface-800 tracking-wide">
+                  AI CEOs are deliberating
+                </p>
+                <p className="text-xs text-surface-500 max-w-[260px] text-center">
+                  Agents are reviewing quarterly results and making strategic decisions
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="w-[60%] h-full border-r border-surface-200/50">
             <ForceGraph
-              graph={unified.graph}
-              companyName={unified.agents.find((a) => a.id === unified.focusedCompanyId)?.name ?? "Company"}
+              graph={unified.mergedGraph}
+              multiCompany
+              onFocusCompany={unified.setFocusedCompany}
             />
           </div>
           <div className="w-[40%] h-full overflow-hidden">
@@ -317,6 +366,7 @@ export default function Home() {
               history={unified.history}
               eventLog={unified.eventLog}
               onFocusCompany={unified.setFocusedCompany}
+              reports={unified.reports}
             />
           </div>
         </div>

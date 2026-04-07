@@ -1,7 +1,5 @@
-import type { GraphData } from "@/types/graph";
-
 const API_BASE = "/api/backend";
-const SSE_BASE = "http://localhost:8000";
+const SSE_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -42,9 +40,11 @@ export function startSimulation(
   });
 }
 
+export type SimulationAction = "play" | "pause" | "set_speed" | "focus_company";
+
 export function controlSimulation(
   sessionId: string,
-  action: string,
+  action: SimulationAction,
   speed?: number,
 ): Promise<{ status: string }> {
   return request(`/api/simulate/control/${sessionId}`, {
@@ -89,6 +89,9 @@ export function startUnifiedSimulation(
   startMode = "identical",
   numCompanies = 4,
   maxTicks = 0,
+  aiCeoEnabled = false,
+  durationYears = 5,
+  companyStrategies: Record<number, string> = {},
 ): Promise<{ session_id: string }> {
   return request("/api/simulate/start", {
     method: "POST",
@@ -97,6 +100,9 @@ export function startUnifiedSimulation(
       start_mode: startMode,
       num_companies: numCompanies,
       max_ticks: maxTicks,
+      ai_ceo_enabled: aiCeoEnabled,
+      duration_years: durationYears,
+      company_strategies: companyStrategies,
     }),
   });
 }
@@ -104,7 +110,7 @@ export function startUnifiedSimulation(
 export function focusCompany(
   sessionId: string,
   companyId: string,
-): Promise<{ status: string; graph?: GraphData }> {
+): Promise<{ status: string }> {
   return request(`/api/simulate/control/${sessionId}`, {
     method: "POST",
     body: JSON.stringify({ action: "focus_company", company_id: companyId }),

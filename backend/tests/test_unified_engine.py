@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
+from src.simulation.config_loader import load_industry
 from src.simulation.unified import CompanyAgent, UnifiedEngine, _compute_shares
 from src.simulation.unified_models import UnifiedParams, UnifiedStartConfig
-from src.simulation.models import NodeType
-
 
 # ── Helper ──
 
@@ -88,15 +89,17 @@ class TestComputeShares:
 
 class TestCompanyAgent:
     def test_initial_nodes(self):
-        agent = CompanyAgent(name="Test", index=0)
+        spec = load_industry("restaurant")
+        agent = CompanyAgent(name="Test", index=0, spec=spec)
         types = [n.type for n in agent.state.nodes.values()]
-        assert NodeType.OWNER_OPERATOR in types
-        assert NodeType.RESTAURANT in types
-        assert NodeType.CHICKEN_SUPPLIER in types
-        assert NodeType.PRODUCE_SUPPLIER in types
+        assert "owner_operator" in types
+        assert "restaurant" in types
+        assert "chicken_supplier" in types
+        assert "produce_supplier" in types
 
     def test_initial_location_has_unified_reorder_params(self):
-        agent = CompanyAgent(name="Test", index=0)
+        spec = load_industry("restaurant")
+        agent = CompanyAgent(name="Test", index=0, spec=spec)
         locs = agent.active_locations()
         assert len(locs) == 1
         ls = locs[0].location_state
@@ -105,33 +108,38 @@ class TestCompanyAgent:
         assert ls.reorder_point == 80.0
 
     def test_location_count(self):
-        agent = CompanyAgent(name="Test", index=0)
+        spec = load_industry("restaurant")
+        agent = CompanyAgent(name="Test", index=0, spec=spec)
         assert agent.location_count() == 1
 
     def test_stage_progression(self):
-        agent = CompanyAgent(name="Test", index=0)
+        spec = load_industry("restaurant")
+        agent = CompanyAgent(name="Test", index=0, spec=spec)
         agent.update_stage()
         assert agent.state.stage == 1
 
         # Simulate 2 locations
-        agent._add_node(NodeType.RESTAURANT)
+        agent._add_node("restaurant")
         for n in agent.state.nodes.values():
-            if n.type == NodeType.RESTAURANT and n.location_state is None:
+            if n.type == "restaurant" and n.location_state is None:
                 from src.simulation.models import LocationState
                 n.location_state = LocationState()
+        agent.refresh_caches()
         agent.update_stage()
         assert agent.state.stage == 2
 
     def test_graph_snapshot_has_nodes(self):
-        agent = CompanyAgent(name="Test", index=0)
+        spec = load_industry("restaurant")
+        agent = CompanyAgent(name="Test", index=0, spec=spec)
         snap = agent.build_graph_snapshot()
         assert len(snap.nodes) >= 4  # owner + restaurant + 2 suppliers
         assert len(snap.edges) >= 2  # suppliers -> restaurant
 
     def test_trigger_isolation(self):
         """Each agent's triggers are independent (deep copied)."""
-        a = CompanyAgent(name="A", index=0)
-        b = CompanyAgent(name="B", index=1)
+        spec = load_industry("restaurant")
+        a = CompanyAgent(name="A", index=0, spec=spec)
+        b = CompanyAgent(name="B", index=1, spec=spec)
         # Triggers are separate objects
         assert a.triggers is not b.triggers
         assert a.triggers[0] is not b.triggers[0]
@@ -172,9 +180,9 @@ class TestUnifiedEngineInit:
 
 class TestUnifiedEngineTick:
     def test_first_tick_produces_valid_result(self):
-        engine = _run_engine(1)
+        engine = _run_engine(0)
         result = engine.tick()
-        assert result["tick"] == 2
+        assert result["tick"] == 1
         assert result["status"] == "operating"
         assert result["tam"] > 0
         assert len(result["agents"]) == 4
@@ -213,11 +221,11 @@ class TestUnifiedEngineTick:
         for c in engine.companies:
             if c.alive:
                 # Just verify cash is a real number (not NaN/inf)
-                assert not (c.state.cash != c.state.cash)  # NaN check
-                assert abs(c.state.cash) < 1_000_000_000  # sanity bound
+                assert not math.isnan(c.state.cash)
+                assert not math.isinf(c.state.cash)
+                assert abs(c.state.cash) < 1_000_000_000
 
     def test_max_ticks_stops_engine(self):
-        engine = _run_engine(100, num_companies=2)
         config = UnifiedStartConfig(num_companies=2, max_ticks=50)
         engine = UnifiedEngine(config=config, seed=42)
         for _ in range(100):
@@ -297,11 +305,80 @@ class TestUnifiedLongRun:
             assert 0 <= result["hhi"] <= 1.0, f"HHI out of range at tick {result['tick']}"
 
     def test_graph_snapshot_in_result(self):
-        """Every tick result should include a valid graph for the focused company."""
+        """Every tick result should include valid graphs for all companies."""
         config = UnifiedStartConfig(num_companies=3)
         engine = UnifiedEngine(config=config, seed=42)
         result = engine.tick()
-        graph = result["graph"]
-        assert "nodes" in graph
-        assert "edges" in graph
-        assert len(graph["nodes"]) >= 4  # at least owner + restaurant + 2 suppliers
+        graphs = result["graphs"]
+        assert len(graphs) == 3
+        for _name, graph in graphs.items():
+            assert "nodes" in graph
+            assert "edges" in graph
+            assert len(graph["nodes"]) >= 4  # at least owner + restaurant + 2 suppliers
+
+
+# ── Optimization validation ──
+
+
+class TestOptimizationDeterminism:
+    def test_100_tick_determinism(self):
+        """Optimized engine must produce stable, valid results over 100 ticks."""
+        engine = _run_engine(100, num_companies=4, seed=42)
+        alive = [c for c in engine.companies if c.alive]
+        assert len(alive) > 0
+
+        # Shares still sum to ~1
+        total_share = sum(c.share for c in alive)
+        assert total_share == pytest.approx(1.0, abs=1e-6)
+
+        # No NaN/inf cash
+        for c in engine.companies:
+            assert not math.isnan(c.state.cash)
+            assert not math.isinf(c.state.cash)
+
+        # Alive companies have positive location counts
+        for c in alive:
+            assert c.location_count() >= 1
+
+
+class TestSoASync:
+    def test_loc_arrays_match_sim_nodes(self):
+        """LocationArrays mutable fields must match SimNode.location_state after tick."""
+        engine = _run_engine(50, num_companies=4, seed=42)
+        for c in engine.companies:
+            if not c.alive:
+                continue
+            arrays = c._loc_arrays
+            for i, node_id in enumerate(arrays.node_ids):
+                node = c.state.nodes[node_id]
+                ls = node.location_state
+                assert ls is not None
+                assert float(arrays.customers[i]) == pytest.approx(ls.customers, abs=1e-10)
+                assert float(arrays.inventory[i]) == pytest.approx(ls.inventory, abs=1e-10)
+                assert float(arrays.satisfaction[i]) == pytest.approx(ls.satisfaction, abs=1e-10)
+
+    def test_loc_arrays_size_matches_location_count(self):
+        """LocationArrays size must equal cached location count."""
+        engine = _run_engine(200, num_companies=4, seed=42)
+        for c in engine.companies:
+            if not c.alive:
+                continue
+            assert c._loc_arrays.size == c.location_count()
+
+    def test_cache_consistency(self):
+        """Cached values must match re-computed values from nodes."""
+        engine = _run_engine(100, num_companies=4, seed=42)
+        for c in engine.companies:
+            if not c.alive:
+                continue
+            # Re-count active nodes manually
+            actual_active = sum(1 for n in c.state.nodes.values() if n.active)
+            assert c.active_node_count() == actual_active
+
+            # Re-count by type
+            loc_type = c.spec.roles.location_type
+            actual_locs = sum(
+                1 for n in c.state.nodes.values()
+                if n.type == loc_type and n.active
+            )
+            assert c.location_count() == actual_locs

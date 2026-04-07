@@ -7,22 +7,28 @@ interface TimeControlsProps {
   speed: number;
   tick: number;
   isComplete: boolean;
+  durationYears?: number;
   onPlay: () => void;
   onPause: () => void;
   onSetSpeed: (speed: number) => void;
 }
 
-const SPEEDS = [1, 2, 5, 10, 50];
+const SPEEDS = [1, 2, 5, 10, 50, 100, 500];
 
 export function TimeControls({
   playing,
   speed,
   tick,
   isComplete,
+  durationYears,
   onPlay,
   onPause,
   onSetSpeed,
 }: TimeControlsProps) {
+  const maxTicks = durationYears != null ? durationYears * 365 : 0;
+  const hasProgress = maxTicks > 0;
+  const progress = hasProgress ? Math.min(tick / maxTicks, 1) : 0;
+
   return (
     <div className="flex items-center gap-2 bg-surface-50/80 backdrop-blur border border-surface-200 rounded-xl px-3 py-1.5">
       <button
@@ -67,6 +73,20 @@ export function TimeControls({
           Day <span className="text-surface-800 font-mono font-medium">{tick}</span>
         </span>
       </div>
+
+      {hasProgress && (
+        <>
+          <div className="w-24 h-1.5 bg-surface-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${isComplete ? "bg-complete" : "bg-accent"}`}
+              style={{ width: `${progress * 100}%` }}
+            />
+          </div>
+          <span className="text-[10px] font-mono text-surface-500 w-8 text-right">
+            {Math.round(progress * 100)}%
+          </span>
+        </>
+      )}
 
       {isComplete && (
         <span className="text-[10px] font-medium text-complete bg-complete/10 px-2 py-0.5 rounded-md">
