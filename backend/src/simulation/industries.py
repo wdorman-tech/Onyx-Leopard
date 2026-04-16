@@ -48,3 +48,11 @@ def _build_registry() -> dict[str, IndustryConfig]:
 
 
 INDUSTRY_REGISTRY: dict[str, IndustryConfig] = _build_registry()
+
+
+def refresh_registry() -> None:
+    """Rebuild the registry from disk. Call after saving a new industry YAML."""
+    global INDUSTRY_REGISTRY
+    from src.simulation.config_loader import clear_cache
+    clear_cache()
+    INDUSTRY_REGISTRY = _build_registry()

@@ -35,7 +35,7 @@ class GrowthEngine:
         loc_id = self._add_node(self.spec.roles.location_type, edges_to=[])
         self.state.nodes[loc_id].location_state = LocationState(
             **self.spec.location_defaults.model_dump(
-                exclude={"unified_reorder_qty", "unified_reorder_point"}
+                exclude={"unified_replenish_amount", "unified_replenish_threshold"}
             )
         )
         self._supplier_ids: list[str] = []
@@ -116,7 +116,8 @@ class GrowthEngine:
             if loc_count >= threshold:
                 volume_mult = mult
                 break
-        mods["food_cost"] = mods.get("food_cost", 1.0) * volume_mult
+        key = self.spec.constants.variable_cost_modifier_key
+        mods[key] = mods.get(key, 1.0) * volume_mult
 
         return mods
 
@@ -141,13 +142,13 @@ class GrowthEngine:
                 served = min(ls.customers, ls.max_capacity, ls.inventory)
                 total_daily_revenue += served * ls.price
                 rev = ls.customers * ls.price
-                costs = ls.daily_fixed_costs + ls.customers * ls.food_cost_per_plate
+                costs = ls.daily_fixed_costs + ls.customers * ls.variable_cost_per_unit
                 if rev > 0:
                     location_margins.append((rev - costs) / rev)
 
         metrics: dict[str, float] = {
             "location_count": location_count,
-            "monthly_revenue": total_daily_revenue * 30,
+            "monthly_revenue": total_daily_revenue * self.spec.constants.days_per_month,
             "cash": self.state.cash,
             "total_employees": self.state.total_employees,
             "avg_satisfaction": (
@@ -214,7 +215,7 @@ class GrowthEngine:
         self.state.tick += 1
 
         # Reset yearly counter
-        if self.state.tick % 365 == 0:
+        if self.state.tick % self.spec.constants.ticks_per_year == 0:
             self.state.locations_opened_this_year = 0
 
         events: list[str] = []

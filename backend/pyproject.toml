@@ -17,6 +17,7 @@ dependencies = [
     "scipy>=1.14",
     "numpy>=2",
     "pyyaml>=6",
+    "pymupdf>=1.25",
 ]
 
 [dependency-groups]

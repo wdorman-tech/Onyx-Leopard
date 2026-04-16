@@ -8,6 +8,7 @@ import type {
   UnifiedAgentSnapshot,
   UnifiedTickData,
 } from "@/types/unified";
+import type { SpecDisplay } from "@/lib/api";
 import {
   startUnifiedSimulation,
   controlSimulation,
@@ -34,6 +35,8 @@ export interface UseUnifiedSimulationReturn {
   ceoThinking: boolean;
   ceoDecisionLog: CEODecisionEvent[];
   reports: CEOReport[] | null;
+  specDisplay: SpecDisplay | null;
+  founderType: string | null;
   start: (
     startMode?: string,
     numCompanies?: number,
@@ -102,6 +105,8 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
   const [ceoThinking, setCeoThinking] = useState(false);
   const [ceoDecisionLog, setCeoDecisionLog] = useState<CEODecisionEvent[]>([]);
   const [reports, setReports] = useState<CEOReport[] | null>(null);
+  const [specDisplay, setSpecDisplay] = useState<SpecDisplay | null>(null);
+  const [founderType, setFounderType] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const mergedGraph = useMemo(() => {
@@ -128,7 +133,7 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
         setReports(null);
 
         const maxTicks = aiCeoEnabled ? durationYears * 365 : 0;
-        const { session_id } = await startUnifiedSimulation(
+        const resp = await startUnifiedSimulation(
           startMode,
           numCompanies,
           maxTicks,
@@ -136,7 +141,9 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
           durationYears,
           companyStrategies,
         );
-        setSessionId(session_id);
+        setSessionId(resp.session_id);
+        if (resp.spec_display) setSpecDisplay(resp.spec_display);
+        if (resp.founder_type) setFounderType(resp.founder_type);
         setTick(0);
         setIsComplete(false);
         setStatus("operating");
@@ -146,7 +153,11 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
         setEventLog([]);
         setPlaying(true);
 
-        const es = createSimulationStream(session_id);
+        const noiseFilters = resp.spec_display?.event_noise_filters ?? [
+          "spoiled", "Ordered", "Turned away", "Cannot reorder",
+        ];
+
+        const es = createSimulationStream(resp.session_id);
         eventSourceRef.current = es;
 
         es.onmessage = (event) => {
@@ -191,11 +202,7 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
               setHistory((prev) => [...prev.slice(-499), historyEntry as UnifiedTickData]);
               if ((data.events as string[])?.length > 0) {
                 const significant = (data.events as string[]).filter(
-                  (e: string) =>
-                    !e.includes("spoiled") &&
-                    !e.includes("Ordered") &&
-                    !e.includes("Turned away") &&
-                    !e.includes("Cannot reorder"),
+                  (e: string) => !noiseFilters.some((f) => e.includes(f)),
                 );
                 if (significant.length > 0) {
                   setEventLog((prev) => [
@@ -305,6 +312,8 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
     ceoThinking,
     ceoDecisionLog,
     reports,
+    specDisplay,
+    founderType,
     start,
     play,
     pause,

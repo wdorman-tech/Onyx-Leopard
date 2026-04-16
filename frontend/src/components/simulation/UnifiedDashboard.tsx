@@ -45,10 +45,12 @@ function fmtPct(n: number): string {
 
 const ICON_SIZE = 11;
 const ICON_CLASS = "text-surface-400";
+const HHI_COMPETITIVE = 0.15;
+const HHI_MODERATE = 0.25;
 
 function hhiLabel(hhi: number): string {
-  if (hhi < 0.15) return "Competitive";
-  if (hhi < 0.25) return "Moderate";
+  if (hhi < HHI_COMPETITIVE) return "Competitive";
+  if (hhi < HHI_MODERATE) return "Moderate";
   return "Concentrated";
 }
 
@@ -196,9 +198,9 @@ export function UnifiedDashboard({
             <Activity
               size={ICON_SIZE}
               className={
-                hhi > 0.25
+                hhi > HHI_MODERATE
                   ? "text-red-400"
-                  : hhi > 0.15
+                  : hhi > HHI_COMPETITIVE
                     ? "text-amber-400"
                     : "text-green-500"
               }

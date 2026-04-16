@@ -59,9 +59,9 @@ class TestStandaloneMode:
         assert state.satisfaction > 0.5
 
     def test_inventory_reorder_triggers(self):
-        """When inventory drops below reorder_point, a reorder happens."""
+        """When inventory drops below replenish_threshold, a replenish happens."""
         random.seed(42)
-        state = _make_state(inventory=25.0, reorder_point=30.0, reorder_qty=100.0)
+        state = _make_state(inventory=25.0, replenish_threshold=30.0, replenish_amount=100.0)
         result, reorder_cost = tick_location(state, {}, 50_000.0)
 
         assert reorder_cost > 0
@@ -71,7 +71,7 @@ class TestStandaloneMode:
     def test_no_reorder_when_no_cash(self):
         """If company is broke, reorder shouldn't happen."""
         random.seed(42)
-        state = _make_state(inventory=5.0, reorder_point=30.0)
+        state = _make_state(inventory=5.0, replenish_threshold=30.0)
         _, reorder_cost = tick_location(state, {}, 0.0)  # zero cash
         assert reorder_cost == 0.0
 
@@ -94,8 +94,8 @@ class TestStandaloneMode:
         state = _make_state(
             inventory=200.0,
             customers=10.0,
-            spoilage_rate=0.1,
-            reorder_point=5.0,
+            capacity_decay_rate=0.1,
+            replenish_threshold=5.0,
         )
         tick_location(state, {}, 50_000.0)
         # With 10 served and ~10% spoilage on remaining ~190: ~19 spoiled

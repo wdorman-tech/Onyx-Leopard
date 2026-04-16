@@ -105,7 +105,7 @@ function computeDepths(nodes: ForceNode[], edges: SimEdge[]): void {
   }
 }
 
-function injectRoot(graph: GraphData, companyName: string): { nodes: SimNode[]; edges: SimEdge[] } {
+function injectRoot(graph: GraphData, companyName: string, founderType = "owner_operator"): { nodes: SimNode[]; edges: SimEdge[] } {
   const rootId = "__root__";
   const rootNode: SimNode = {
     id: rootId,
@@ -120,7 +120,7 @@ function injectRoot(graph: GraphData, companyName: string): { nodes: SimNode[]; 
   const rootEdges: SimEdge[] = [];
 
   for (const n of graph.nodes) {
-    if (n.type === "owner_operator" || !incomingSet.has(n.id)) {
+    if (n.type === founderType || !incomingSet.has(n.id)) {
       rootEdges.push({ source: rootId, target: n.id, relationship: "owns" });
     }
   }
@@ -136,7 +136,7 @@ function injectRoot(graph: GraphData, companyName: string): { nodes: SimNode[]; 
 }
 
 /** Multi-company: inject a root node per company and connect orphans to it. */
-function injectMultiRoots(graph: GraphData): { nodes: SimNode[]; edges: SimEdge[] } {
+function injectMultiRoots(graph: GraphData, founderType = "owner_operator"): { nodes: SimNode[]; edges: SimEdge[] } {
   const companiesInGraph = new Set<string>();
   for (const n of graph.nodes) {
     if (n.companyId) companiesInGraph.add(n.companyId);
@@ -166,7 +166,7 @@ function injectMultiRoots(graph: GraphData): { nodes: SimNode[]; edges: SimEdge[
     allNodes.push(rootNode);
 
     for (const n of companyNodes) {
-      if (n.type === "owner_operator" || !incomingSet.has(n.id)) {
+      if (n.type === founderType || !incomingSet.has(n.id)) {
         allEdges.push({ source: rootId, target: n.id, relationship: "owns" });
       }
     }
@@ -252,6 +252,7 @@ interface ForceGraphProps {
   graph: GraphData | null;
   companyName?: string;
   multiCompany?: boolean;
+  founderType?: string;
   onFocusCompany?: (companyId: string) => void;
 }
 
@@ -259,6 +260,7 @@ export function ForceGraph({
   graph,
   companyName = "Company",
   multiCompany = false,
+  founderType = "owner_operator",
   onFocusCompany,
 }: ForceGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -488,8 +490,8 @@ export function ForceGraph({
     }
 
     const { nodes: injectedNodes, edges: injectedEdges } = multiCompany
-      ? injectMultiRoots(graph)
-      : injectRoot(graph, companyName);
+      ? injectMultiRoots(graph, founderType)
+      : injectRoot(graph, companyName, founderType);
     const newNodeCount = injectedNodes.length;
     const nodeCountChanged = newNodeCount !== prevNodeCountRef.current;
     prevNodeCountRef.current = newNodeCount;

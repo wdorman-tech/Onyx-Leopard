@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Plus } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { TimeControls } from "@/components/simulation/TimeControls";
 import { CompanyDashboard } from "@/components/simulation/CompanyDashboard";
@@ -16,7 +17,7 @@ import { useUnifiedSimulation } from "@/hooks/useUnifiedSimulation";
 
 type AppMode = "unified-pick" | "growth-pick" | "growth-sim" | "market-pick" | "market-sim" | "unified-sim";
 
-const STAGE_LABELS: Record<number, string> = {
+const DEFAULT_STAGE_LABELS: Record<number, string> = {
   1: "Single Location",
   2: "Multi-Location",
   3: "Regional Chain",
@@ -38,6 +39,7 @@ const CEO_STRATEGIES = [
 ];
 
 export default function Home() {
+  const router = useRouter();
   const sim = useSimulation();
   const market = useMarketSimulation();
   const unified = useUnifiedSimulation();
@@ -49,6 +51,17 @@ export default function Home() {
   const [aiCeoEnabled, setAiCeoEnabled] = useState(false);
   const [durationYears, setDurationYears] = useState(5);
   const [companyStrategies, setCompanyStrategies] = useState<Record<number, string>>({});
+
+  const stageLabels = useMemo(() => {
+    if (!unified.specDisplay?.stage_labels) return DEFAULT_STAGE_LABELS;
+    const labels: Record<number, string> = {};
+    for (const [k, v] of Object.entries(unified.specDisplay.stage_labels)) {
+      labels[Number(k)] = v;
+    }
+    return labels;
+  }, [unified.specDisplay]);
+
+  const durationOptions = unified.specDisplay?.duration_options ?? [5, 10, 20];
 
   // ── Growth mode handlers ──
   const handleSelectIndustry = useCallback(
@@ -163,14 +176,14 @@ export default function Home() {
               <input
                 type="range"
                 min={2}
-                max={8}
+                max={20}
                 value={unifiedCompanyCount}
                 onChange={(e) => setUnifiedCompanyCount(Number(e.target.value))}
                 className="w-full accent-accent"
               />
               <div className="flex justify-between text-[10px] text-surface-400 mt-1">
                 <span>2</span>
-                <span>8</span>
+                <span>20</span>
               </div>
             </div>
 
@@ -211,7 +224,7 @@ export default function Home() {
                     Duration
                   </label>
                   <div className="flex gap-2">
-                    {[5, 10, 20].map((y) => (
+                    {durationOptions.map((y) => (
                       <button
                         key={y}
                         onClick={() => setDurationYears(y)}
@@ -265,6 +278,14 @@ export default function Home() {
               className="w-full py-3 rounded-xl bg-accent text-white font-semibold text-sm transition-all hover:bg-accent/90 hover:shadow-lg hover:shadow-accent/20"
             >
               Start Simulation
+            </button>
+
+            <button
+              onClick={() => router.push("/profile")}
+              className="w-full py-3 rounded-xl border border-surface-200 text-surface-700 font-semibold text-sm transition-all hover:border-accent hover:text-accent hover:bg-accent/5 flex items-center justify-center gap-2"
+            >
+              <Plus size={16} />
+              Create Your Business
             </button>
           </div>
         </div>
@@ -350,6 +371,7 @@ export default function Home() {
             <ForceGraph
               graph={unified.mergedGraph}
               multiCompany
+              founderType={unified.founderType ?? undefined}
               onFocusCompany={unified.setFocusedCompany}
             />
           </div>
@@ -400,7 +422,7 @@ export default function Home() {
             {sim.sessionId && (
               <span className="text-[10px] font-medium text-accent bg-accent/10 px-2 py-0.5 rounded-md ml-2">
                 Stage {sim.stage}:{" "}
-                {STAGE_LABELS[sim.stage] ?? `Stage ${sim.stage}`}
+                {stageLabels[sim.stage] ?? `Stage ${sim.stage}`}
               </span>
             )}
           </div>

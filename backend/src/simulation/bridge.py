@@ -63,9 +63,9 @@ def derive_competitive_attributes(
     loc_count = len(locations)
     marketing += loc_count * bridge.marketing_per_location
 
-    # CEO marketing boost: 0.5 = neutral, 0.0 = -10, 1.0 = +10
-    if marketing_boost != 0.5:
-        marketing = max(1.0, marketing + (marketing_boost - 0.5) * 20.0)
+    # CEO marketing boost
+    if marketing_boost != bridge.marketing_boost_neutral:
+        marketing = max(1.0, marketing + (marketing_boost - bridge.marketing_boost_neutral) * bridge.marketing_boost_multiplier)
 
     # ── Capacity K_i ──
     avg_price = (

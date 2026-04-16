@@ -26,7 +26,6 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from src.simulation.bridge import derive_competitive_attributes
-from src.simulation.ceo_agent import CEO_INTERVAL_TICKS
 from src.simulation.config_loader import IndustrySpec, load_industry
 from src.simulation.location import tick_locations_batch
 from src.simulation.market.colors import agent_color
@@ -39,6 +38,7 @@ from src.simulation.models import (
     CompanyState,
     GraphSnapshot,
     LocationArrays,
+    LocationConfig,
     LocationState,
     NodeCategory,
     NodeSnapshot,
@@ -47,6 +47,9 @@ from src.simulation.models import (
 )
 from src.simulation.triggers import build_triggers
 from src.simulation.unified_models import UnifiedStartConfig
+
+_MAX_THREAD_WORKERS = 8
+_THREADING_LOC_THRESHOLD = 100
 
 
 class CompanyAgent:
@@ -99,6 +102,22 @@ class CompanyAgent:
         np_seed = self._rng.randint(0, 2**32 - 1)
         self._np_rng = np.random.default_rng(np_seed)
 
+        # Per-industry location simulation constants (for batch tick)
+        ld = spec.location_defaults
+        self._loc_config = LocationConfig(
+            satisfaction_penalty_rate=ld.satisfaction_penalty_rate,
+            satisfaction_recovery_rate=ld.satisfaction_recovery_rate,
+            customer_convergence_rate=ld.customer_convergence_rate,
+            demand_cap_ratio=ld.demand_cap_ratio,
+            demand_noise_low=ld.demand_noise_low,
+            demand_noise_high=ld.demand_noise_high,
+            subscription_scaling_threshold=ld.subscription_scaling_threshold,
+            subscription_scaling_increment=ld.subscription_scaling_increment,
+            new_customer_ratio=ld.new_customer_ratio,
+            days_per_month=spec.constants.days_per_month,
+            variable_cost_modifier_key=spec.constants.variable_cost_modifier_key,
+        )
+
         # Struct-of-arrays for vectorized location ticking
         self._loc_arrays = LocationArrays()
 
@@ -120,10 +139,8 @@ class CompanyAgent:
         loc_type = spec.roles.location_type
         self._add_node(spec.roles.founder_type)
         loc_id = self._add_node(loc_type)
-        loc_defaults = spec.location_defaults
         self.state.nodes[loc_id].location_state = LocationState(
-            reorder_qty=loc_defaults.unified_reorder_qty,
-            reorder_point=loc_defaults.unified_reorder_point,
+            **spec.location_defaults.to_location_state()
         )
         self._supplier_ids: list[str] = []
         for supplier_type in spec.roles.supplier_types:
@@ -248,7 +265,7 @@ class CompanyAgent:
                 served = min(ls.customers, ls.max_capacity, ls.inventory)
                 total_daily_revenue += served * ls.price
                 rev = ls.customers * ls.price
-                costs = ls.daily_fixed_costs + ls.customers * ls.food_cost_per_plate
+                costs = ls.daily_fixed_costs + ls.customers * ls.variable_cost_per_unit
                 if rev > 0:
                     location_margins.append((rev - costs) / rev)
 
@@ -293,7 +310,8 @@ class CompanyAgent:
             if loc_count >= threshold:
                 volume_mult = mult
                 break
-        mods["food_cost"] = mods.get("food_cost", 1.0) * volume_mult
+        key = self.spec.constants.variable_cost_modifier_key
+        mods[key] = mods.get(key, 1.0) * volume_mult
 
         return mods
 
@@ -301,7 +319,7 @@ class CompanyAgent:
         """Build metrics dict for trigger evaluation from cached values."""
         metrics: dict[str, float] = {
             "location_count": self._cached_location_count,
-            "monthly_revenue": self._cached_total_daily_revenue * 30,
+            "monthly_revenue": self._cached_total_daily_revenue * self.spec.constants.days_per_month,
             "cash": self.state.cash,
             "total_employees": self.state.total_employees,
             "avg_satisfaction": self._cached_avg_satisfaction,
@@ -312,12 +330,11 @@ class CompanyAgent:
 
     def check_triggers(self) -> list[str]:
         """Check all growth triggers and spawn nodes. Returns event messages."""
-        from src.simulation.ceo_agent import EXPANSION_OVERRIDES
-
         events: list[str] = []
         metrics, node_type_counts = self._compute_trigger_metrics()
         consts = self.spec.constants
         loc_type = self.spec.roles.location_type
+        expansion_overrides = self.spec.ceo.expansion_overrides
 
         for trigger in self.triggers:
             if not trigger.can_fire(metrics, node_type_counts, self.state.tick):
@@ -326,12 +343,12 @@ class CompanyAgent:
             if trigger.is_location_expansion:
                 # CEO expansion overrides
                 if self.strategy is not None:
-                    overrides = EXPANSION_OVERRIDES.get(
+                    overrides = expansion_overrides.get(
                         self._expansion_pace,
-                        EXPANSION_OVERRIDES["normal"],
+                        expansion_overrides["normal"],
                     )
                     cash_threshold = overrides["cash_threshold"]
-                    trigger.cooldown_ticks = overrides["cooldown_ticks"]
+                    trigger.cooldown_ticks = int(overrides["cooldown_ticks"])
                     if self.state.locations_opened_this_year >= self._max_locations_per_year:
                         continue
                 else:
@@ -340,12 +357,11 @@ class CompanyAgent:
                 if self.state.cash < cash_threshold:
                     continue
                 loc_id = self._add_node(loc_type)
-                loc_defaults = self.spec.location_defaults
                 self.state.nodes[loc_id].location_state = LocationState(
-                    customers=consts.new_location_starting_customers,
-                    satisfaction=consts.new_location_starting_satisfaction,
-                    reorder_qty=loc_defaults.unified_reorder_qty,
-                    reorder_point=loc_defaults.unified_reorder_point,
+                    **self.spec.location_defaults.to_location_state(
+                        customers=consts.new_location_starting_customers,
+                        satisfaction=consts.new_location_starting_satisfaction,
+                    )
                 )
                 self.state.cash -= consts.location_open_cost
                 self.state.total_employees += consts.employees_per_location
@@ -464,7 +480,7 @@ class UnifiedEngine:
         # Spawn initial companies based on start mode
         initial_count = cfg.num_companies
         if cfg.start_mode == "staggered":
-            initial_count = min(2, cfg.num_companies)
+            initial_count = min(self.spec.constants.staggered_initial_count, cfg.num_companies)
 
         self._target_companies = cfg.num_companies
         self._start_mode = cfg.start_mode
@@ -483,7 +499,7 @@ class UnifiedEngine:
         self._use_threading = cfg.num_companies > 2
         if self._use_threading:
             self._executor = ThreadPoolExecutor(
-                max_workers=min(8, cfg.num_companies),
+                max_workers=min(_MAX_THREAD_WORKERS, cfg.num_companies),
             )
 
         if self.companies:
@@ -503,9 +519,10 @@ class UnifiedEngine:
         if idx >= len(AGENT_NAMES):
             name = f"{name} {idx // len(AGENT_NAMES) + 1}"
 
+        consts = self.spec.constants
         cash = self.params.starting_cash
         if start_mode == "randomized":
-            cash = self.rng.uniform(30_000.0, 80_000.0)
+            cash = self.rng.uniform(consts.random_start_cash_low, consts.random_start_cash_high)
 
         agent = CompanyAgent(name=name, index=idx, spec=self.spec, cash=cash, rng=self.rng)
 
@@ -517,8 +534,12 @@ class UnifiedEngine:
             # Add variance to first location's starting conditions
             for node in agent.state.nodes.values():
                 if node.location_state is not None:
-                    node.location_state.satisfaction = self.rng.uniform(0.55, 0.85)
-                    node.location_state.customers = self.rng.uniform(20.0, 45.0)
+                    node.location_state.satisfaction = self.rng.uniform(
+                        consts.random_start_satisfaction_low, consts.random_start_satisfaction_high
+                    )
+                    node.location_state.customers = self.rng.uniform(
+                        consts.random_start_customers_low, consts.random_start_customers_high
+                    )
             agent._rebuild_loc_arrays()
 
         self.companies.append(agent)
@@ -541,7 +562,7 @@ class UnifiedEngine:
         for company in alive:
             company.state.tick = self.tick_num
             company.refresh_caches()
-            if self.tick_num % 365 == 0:
+            if self.tick_num % self.spec.constants.ticks_per_year == 0:
                 company.state.locations_opened_this_year = 0
 
         # ── Step 1: Update TAM ──
@@ -583,7 +604,7 @@ class UnifiedEngine:
             if n > 0:
                 # Step 5: Allocate demand using arrays directly
                 prices = loc_arrays.price
-                avg_price = float(sum(prices)) / n if n > 0 else 14.0
+                avg_price = float(sum(prices)) / n if n > 0 else self.spec.constants.default_avg_price
                 ceiling_customers = ceiling / avg_price if avg_price > 0 else 0.0
                 scores = loc_arrays.satisfaction * loc_arrays.max_capacity
                 total_score = float(sum(scores))
@@ -598,6 +619,8 @@ class UnifiedEngine:
                 batch = tick_locations_batch(
                     loc_arrays, mods, cash_snapshot, allocated_arr,
                     company._np_rng, company.state.name, loc_arrays.labels,
+                    supply_unit_name=self.spec.location_defaults.supply_unit_name,
+                    config=company._loc_config,
                 )
                 company._sync_arrays_to_nodes()
                 company_events.extend(batch.events)
@@ -626,7 +649,7 @@ class UnifiedEngine:
             self._use_threading
             and self._executor is not None
             and len(alive) > 2
-            and total_locs >= 100
+            and total_locs >= _THREADING_LOC_THRESHOLD
         )
         if use_threads:
             futures = [
@@ -643,7 +666,7 @@ class UnifiedEngine:
         if (
             self.ai_ceo_enabled
             and self.tick_num > 0
-            and self.tick_num % CEO_INTERVAL_TICKS == 0
+            and self.tick_num % self.spec.ceo.interval_ticks == 0
         ):
             self._pending_ceo_calls = True
 
@@ -681,7 +704,7 @@ class UnifiedEngine:
             if self._start_mode == "staggered":
                 alive_count = len(alive_now)
                 if alive_count < self._target_companies:
-                    p_spawn = max(p_spawn, 0.02)
+                    p_spawn = max(p_spawn, self.spec.constants.min_spawn_probability)
 
             if self.rng.random() < p_spawn:
                 new_company = self._spawn_company(self._start_mode)
@@ -778,7 +801,7 @@ class UnifiedEngine:
             if company.strategy is None:
                 continue
 
-            system_prompt = build_ceo_system_prompt(company.strategy)
+            system_prompt = build_ceo_system_prompt(company.strategy, spec=self.spec)
             user_prompt = build_ceo_user_prompt(
                 company, self.companies, self.tick_num, self.tam,
             )
@@ -791,7 +814,7 @@ class UnifiedEngine:
             decisions.append({
                 "company_name": company.state.name,
                 "tick": self.tick_num,
-                "sim_year": round(self.tick_num / 365, 1),
+                "sim_year": round(self.tick_num / self.spec.constants.ticks_per_year, 1),
                 "strategy": company.strategy,
                 "decision": decision.model_dump(),
             })
@@ -808,7 +831,7 @@ class UnifiedEngine:
         )
 
         reports: list[dict] = []
-        system_prompt = build_report_system_prompt()
+        system_prompt = build_report_system_prompt(spec=self.spec)
 
         for company in self.companies:
             if company.strategy is None:

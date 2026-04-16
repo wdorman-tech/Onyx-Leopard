@@ -17,6 +17,10 @@ class NodeCategory(str, Enum):
 
 
 class NodeType(str, Enum):
+    """DEPRECATED: Restaurant-specific node types. Kept for legacy GrowthEngine
+    and NODE_REGISTRY compatibility. The unified engine uses plain strings
+    loaded from industry YAML configs — new industries do NOT need entries here."""
+
     # Locations (v1)
     RESTAURANT = "restaurant"
     COMMISSARY = "commissary"
@@ -86,21 +90,52 @@ class NodeType(str, Enum):
 
 
 class LocationState(BaseModel):
-    """Per-location economics — same model as the original RestaurantEngine."""
+    """Per-location economics — generic model for any industry type."""
 
+    economics_model: str = "physical"  # "physical" | "subscription" | "service"
     inventory: float = 80.0
     customers: float = 30.0
     satisfaction: float = 0.7
     price: float = 14.00
     max_capacity: int = 80
-    food_cost_per_plate: float = 1.50
+    variable_cost_per_unit: float = 1.50
     daily_fixed_costs: float = 300.00
-    reorder_point: float = 30.0
-    reorder_qty: float = 100.0
-    chicken_cost_per_lb: float = 3.50
-    spoilage_rate: float = 0.05
+    replenish_threshold: float = 30.0
+    replenish_amount: float = 100.0
+    supply_cost_per_unit: float = 3.50
+    capacity_decay_rate: float = 0.05
     word_of_mouth_rate: float = 0.02
     max_local_customers: float = 120.0
+    churn_rate: float = 0.0
+    acquisition_cost: float = 0.0
+    scaling_cost_per_unit: float = 0.0
+    # Simulation dynamics
+    satisfaction_penalty_rate: float = 0.02
+    satisfaction_recovery_rate: float = 0.005
+    customer_convergence_rate: float = 0.05
+    demand_cap_ratio: float = 0.85
+    demand_noise_low: float = 0.9
+    demand_noise_high: float = 1.1
+    subscription_scaling_threshold: float = 0.8
+    subscription_scaling_increment: float = 0.1
+    new_customer_ratio: float = 0.95
+
+
+@dataclass
+class LocationConfig:
+    """Per-industry location sim constants. Same for all locations in a company."""
+
+    satisfaction_penalty_rate: float = 0.02
+    satisfaction_recovery_rate: float = 0.005
+    customer_convergence_rate: float = 0.05
+    demand_cap_ratio: float = 0.85
+    demand_noise_low: float = 0.9
+    demand_noise_high: float = 1.1
+    subscription_scaling_threshold: float = 0.8
+    subscription_scaling_increment: float = 0.1
+    new_customer_ratio: float = 0.95
+    days_per_month: int = 30
+    variable_cost_modifier_key: str = "food_cost"
 
 
 @dataclass
@@ -118,12 +153,16 @@ class LocationArrays:
     # Read-only params (set at location creation)
     price: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
     max_capacity: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
-    food_cost_per_plate: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    variable_cost_per_unit: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
     daily_fixed_costs: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
-    reorder_point: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
-    reorder_qty: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
-    chicken_cost_per_lb: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
-    spoilage_rate: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    replenish_threshold: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    replenish_amount: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    supply_cost_per_unit: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    capacity_decay_rate: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    churn_rate: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+
+    # Non-numeric metadata (per location, same for all in an industry)
+    economics_model: str = "physical"
 
     @property
     def size(self) -> int:
@@ -138,12 +177,14 @@ class LocationArrays:
         self.satisfaction = np.append(self.satisfaction, ls.satisfaction)
         self.price = np.append(self.price, ls.price)
         self.max_capacity = np.append(self.max_capacity, float(ls.max_capacity))
-        self.food_cost_per_plate = np.append(self.food_cost_per_plate, ls.food_cost_per_plate)
+        self.variable_cost_per_unit = np.append(self.variable_cost_per_unit, ls.variable_cost_per_unit)
         self.daily_fixed_costs = np.append(self.daily_fixed_costs, ls.daily_fixed_costs)
-        self.reorder_point = np.append(self.reorder_point, ls.reorder_point)
-        self.reorder_qty = np.append(self.reorder_qty, ls.reorder_qty)
-        self.chicken_cost_per_lb = np.append(self.chicken_cost_per_lb, ls.chicken_cost_per_lb)
-        self.spoilage_rate = np.append(self.spoilage_rate, ls.spoilage_rate)
+        self.replenish_threshold = np.append(self.replenish_threshold, ls.replenish_threshold)
+        self.replenish_amount = np.append(self.replenish_amount, ls.replenish_amount)
+        self.supply_cost_per_unit = np.append(self.supply_cost_per_unit, ls.supply_cost_per_unit)
+        self.capacity_decay_rate = np.append(self.capacity_decay_rate, ls.capacity_decay_rate)
+        self.churn_rate = np.append(self.churn_rate, ls.churn_rate)
+        self.economics_model = ls.economics_model
 
 
 @dataclass

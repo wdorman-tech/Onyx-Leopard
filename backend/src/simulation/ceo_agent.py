@@ -17,12 +17,12 @@ import anthropic
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
+    from src.simulation.config_loader import IndustrySpec
     from src.simulation.unified import CompanyAgent
 
 log = logging.getLogger(__name__)
 
 CEO_MODEL = "claude-sonnet-4-6"
-CEO_INTERVAL_TICKS = 182  # ~6 months of sim time
 
 
 # ── Strategy definitions ──
@@ -70,12 +70,12 @@ class CEODecision(BaseModel):
     """Structured output from one CEO agent call."""
 
     reasoning: str
-    price_adjustment: float = Field(default=14.0, ge=10.0, le=22.0)
+    price_adjustment: float = 14.0
     expansion_pace: Literal["aggressive", "normal", "conservative"] = "normal"
     marketing_intensity: float = Field(default=0.5, ge=0.0, le=1.0)
     quality_investment: float = Field(default=0.0, ge=-0.05, le=0.10)
-    cost_target: float = Field(default=1.50, ge=1.00, le=2.50)
-    max_locations_per_year: int = Field(default=6, ge=0, le=12)
+    cost_target: float = 1.50
+    max_locations_per_year: int = 6
 
 
 class CEOReport(BaseModel):
@@ -112,31 +112,33 @@ class CEOInterview(BaseModel):
     qa_pairs: list[InterviewQA]
 
 
-# ── Expansion pace overrides ──
-
-EXPANSION_OVERRIDES: dict[str, dict[str, int | float]] = {
-    "aggressive": {"cooldown_ticks": 45, "cash_threshold": 60_000},
-    "normal": {"cooldown_ticks": 90, "cash_threshold": 80_000},
-    "conservative": {"cooldown_ticks": 180, "cash_threshold": 120_000},
-}
-
-
 # ── Prompt builders ──
 
-_DECISION_SCHEMA = """{
+
+def _build_decision_schema(ceo: "CeoConfig") -> str:
+    from src.simulation.config_loader import CeoConfig  # noqa: F811
+
+    return f"""{{
   "reasoning": "1-2 sentence explanation of your decision",
-  "price_adjustment": 14.0,       // price per plate ($10-$22)
+  "price_adjustment": {ceo.price_default},       // {ceo.price_unit} (${ceo.price_min}-${ceo.price_max})
   "expansion_pace": "normal",     // "aggressive" | "normal" | "conservative"
   "marketing_intensity": 0.5,     // 0.0 (cut) to 1.0 (double down)
   "quality_investment": 0.0,      // -0.05 (cut) to 0.10 (heavy invest)
-  "cost_target": 1.50,            // food cost per plate ($1.00-$2.50, below $1.20 hurts quality)
-  "max_locations_per_year": 6     // 0 (freeze) to 12
-}"""
+  "cost_target": {ceo.cost_default},              // {ceo.cost_unit} (${ceo.cost_min}-${ceo.cost_max})
+  "max_locations_per_year": 6     // 0 (freeze) to {ceo.max_locations_per_year_cap}
+}}"""
 
 
-def build_ceo_system_prompt(strategy: str) -> str:
+def build_ceo_system_prompt(strategy: str, spec: IndustrySpec | None = None) -> str:
+    from src.simulation.config_loader import CeoConfig
+
     desc = STRATEGY_DESCRIPTIONS.get(strategy, STRATEGY_DESCRIPTIONS["balanced"])
-    return f"""You are the CEO of a restaurant chain competing in a shared market simulation.
+    ceo = spec.ceo if spec else CeoConfig()
+    industry_name = spec.meta.name if spec else "Restaurant / Food Service"
+    industry_desc = spec.meta.description if spec else "a restaurant chain"
+    schema = _build_decision_schema(ceo)
+    return f"""You are the CEO of a {industry_name} company competing in a shared market simulation.
+Industry: {industry_desc}
 
 Your strategy is: **{strategy.replace("_", " ").title()}**
 {desc}
@@ -145,24 +147,24 @@ Every 6 months of simulated time, you review your company's performance
 and competitors, then make strategic decisions for the next 6 months.
 
 Your decisions directly affect operations:
-- **price_adjustment** ($10-$22): Revenue per customer. Higher prices
-  mean more revenue per plate but may reduce competitiveness.
+- **price_adjustment** (${ceo.price_min}-${ceo.price_max}): Revenue {ceo.price_unit}. Higher prices
+  mean more revenue per unit but may reduce competitiveness.
 - **expansion_pace** (aggressive/normal/conservative): How fast to open
   new locations. Aggressive = shorter cooldowns, lower cash thresholds.
 - **marketing_intensity** (0.0-1.0): Marketing spend. 0.5 = maintain,
   1.0 = double down, 0.0 = cut entirely.
 - **quality_investment** (-0.05 to 0.10): Quality/satisfaction
   investment. Costs more but improves market share via quality score.
-- **cost_target** ($1.00-$2.50): Food cost per plate. Lower = better
-  margins, but below $1.20 damages quality.
-- **max_locations_per_year** (0-12): Cap on new locations per year.
+- **cost_target** (${ceo.cost_min}-${ceo.cost_max}): {ceo.cost_unit.capitalize()}. Lower = better
+  margins, but cutting too deep damages quality.
+- **max_locations_per_year** (0-{ceo.max_locations_per_year_cap}): Cap on new locations per year.
   0 = freeze expansion entirely.
 
 Market share is determined by: quality^0.8 * marketing^0.8 (multinomial logit).
 Companies die if cash stays below -$5,000 for 30 consecutive days.
 
 Respond with ONLY a JSON object matching this schema:
-{_DECISION_SCHEMA}"""
+{schema}"""
 
 
 def build_ceo_user_prompt(
@@ -171,16 +173,18 @@ def build_ceo_user_prompt(
     tick: int,
     tam: float,
 ) -> str:
-    year = tick / 365
-    half = "H1" if (tick % 365) < 182 else "H2"
+    ceo = company.spec.ceo
+    tpy = company.spec.constants.ticks_per_year
+    year = tick / tpy
+    half = "H1" if (tick % tpy) < (tpy // 2) else "H2"
 
     # Current price from first location
-    current_price = 14.0
-    current_food_cost = 1.50
+    current_price = ceo.price_default
+    current_food_cost = ceo.cost_default
     for node in company.state.nodes.values():
         if node.location_state is not None:
             current_price = node.location_state.price
-            current_food_cost = node.location_state.food_cost_per_plate
+            current_food_cost = node.location_state.variable_cost_per_unit
             break
 
     lines = [
@@ -198,7 +202,7 @@ def build_ceo_user_prompt(
         f"  Marketing Score: {company.marketing:.1f}",
         f"  Stage: {company.state.stage}",
         f"  Current Price: ${current_price:.2f}",
-        f"  Current Food Cost: ${current_food_cost:.2f}",
+        f"  Current {ceo.cost_unit.title()}: ${current_food_cost:.2f}",
         f"  Total Employees: {company.state.total_employees}",
         "",
         "COMPETITORS:",
@@ -227,14 +231,15 @@ def build_ceo_user_prompt(
     return "\n".join(lines)
 
 
-def build_report_system_prompt() -> str:
-    return """You are writing a post-simulation performance report for a restaurant chain CEO.
+def build_report_system_prompt(spec: IndustrySpec | None = None) -> str:
+    industry_name = spec.meta.name if spec else "Restaurant / Food Service"
+    return f"""You are writing a post-simulation performance report for a {industry_name} company CEO.
 
 Analyze the company's trajectory, strategic decisions, and competitive outcomes.
 Be direct and analytical — highlight what worked, what failed, and why.
 
 Respond with ONLY a JSON object matching this schema:
-{
+{{
   "company_name": "string",
   "strategy": "string",
   "performance_summary": "2-3 sentence overview of the company's journey",
@@ -242,7 +247,7 @@ Respond with ONLY a JSON object matching this schema:
   "what_went_wrong": "2-3 sentences on failures or missed opportunities",
   "key_decisions": ["list of 3-5 pivotal decisions and their outcomes"],
   "final_assessment": "1-2 sentence overall verdict"
-}"""
+}}"""
 
 
 def build_report_user_prompt(
@@ -251,7 +256,8 @@ def build_report_user_prompt(
     tick: int,
     tam: float,
 ) -> str:
-    years = tick / 365
+    tpy = company.spec.constants.ticks_per_year
+    years = tick / tpy
 
     lines = [
         f"SIMULATION COMPLETE — {years:.1f} years simulated",
@@ -283,7 +289,7 @@ def build_report_user_prompt(
         lines.append(f"\nDECISION HISTORY ({len(company._ceo_decision_history)} decisions):")
         for d in company._ceo_decision_history:
             lines.append(
-                f"  Tick {d['tick']} (Year {d['tick']/365:.1f}): "
+                f"  Tick {d['tick']} (Year {d['tick']/tpy:.1f}): "
                 f"price=${d.get('price_adjustment', 14):.2f}, "
                 f"expansion={d.get('expansion_pace', 'normal')}, "
                 f"marketing={d.get('marketing_intensity', 0.5):.1f}, "
@@ -395,7 +401,13 @@ async def call_report_agent(
 
 def apply_decision(company: CompanyAgent, decision: CEODecision, tick: int) -> None:
     """Mutate company state based on a CEO decision."""
+    ceo = company.spec.ceo
     loc_type = company.spec.roles.location_type
+
+    # Clamp values to industry-specific ranges
+    decision.price_adjustment = max(ceo.price_min, min(ceo.price_max, decision.price_adjustment))
+    decision.cost_target = max(ceo.cost_min, min(ceo.cost_max, decision.cost_target))
+    decision.max_locations_per_year = max(0, min(ceo.max_locations_per_year_cap, decision.max_locations_per_year))
 
     # Price adjustment — set on all locations
     for node in company.state.nodes.values():
@@ -405,7 +417,7 @@ def apply_decision(company: CompanyAgent, decision: CEODecision, tick: int) -> N
     # Food cost target — set on all locations
     for node in company.state.nodes.values():
         if node.location_state is not None:
-            node.location_state.food_cost_per_plate = decision.cost_target
+            node.location_state.variable_cost_per_unit = decision.cost_target
 
     # Quality investment — adjust satisfaction_baseline modifier on location nodes
     for node in company.state.nodes.values():

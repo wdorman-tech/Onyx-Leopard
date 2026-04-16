@@ -108,7 +108,7 @@ class TestLoadRestaurant:
         spec = load_industry("restaurant")
         assert spec.location_defaults.price == 14.0
         assert spec.location_defaults.max_capacity == 80
-        assert spec.location_defaults.unified_reorder_qty == 200.0
+        assert spec.location_defaults.unified_replenish_amount == 200.0
 
 
 class TestCaching:

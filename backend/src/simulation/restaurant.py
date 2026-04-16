@@ -20,12 +20,12 @@ class RestaurantEngine:
         # Parameters
         self.price = 12.00
         self.max_capacity = 60
-        self.food_cost_per_plate = 1.50  # cooking costs (gas, oil, seasoning)
+        self.variable_cost_per_unit = 1.50  # cooking costs (gas, oil, seasoning)
         self.daily_fixed_costs = 368.00
-        self.reorder_point = 20.0
-        self.reorder_qty = 80.0  # enough to cover max_capacity
-        self.chicken_cost_per_lb = 3.50
-        self.spoilage_rate = 0.05
+        self.replenish_threshold = 20.0
+        self.replenish_amount = 80.0  # enough to cover max_capacity
+        self.supply_cost_per_unit = 3.50
+        self.capacity_decay_rate = 0.05
         self.word_of_mouth_rate = 0.02
         self.max_local_customers = 120.0
 
@@ -52,7 +52,7 @@ class RestaurantEngine:
         if unserved > 0 and actual_demand > self.max_capacity:
             events.append(f"Turned away {unserved} customers (at capacity)")
         elif unserved > 0 and self.inventory < actual_demand:
-            events.append(f"Turned away {unserved} customers (out of chicken)")
+            events.append(f"Turned away {unserved} customers (low inventory)")
 
         # 3. Revenue
         daily_revenue = servable * self.price
@@ -60,25 +60,25 @@ class RestaurantEngine:
         # 4. Inventory consumption
         self.inventory -= servable
 
-        # 5. Spoilage
-        spoiled = self.inventory * self.spoilage_rate
-        if spoiled >= 1:
-            events.append(f"{spoiled:.0f} lbs chicken spoiled")
-        self.inventory -= spoiled
+        # 5. Capacity decay
+        decayed = self.inventory * self.capacity_decay_rate
+        if decayed >= 1:
+            events.append(f"{decayed:.0f} units lost to decay")
+        self.inventory -= decayed
         self.inventory = max(0, self.inventory)
 
-        # 6. Auto-reorder
-        if self.inventory < self.reorder_point:
-            order_cost = self.reorder_qty * self.chicken_cost_per_lb
+        # 6. Auto-replenish
+        if self.inventory < self.replenish_threshold:
+            order_cost = self.replenish_amount * self.supply_cost_per_unit
             if self.cash >= order_cost:
-                self.inventory += self.reorder_qty
+                self.inventory += self.replenish_amount
                 self.cash -= order_cost
-                events.append(f"Ordered {self.reorder_qty:.0f} lbs chicken (${order_cost:.0f})")
+                events.append(f"Replenished {self.replenish_amount:.0f} units (${order_cost:.0f})")
             else:
-                events.append("Cannot reorder — insufficient cash")
+                events.append("Cannot replenish — insufficient cash")
 
         # 7. Costs
-        daily_variable_costs = servable * self.food_cost_per_plate
+        daily_variable_costs = servable * self.variable_cost_per_unit
         daily_costs = self.daily_fixed_costs + daily_variable_costs
 
         # 8. Cash update

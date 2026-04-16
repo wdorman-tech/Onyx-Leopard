@@ -104,8 +104,8 @@ class TestCompanyAgent:
         assert len(locs) == 1
         ls = locs[0].location_state
         assert ls is not None
-        assert ls.reorder_qty == 200.0
-        assert ls.reorder_point == 80.0
+        assert ls.replenish_amount == 200.0
+        assert ls.replenish_threshold == 80.0
 
     def test_location_count(self):
         spec = load_industry("restaurant")

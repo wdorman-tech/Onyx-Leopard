@@ -11,8 +11,11 @@ from starlette.responses import StreamingResponse
 from src.simulation.industries import INDUSTRY_REGISTRY
 from src.simulation.manager import session_manager
 from src.simulation.market.presets import MARKET_PRESETS
+from src.simulation.config_loader import load_industry
 from src.simulation.unified import UnifiedEngine
 from src.simulation.unified_models import UnifiedStartConfig
+
+_TARGET_FRAME_TIME = 0.016  # ~60fps, controls how many ticks batch per SSE event
 
 router = APIRouter(prefix="/api/simulate", tags=["simulation"])
 
@@ -89,7 +92,8 @@ async def start_simulation(request: StartRequest) -> dict:
             ok, err = await validate_api_key()
             if not ok:
                 raise HTTPException(status_code=400, detail=err)
-            max_ticks = request.duration_years * 365
+            ceo_spec = load_industry(request.industry)
+            max_ticks = request.duration_years * ceo_spec.constants.ticks_per_year
 
         config = UnifiedStartConfig(
             industry=request.industry,
@@ -107,7 +111,12 @@ async def start_simulation(request: StartRequest) -> dict:
             mode="unified",
             unified_config=config,
         )
-        return {"session_id": session.id}
+        spec = load_industry(request.industry)
+        return {
+            "session_id": session.id,
+            "spec_display": spec.display.model_dump(),
+            "founder_type": spec.roles.founder_type,
+        }
 
     if request.industry not in INDUSTRY_REGISTRY:
         raise HTTPException(status_code=400, detail=f"Unknown industry: {request.industry}")
@@ -140,7 +149,7 @@ async def stream_simulation(session_id: str):
 
             # At very high speeds, batch multiple ticks per SSE event
             # to reduce network overhead and make the sim feel faster.
-            ticks_per_frame = max(1, int(0.016 / max(session.speed, 0.001)))
+            ticks_per_frame = max(1, int(_TARGET_FRAME_TIME / max(session.speed, 0.001)))
             for _ in range(ticks_per_frame):
                 if engine.is_complete:
                     break

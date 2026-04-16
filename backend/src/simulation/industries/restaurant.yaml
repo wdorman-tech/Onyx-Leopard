@@ -541,6 +541,23 @@ constants:
     - [3, 0.93]
     - [1, 1.00]
 
+# ── CEO agent config ──
+ceo:
+  interval_ticks: 182
+  price_min: 10.0
+  price_max: 22.0
+  price_default: 14.0
+  cost_min: 1.00
+  cost_max: 2.50
+  cost_default: 1.50
+  max_locations_per_year_cap: 12
+  price_unit: "per plate"
+  cost_unit: "food cost per plate"
+  expansion_overrides:
+    aggressive: { cooldown_ticks: 45, cash_threshold: 60000 }
+    normal: { cooldown_ticks: 90, cash_threshold: 80000 }
+    conservative: { cooldown_ticks: 180, cash_threshold: 120000 }
+
 # ── Growth stages ──
 stages:
   - { min_locations: 1, stage: 1 }
@@ -550,19 +567,42 @@ stages:
 
 # ── Location economics defaults ──
 location_defaults:
+  economics_model: physical
+  supply_unit_name: "lbs chicken"
+  location_label: "Restaurant"
   inventory: 80.0
   customers: 30.0
   satisfaction: 0.7
   price: 14.00
   max_capacity: 80
-  food_cost_per_plate: 1.50
+  variable_cost_per_unit: 1.50
   daily_fixed_costs: 300.0
-  reorder_point: 30.0
-  reorder_qty: 100.0
-  chicken_cost_per_lb: 3.50
-  spoilage_rate: 0.05
+  replenish_threshold: 30.0
+  replenish_amount: 100.0
+  supply_cost_per_unit: 3.50
+  capacity_decay_rate: 0.05
   word_of_mouth_rate: 0.02
   max_local_customers: 120.0
   # Unified mode overrides
-  unified_reorder_qty: 200.0
-  unified_reorder_point: 80.0
+  unified_replenish_amount: 200.0
+  unified_replenish_threshold: 80.0
+  # Simulation dynamics
+  satisfaction_penalty_rate: 0.02
+  satisfaction_recovery_rate: 0.005
+  customer_convergence_rate: 0.05
+  demand_cap_ratio: 0.85
+  demand_noise_low: 0.9
+  demand_noise_high: 1.1
+
+# ── Frontend display ──
+display:
+  stage_labels:
+    1: "Single Location"
+    2: "Multi-Location"
+    3: "Regional Chain"
+    4: "National Chain"
+  event_noise_filters:
+    - "spoiled"
+    - "Ordered"
+    - "Turned away"
+    - "Cannot reorder"

@@ -85,6 +85,18 @@ export function startMarketSimulation(
 
 // ── Unified simulation API ──
 
+export interface SpecDisplay {
+  stage_labels: Record<string, string>;
+  event_noise_filters: string[];
+  duration_options: number[];
+}
+
+export interface UnifiedStartResponse {
+  session_id: string;
+  spec_display?: SpecDisplay;
+  founder_type?: string;
+}
+
 export function startUnifiedSimulation(
   startMode = "identical",
   numCompanies = 4,
@@ -92,7 +104,7 @@ export function startUnifiedSimulation(
   aiCeoEnabled = false,
   durationYears = 5,
   companyStrategies: Record<number, string> = {},
-): Promise<{ session_id: string }> {
+): Promise<UnifiedStartResponse> {
   return request("/api/simulate/start", {
     method: "POST",
     body: JSON.stringify({
@@ -115,4 +127,74 @@ export function focusCompany(
     method: "POST",
     body: JSON.stringify({ action: "focus_company", company_id: companyId }),
   });
+}
+
+// ── Profile Builder API ──
+
+export interface ProfileStartResponse {
+  session_id: string;
+  first_question: string;
+}
+
+export interface ProfileAnswerResponse {
+  next_question: string;
+  progress: number;
+  is_complete: boolean;
+  industry_spec?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface ProfileSessionResponse {
+  session_id: string;
+  status: string;
+  transcript: Array<{ role: string; content: string }>;
+  industry_spec: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export function startProfile(): Promise<ProfileStartResponse> {
+  return request("/api/profile/start", { method: "POST" });
+}
+
+export function answerProfile(
+  sessionId: string,
+  answer: string,
+): Promise<ProfileAnswerResponse> {
+  return request(`/api/profile/${sessionId}/answer`, {
+    method: "POST",
+    body: JSON.stringify({ answer }),
+  });
+}
+
+export function getProfileSession(
+  sessionId: string,
+): Promise<ProfileSessionResponse> {
+  return request(`/api/profile/${sessionId}`);
+}
+
+export function confirmProfile(
+  sessionId: string,
+  slug: string,
+): Promise<{ slug: string; path: string; message: string }> {
+  return request(`/api/profile/${sessionId}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ slug }),
+  });
+}
+
+export async function uploadDocument(
+  sessionId: string,
+  file: File,
+): Promise<{ filename: string; summary: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`/api/backend/api/profile/${sessionId}/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`Upload failed: ${detail}`);
+  }
+  return res.json();
 }

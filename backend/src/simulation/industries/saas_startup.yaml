@@ -1,0 +1,476 @@
+meta:
+  slug: saas_startup
+  name: "SaaS Startup"
+  description: "Scale a B2B SaaS product from first customers to market leader"
+  icon: cloud
+  playable: true
+  total_nodes: 25
+  growth_stages: 4
+  key_metrics:
+    - "Monthly Recurring Revenue"
+    - "Avg Satisfaction"
+    - "Churn Rate"
+    - "Total Products"
+  example_nodes:
+    - "Product Instance"
+    - "Engineering Team"
+    - "Sales Team"
+    - "Enterprise Tier"
+  categories:
+    Locations: 4
+    Corporate: 12
+    External: 4
+    Revenue: 5
+
+roles:
+  location_type: product_instance
+  founder_type: founder_ceo
+  supplier_types:
+    - cloud_provider
+    - payment_processor
+  numbered_labels:
+    product_instance: "Product"
+    engineering_lead: "Eng Lead"
+
+# ── Node definitions ──
+nodes:
+  # Locations (each "location" is a product/market instance)
+  product_instance:
+    label: "Product Instance"
+    category: location
+    stage: 1
+    annual_cost: 36000  # hosting + infrastructure
+    enabled: true
+
+  enterprise_product:
+    label: "Enterprise Product"
+    category: location
+    stage: 3
+    annual_cost: 72000
+    cost_modifiers:
+      infra_cost: -0.10  # better margins at scale
+    revenue_modifiers:
+      customer_growth: 0.15
+    enabled: true
+
+  api_platform:
+    label: "API Platform"
+    category: location
+    stage: 3
+    annual_cost: 48000
+    revenue_modifiers:
+      customer_growth: 0.20
+    enabled: true
+
+  white_label:
+    label: "White-Label Product"
+    category: location
+    stage: 4
+    annual_cost: 60000
+    revenue_modifiers:
+      customer_reach: 0.30
+    enabled: true
+
+  # Corporate
+  founder_ceo:
+    label: "Founder / CEO"
+    category: corporate
+    stage: 1
+    annual_cost: 0
+    revenue_modifiers:
+      satisfaction_baseline: 0.05
+      customer_growth: 0.10
+    enabled: true
+
+  first_engineer:
+    label: "First Engineer"
+    category: corporate
+    stage: 1
+    annual_cost: 120000
+    revenue_modifiers:
+      satisfaction_baseline: 0.03
+    enabled: true
+
+  engineering_lead:
+    label: "Engineering Lead"
+    category: corporate
+    stage: 2
+    annual_cost: 150000
+    revenue_modifiers:
+      satisfaction_baseline: 0.05
+    enabled: true
+
+  product_manager:
+    label: "Product Manager"
+    category: corporate
+    stage: 2
+    annual_cost: 130000
+    revenue_modifiers:
+      product_innovation: 0.05
+      customer_growth: 0.10
+    enabled: true
+
+  sales_team:
+    label: "Sales Team"
+    category: corporate
+    stage: 2
+    annual_cost: 100000
+    revenue_modifiers:
+      customer_growth: 0.25
+      customer_reach: 0.15
+    enabled: true
+
+  marketing:
+    label: "Marketing"
+    category: corporate
+    stage: 2
+    annual_cost: 90000
+    revenue_modifiers:
+      customer_reach: 0.20
+    enabled: true
+
+  customer_success:
+    label: "Customer Success"
+    category: corporate
+    stage: 2
+    annual_cost: 85000
+    revenue_modifiers:
+      satisfaction_baseline: 0.08
+    enabled: true
+
+  devops:
+    label: "DevOps / SRE"
+    category: corporate
+    stage: 2
+    annual_cost: 140000
+    cost_modifiers:
+      infra_cost: -0.08  # infrastructure cost reduction
+    revenue_modifiers:
+      satisfaction_baseline: 0.03
+    enabled: true
+
+  data_team:
+    label: "Data / Analytics Team"
+    category: corporate
+    stage: 3
+    annual_cost: 130000
+    revenue_modifiers:
+      product_innovation: 0.05
+    enabled: true
+
+  hr:
+    label: "People Operations"
+    category: corporate
+    stage: 3
+    annual_cost: 95000
+    enabled: true
+
+  finance:
+    label: "Finance / FP&A"
+    category: corporate
+    stage: 3
+    annual_cost: 110000
+    enabled: true
+
+  legal:
+    label: "Legal / Compliance"
+    category: corporate
+    stage: 3
+    annual_cost: 100000
+    enabled: true
+
+  # External
+  cloud_provider:
+    label: "Cloud Provider"
+    category: external
+    stage: 1
+    annual_cost: 0
+    cost_modifiers:
+      infra_cost: -0.05
+    enabled: true
+
+  payment_processor:
+    label: "Payment Processor"
+    category: external
+    stage: 1
+    annual_cost: 0
+    enabled: true
+
+  vc_investor:
+    label: "VC Investor"
+    category: external
+    stage: 2
+    annual_cost: 0
+    revenue_modifiers:
+      customer_reach: 0.10
+    enabled: true
+
+  strategic_partner:
+    label: "Strategic Partner"
+    category: external
+    stage: 3
+    annual_cost: 0
+    revenue_modifiers:
+      customer_growth: 0.15
+      customer_reach: 0.10
+    enabled: true
+
+  # Revenue streams
+  subscription_revenue:
+    label: "Subscription Revenue"
+    category: revenue
+    stage: 1
+    annual_cost: 0
+    revenue_modifiers:
+      subscription_revenue: 0.10
+    enabled: true
+
+  enterprise_contracts:
+    label: "Enterprise Contracts"
+    category: revenue
+    stage: 3
+    annual_cost: 15000
+    revenue_modifiers:
+      subscription_revenue: 0.20
+    enabled: true
+
+  marketplace_integrations:
+    label: "Marketplace / Integrations"
+    category: revenue
+    stage: 3
+    annual_cost: 20000
+    revenue_modifiers:
+      subscription_revenue: 0.10
+      customer_reach: 0.10
+    enabled: true
+
+  consulting_services:
+    label: "Professional Services"
+    category: revenue
+    stage: 2
+    annual_cost: 10000
+    revenue_modifiers:
+      subscription_revenue: 0.08
+    enabled: true
+
+  usage_based_billing:
+    label: "Usage-Based Billing"
+    category: revenue
+    stage: 3
+    annual_cost: 5000
+    revenue_modifiers:
+      subscription_revenue: 0.15
+    enabled: true
+
+# ── Growth triggers ──
+triggers:
+  - node_type: first_engineer
+    label: "Hired First Engineer"
+    condition:
+      monthly_revenue: {">": 5000}
+
+  - node_type: product_instance
+    label: "Launched New Product"
+    is_location_expansion: true
+    cooldown_ticks: 120
+    condition:
+      all:
+        - cash: {">": 60000}
+        - avg_location_margin: {">=": 0.15}
+        - has_node: engineering_lead
+
+  - node_type: sales_team
+    label: "Hired Sales Team"
+    condition:
+      all:
+        - location_count: {">=": 1}
+        - monthly_revenue: {">": 10000}
+
+  - node_type: marketing
+    label: "Hired Marketing"
+    condition:
+      location_count: {">=": 2}
+
+  - node_type: customer_success
+    label: "Hired Customer Success"
+    condition:
+      all:
+        - location_count: {">=": 2}
+        - avg_satisfaction: {"<": 0.8}
+
+  - node_type: engineering_lead
+    label: "Promoted Engineering Lead"
+    condition:
+      all:
+        - location_count: {">=": 2}
+        - monthly_revenue: {">": 20000}
+
+  - node_type: product_manager
+    label: "Hired Product Manager"
+    condition:
+      location_count: {">=": 2}
+
+  - node_type: devops
+    label: "Hired DevOps / SRE"
+    condition:
+      location_count: {">=": 3}
+
+  - node_type: consulting_services
+    label: "Launched Professional Services"
+    condition:
+      all:
+        - location_count: {">=": 2}
+        - avg_satisfaction: {">": 0.65}
+
+  - node_type: vc_investor
+    label: "Raised VC Funding"
+    condition:
+      all:
+        - monthly_revenue: {">": 30000}
+        - location_count: {">=": 2}
+
+  - node_type: data_team
+    label: "Built Data Team"
+    condition:
+      location_count: {">=": 4}
+
+  - node_type: hr
+    label: "Hired People Operations"
+    condition:
+      total_employees: {">": 30}
+
+  - node_type: enterprise_contracts
+    label: "Closed Enterprise Contracts"
+    condition:
+      all:
+        - location_count: {">=": 3}
+        - monthly_revenue: {">": 50000}
+
+  - node_type: marketplace_integrations
+    label: "Launched Marketplace"
+    condition:
+      all:
+        - location_count: {">=": 4}
+        - has_node: data_team
+
+  - node_type: finance
+    label: "Hired Finance / FP&A"
+    condition:
+      monthly_revenue: {">": 100000}
+
+  - node_type: legal
+    label: "Hired Legal / Compliance"
+    condition:
+      location_count: {">=": 5}
+
+  - node_type: strategic_partner
+    label: "Signed Strategic Partner"
+    condition:
+      all:
+        - location_count: {">=": 4}
+        - monthly_revenue: {">": 80000}
+
+  - node_type: usage_based_billing
+    label: "Launched Usage-Based Billing"
+    condition:
+      all:
+        - location_count: {">=": 5}
+        - has_node: data_team
+
+# ── Bridge: node graph → market attributes ──
+bridge:
+  marketing_baseline: 3.0
+  marketing_per_location: 2.0
+  sustainable_utilization: 0.90
+  marketing_contributions:
+    marketing: 20.0
+    sales_team: 15.0
+    consulting_services: 5.0
+    marketplace_integrations: 10.0
+  quality_modifier_keys:
+    - satisfaction_baseline
+    - product_innovation
+  infrastructure_multipliers:
+    enterprise_product: 1.20
+    api_platform: 1.15
+
+# ── Constants ──
+constants:
+  location_open_cost: 30000      # cost to launch a new product
+  employees_per_location: 5      # engineers per product
+  starting_cash: 80000           # seed funding
+  new_location_starting_customers: 10.0
+  new_location_starting_satisfaction: 0.6
+  volume_discounts:
+    - [1, 1.0]
+    - [3, 0.90]
+    - [5, 0.82]
+    - [8, 0.75]
+  variable_cost_modifier_key: "infra_cost"
+
+# ── CEO agent config ──
+ceo:
+  interval_ticks: 182
+  price_min: 19.0
+  price_max: 199.0
+  price_default: 49.0
+  cost_min: 0.50
+  cost_max: 10.0
+  cost_default: 2.0
+  max_locations_per_year_cap: 6
+  price_unit: "monthly subscription"
+  cost_unit: "hosting cost per user"
+  expansion_overrides:
+    aggressive: { cooldown_ticks: 60, cash_threshold: 40000 }
+    normal: { cooldown_ticks: 120, cash_threshold: 60000 }
+    conservative: { cooldown_ticks: 240, cash_threshold: 100000 }
+
+# ── Growth stages ──
+stages:
+  - { min_locations: 1, stage: 1 }   # MVP
+  - { min_locations: 2, stage: 2 }   # Product-market fit
+  - { min_locations: 4, stage: 3 }   # Growth
+  - { min_locations: 8, stage: 4 }   # Scale
+
+# ── Location economics defaults ──
+location_defaults:
+  economics_model: subscription
+  supply_unit_name: "licenses"
+  location_label: "Product"
+  inventory: 100.0               # initial capacity (max subscribers)
+  customers: 10.0
+  satisfaction: 0.65
+  price: 49.00                   # monthly subscription price
+  max_capacity: 500
+  variable_cost_per_unit: 2.00   # hosting cost per active user
+  daily_fixed_costs: 100.0       # base infrastructure
+  replenish_threshold: 50.0
+  replenish_amount: 100.0
+  supply_cost_per_unit: 0.50     # infra scaling cost per unit
+  capacity_decay_rate: 0.0       # no spoilage for digital products
+  word_of_mouth_rate: 0.03       # faster viral growth than physical
+  max_local_customers: 300.0
+  unified_replenish_amount: 200.0
+  unified_replenish_threshold: 100.0
+  churn_rate: 0.05               # 5% monthly churn
+  acquisition_cost: 50.0         # CAC per new customer
+  scaling_cost_per_unit: 5.0     # cost to add capacity
+  # Simulation dynamics (tuned for SaaS)
+  satisfaction_penalty_rate: 0.01    # stickier product, slower penalty
+  satisfaction_recovery_rate: 0.003  # slower recovery
+  customer_convergence_rate: 0.08   # faster user acquisition loops
+  demand_cap_ratio: 0.90            # can run closer to capacity
+  demand_noise_low: 0.95            # more predictable demand
+  demand_noise_high: 1.05
+
+# ── Frontend display ──
+display:
+  stage_labels:
+    1: "MVP"
+    2: "Product-Market Fit"
+    3: "Growth Stage"
+    4: "Scale"
+  event_noise_filters:
+    - "scaled capacity"
+    - "churned"
+    - "Cannot replenish"

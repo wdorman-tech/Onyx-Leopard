@@ -61,6 +61,8 @@ class BridgeDef(BaseModel):
     marketing_contributions: dict[str, float] = Field(default_factory=dict)
     quality_modifier_keys: list[str] = Field(default_factory=list)
     infrastructure_multipliers: dict[str, float] = Field(default_factory=dict)
+    marketing_boost_neutral: float = 0.5
+    marketing_boost_multiplier: float = 20.0
 
 
 class StageDef(BaseModel):
@@ -69,21 +71,49 @@ class StageDef(BaseModel):
 
 
 class LocationDefaults(BaseModel):
+    economics_model: str = "physical"  # "physical" | "subscription" | "service"
+    supply_unit_name: str = "units"  # e.g. "lbs chicken", "licenses", "billable hours"
+    location_label: str = "Location"  # e.g. "Restaurant", "Office", "Data Center"
     inventory: float = 80.0
     customers: float = 30.0
     satisfaction: float = 0.7
     price: float = 14.0
     max_capacity: int = 80
-    food_cost_per_plate: float = 1.50
+    variable_cost_per_unit: float = 1.50
     daily_fixed_costs: float = 300.0
-    reorder_point: float = 30.0
-    reorder_qty: float = 100.0
-    chicken_cost_per_lb: float = 3.50
-    spoilage_rate: float = 0.05
+    replenish_threshold: float = 30.0
+    replenish_amount: float = 100.0
+    supply_cost_per_unit: float = 3.50
+    capacity_decay_rate: float = 0.05
     word_of_mouth_rate: float = 0.02
     max_local_customers: float = 120.0
-    unified_reorder_qty: float = 200.0
-    unified_reorder_point: float = 80.0
+    unified_replenish_amount: float = 200.0
+    unified_replenish_threshold: float = 80.0
+    # Subscription/service model fields
+    churn_rate: float = 0.0  # monthly customer loss rate (subscription model)
+    acquisition_cost: float = 0.0  # cost to acquire a new customer
+    scaling_cost_per_unit: float = 0.0  # cost to add capacity (SaaS infra, hiring)
+    # Simulation dynamics (per-industry tuning)
+    satisfaction_penalty_rate: float = 0.02  # satisfaction drop per unserved/demand ratio
+    satisfaction_recovery_rate: float = 0.005  # daily satisfaction recovery when no stockouts
+    customer_convergence_rate: float = 0.05  # how fast customers converge to allocated demand
+    demand_cap_ratio: float = 0.85  # max demand as fraction of capacity
+    demand_noise_low: float = 0.9  # daily demand variance lower bound
+    demand_noise_high: float = 1.1  # daily demand variance upper bound
+    subscription_scaling_threshold: float = 0.8  # capacity utilization that triggers scaling
+    subscription_scaling_increment: float = 0.1  # fraction of capacity added per scale event
+    new_customer_ratio: float = 0.95  # fraction of customers assumed existing (for CAC calc)
+
+    def to_location_state(self, **overrides: object) -> dict:
+        """Dump fields for LocationState init in unified mode."""
+        data = self.model_dump(
+            exclude={"unified_replenish_amount", "unified_replenish_threshold",
+                     "location_label", "supply_unit_name"}
+        )
+        data["replenish_amount"] = self.unified_replenish_amount
+        data["replenish_threshold"] = self.unified_replenish_threshold
+        data.update(overrides)
+        return data
 
 
 class ConstantsDef(BaseModel):
@@ -94,6 +124,55 @@ class ConstantsDef(BaseModel):
     new_location_starting_satisfaction: float = 0.5
     volume_discounts: list[list[float]] = Field(
         default_factory=lambda: [[1, 1.0]]
+    )
+    days_per_month: int = 30
+    ticks_per_year: int = 365
+    variable_cost_modifier_key: str = "food_cost"
+    # Randomized start mode ranges
+    random_start_cash_low: float = 30_000.0
+    random_start_cash_high: float = 80_000.0
+    random_start_satisfaction_low: float = 0.55
+    random_start_satisfaction_high: float = 0.85
+    random_start_customers_low: float = 20.0
+    random_start_customers_high: float = 45.0
+    # Engine tuning
+    min_spawn_probability: float = 0.02
+    staggered_initial_count: int = 2
+    default_avg_price: float = 14.0
+
+
+class DisplayConfig(BaseModel):
+    """Frontend display labels and configuration."""
+
+    stage_labels: dict[int, str] = Field(default_factory=lambda: {
+        1: "Single Location", 2: "Multi-Location",
+        3: "Regional Chain", 4: "National Chain",
+    })
+    event_noise_filters: list[str] = Field(default_factory=lambda: [
+        "spoiled", "Ordered", "Turned away", "Cannot reorder",
+    ])
+    duration_options: list[int] = Field(default_factory=lambda: [5, 10, 20])
+
+
+class CeoConfig(BaseModel):
+    """Per-industry CEO agent configuration."""
+
+    interval_ticks: int = 182  # ~6 months
+    price_min: float = 10.0
+    price_max: float = 22.0
+    price_default: float = 14.0
+    cost_min: float = 1.00
+    cost_max: float = 2.50
+    cost_default: float = 1.50
+    max_locations_per_year_cap: int = 12
+    price_unit: str = "per plate"
+    cost_unit: str = "food cost per plate"
+    expansion_overrides: dict[str, dict[str, float]] = Field(
+        default_factory=lambda: {
+            "aggressive": {"cooldown_ticks": 45, "cash_threshold": 60_000},
+            "normal": {"cooldown_ticks": 90, "cash_threshold": 80_000},
+            "conservative": {"cooldown_ticks": 180, "cash_threshold": 120_000},
+        }
     )
 
 
@@ -108,6 +187,8 @@ class IndustrySpec(BaseModel):
     constants: ConstantsDef
     stages: list[StageDef]
     location_defaults: LocationDefaults = LocationDefaults()
+    ceo: CeoConfig = CeoConfig()
+    display: DisplayConfig = DisplayConfig()
 
 
 # ── Loader ──
