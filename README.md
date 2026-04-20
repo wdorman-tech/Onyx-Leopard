@@ -84,7 +84,6 @@ Without an API key the simulation runs in pure-math mode (Tier 0/1 only — no L
 │   │   └── heuristics.py    # Tier 1 rule-based decisions (12 departments)
 │   ├── math/                # Vectorized computation
 │   │   ├── production.py    # Cobb-Douglas: Y = A * K^α * L^β
-│   │   ├── growth.py        # Logistic growth ODE system
 │   │   ├── competition.py   # N-species Lotka-Volterra
 │   │   └── solver.py        # Batched ODE solver (RK45 → BDF → Euler)
 │   └── types/               # State arrays, config, enums, decision types

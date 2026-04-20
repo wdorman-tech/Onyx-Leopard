@@ -153,9 +153,7 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
         setEventLog([]);
         setPlaying(true);
 
-        const noiseFilters = resp.spec_display?.event_noise_filters ?? [
-          "spoiled", "Ordered", "Turned away", "Cannot reorder",
-        ];
+        const noiseFilters = resp.spec_display?.event_noise_filters ?? [];
 
         const es = createSimulationStream(resp.session_id);
         eventSourceRef.current = es;

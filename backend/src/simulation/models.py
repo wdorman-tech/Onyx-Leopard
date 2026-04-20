@@ -16,79 +16,6 @@ class NodeCategory(str, Enum):
     REVENUE = "revenue"
 
 
-class NodeType(str, Enum):
-    """DEPRECATED: Restaurant-specific node types. Kept for legacy GrowthEngine
-    and NODE_REGISTRY compatibility. The unified engine uses plain strings
-    loaded from industry YAML configs — new industries do NOT need entries here."""
-
-    # Locations (v1)
-    RESTAURANT = "restaurant"
-    COMMISSARY = "commissary"
-    DISTRIBUTION_CENTER = "distribution_center"
-
-    # Locations (v2)
-    DRIVE_THRU = "drive_thru"
-    GHOST_KITCHEN = "ghost_kitchen"
-    FOOD_COURT = "food_court"
-    FRANCHISE_LOCATION = "franchise_location"
-    TEST_LOCATION = "test_location"
-
-    # Corporate (v1)
-    OWNER_OPERATOR = "owner_operator"
-    GENERAL_MANAGER = "general_manager"
-    BOOKKEEPER = "bookkeeper"
-    MARKETING = "marketing"
-    HR = "hr"
-    TRAINING = "training"
-    AREA_MANAGER = "area_manager"
-    QUALITY_ASSURANCE = "quality_assurance"
-    PROCUREMENT = "procurement"
-    IT_SUPPORT = "it_support"
-    REAL_ESTATE = "real_estate"
-    CONSTRUCTION = "construction"
-    RND_MENU = "rnd_menu"
-    LEGAL = "legal"
-    FINANCE_FPA = "finance_fpa"
-
-    # Corporate (v2)
-    CORPORATE_HQ = "corporate_hq"
-    CEO = "ceo"
-    COO = "coo"
-    CFO = "cfo"
-    CMO = "cmo"
-    CUSTOMER_SERVICE = "customer_service"
-    FRANCHISE_DEV = "franchise_dev"
-    FRANCHISE_ADVISORY = "franchise_advisory"
-    REGIONAL_VP = "regional_vp"
-
-    # External (v1)
-    CHICKEN_SUPPLIER = "chicken_supplier"
-    PRODUCE_SUPPLIER = "produce_supplier"
-
-    # External (v2)
-    BEVERAGE_SUPPLIER = "beverage_supplier"
-    LANDLORD = "landlord"
-    FRANCHISE_OWNER = "franchise_owner"
-    AREA_DEVELOPER = "area_developer"
-
-    # Revenue (v1)
-    CATERING = "catering"
-    DELIVERY_PARTNERSHIP = "delivery_partnership"
-
-    # Revenue (v2)
-    LOYALTY_PROGRAM = "loyalty_program"
-    MERCHANDISE = "merchandise"
-    LICENSING_IP = "licensing_ip"
-    GIFT_CARD = "gift_card"
-
-    # Specialized (v2)
-    FOOD_SAFETY_LAB = "food_safety_lab"
-    SECRET_SHOPPER = "secret_shopper"
-    SUSTAINABILITY = "sustainability"
-    INVESTOR_RELATIONS = "investor_relations"
-    CAPTIVE_INSURANCE = "captive_insurance"
-
-
 class LocationState(BaseModel):
     """Per-location economics — generic model for any industry type."""
 
@@ -135,7 +62,18 @@ class LocationConfig:
     subscription_scaling_increment: float = 0.1
     new_customer_ratio: float = 0.95
     days_per_month: int = 30
-    variable_cost_modifier_key: str = "food_cost"
+    # Modifier role declarations. Empty lists fall back to single-key behavior
+    # using `variable_cost_modifier_key`. Each list element is a key name that
+    # the location tick should treat as that role:
+    #   cost: multiplicative on variable cost (e.g., labor=-0.15 → mult 0.85)
+    #   revenue: additive boost to daily revenue
+    #   satisfaction: additive boost to baseline satisfaction
+    cost_modifier_keys: list[str] = field(default_factory=list)
+    revenue_modifier_keys: list[str] = field(default_factory=list)
+    satisfaction_modifier_keys: list[str] = field(default_factory=list)
+    # Canonical key under which the volume discount is folded into the
+    # aggregated modifier dict. Empty means no volume discount injection.
+    variable_cost_modifier_key: str = ""
 
 
 @dataclass
@@ -233,14 +171,6 @@ class CompanyState(BaseModel):
 
     nodes: dict[str, SimNode] = Field(default_factory=dict)
     edges: list[SimEdge] = Field(default_factory=list)
-
-
-class LocationTickResult(BaseModel):
-    revenue: float = 0.0
-    costs: float = 0.0
-    profit: float = 0.0
-    customers_served: int = 0
-    events: list[str] = Field(default_factory=list)
 
 
 class TickResult(BaseModel):

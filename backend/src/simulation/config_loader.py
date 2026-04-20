@@ -7,6 +7,8 @@ node types, triggers, bridge mappings, and constants from it.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -74,21 +76,26 @@ class LocationDefaults(BaseModel):
     economics_model: str = "physical"  # "physical" | "subscription" | "service"
     supply_unit_name: str = "units"  # e.g. "lbs chicken", "licenses", "billable hours"
     location_label: str = "Location"  # e.g. "Restaurant", "Office", "Data Center"
-    inventory: float = 80.0
+    inventory: float = 0.0
     customers: float = 30.0
     satisfaction: float = 0.7
-    price: float = 14.0
-    max_capacity: int = 80
-    variable_cost_per_unit: float = 1.50
-    daily_fixed_costs: float = 300.0
+    # Required economic fields — must be set per-industry, no restaurant defaults.
+    price: float
+    max_capacity: int
+    variable_cost_per_unit: float
+    daily_fixed_costs: float
     replenish_threshold: float = 30.0
     replenish_amount: float = 100.0
-    supply_cost_per_unit: float = 3.50
-    capacity_decay_rate: float = 0.05
+    supply_cost_per_unit: float = 0.0
+    capacity_decay_rate: float = 0.0
     word_of_mouth_rate: float = 0.02
     max_local_customers: float = 120.0
     unified_replenish_amount: float = 200.0
     unified_replenish_threshold: float = 80.0
+    # Modifier role lists (auto-discovered post-load if empty).
+    cost_modifier_keys: list[str] = Field(default_factory=list)
+    revenue_modifier_keys: list[str] = Field(default_factory=list)
+    satisfaction_modifier_keys: list[str] = Field(default_factory=list)
     # Subscription/service model fields
     churn_rate: float = 0.0  # monthly customer loss rate (subscription model)
     acquisition_cost: float = 0.0  # cost to acquire a new customer
@@ -127,7 +134,8 @@ class ConstantsDef(BaseModel):
     )
     days_per_month: int = 30
     ticks_per_year: int = 365
-    variable_cost_modifier_key: str = "food_cost"
+    # Canonical key under which the volume discount is folded; empty disables.
+    variable_cost_modifier_key: str = ""
     # Randomized start mode ranges
     random_start_cash_low: float = 30_000.0
     random_start_cash_high: float = 80_000.0
@@ -151,13 +159,57 @@ class DisplayConfig(BaseModel):
     event_noise_filters: list[str] = Field(default_factory=lambda: [
         "spoiled", "Ordered", "Turned away", "Cannot reorder",
     ])
-    duration_options: list[int] = Field(default_factory=lambda: [5, 10, 20])
+    duration_options: list[int] = Field(default_factory=lambda: [1, 5, 10, 20])
+    speed_presets: list[int] = Field(default_factory=lambda: [1, 2, 5, 10, 50, 100, 500])
+    company_names: list[str] = Field(default_factory=lambda: [
+        "Alpha Corp", "Beta Inc", "Gamma Ltd", "Delta Co",
+        "Epsilon Group", "Zeta Corp", "Eta Inc", "Theta Ltd",
+        "Iota Co", "Kappa Group", "Lambda Corp", "Mu Inc",
+        "Nu Ltd", "Xi Co", "Omicron Group", "Pi Corp",
+        "Rho Inc", "Sigma Ltd", "Tau Co", "Upsilon Group",
+    ])
+    ceo_strategies: list[str] = Field(default_factory=lambda: [
+        "aggressive_growth", "quality_focus", "cost_leader",
+        "balanced", "market_dominator", "survivor",
+    ])
+    max_companies: int = 20
+    min_description_words: int = 20
+
+
+class MathConfig(BaseModel):
+    """Mathematical model selection — defaults preserve pre-integration behavior."""
+
+    competition_model: str = "multinomial_logit"  # "lotka_volterra" | "multinomial_logit"
+    production_model: str = "linear"  # "cobb_douglas" | "linear"
+    growth_model: str = "linear_convergence"  # "logistic_ode" | "linear_convergence"
+    production_alpha: float = 0.3  # Cobb-Douglas capital exponent
+    production_beta: float = 0.7  # Cobb-Douglas labor exponent
+    base_competition: float = 0.5  # Lotka-Volterra off-diagonal alpha_ij
+    growth_rate: float = 0.1  # Logistic ODE base growth rate
+
+    # L-V fitness scaling — convert raw bridge attributes into competitive
+    # fitness terms used in step_competition.
+    # marketing_fitness_scale divides the bridge's marketing value before it
+    # multiplies into the per-company growth rate (avoids letting unbounded
+    # marketing dominate quality). Empirically tuned to ~10 so quality and
+    # marketing exert comparable pressure.
+    marketing_fitness_scale: float = 10.0
+    # tam_capacity_fraction is the share of TAM each company can occupy at
+    # full attractiveness (q^β · m^α). 0.01 → ~1% of TAM per unit of
+    # attractiveness, which keeps total carrying-capacity sums bounded
+    # within the modeled market.
+    tam_capacity_fraction: float = 0.01
 
 
 class CeoConfig(BaseModel):
     """Per-industry CEO agent configuration."""
 
-    interval_ticks: int = 182  # ~6 months
+    model: str = "claude-sonnet-4-6"
+    interval_ticks: int = 182  # ~6 months (used as average for probabilistic mode)
+    # Probabilistic activation (replaces fixed interval when enabled)
+    base_activation_probability: float = 0.0055  # ~1/182 per tick on average
+    crisis_multiplier: float = 3.0  # fires more often when cash is critical
+    use_probabilistic_activation: bool = True
     price_min: float = 10.0
     price_max: float = 22.0
     price_default: float = 14.0
@@ -165,8 +217,8 @@ class CeoConfig(BaseModel):
     cost_max: float = 2.50
     cost_default: float = 1.50
     max_locations_per_year_cap: int = 12
-    price_unit: str = "per plate"
-    cost_unit: str = "food cost per plate"
+    price_unit: str = "per unit"
+    cost_unit: str = "unit cost"
     expansion_overrides: dict[str, dict[str, float]] = Field(
         default_factory=lambda: {
             "aggressive": {"cooldown_ticks": 45, "cash_threshold": 60_000},
@@ -186,14 +238,15 @@ class IndustrySpec(BaseModel):
     bridge: BridgeDef
     constants: ConstantsDef
     stages: list[StageDef]
-    location_defaults: LocationDefaults = LocationDefaults()
+    location_defaults: LocationDefaults
+    math: MathConfig = MathConfig()
     ceo: CeoConfig = CeoConfig()
     display: DisplayConfig = DisplayConfig()
 
 
 # ── Loader ──
 
-_INDUSTRY_DIR = Path(__file__).parent / "industries"
+INDUSTRY_DIR = Path(__file__).parent / "industries"
 _cache: dict[str, IndustrySpec] = {}
 
 
@@ -202,7 +255,7 @@ def load_industry(slug: str) -> IndustrySpec:
     if slug in _cache:
         return _cache[slug]
 
-    path = _INDUSTRY_DIR / f"{slug}.yaml"
+    path = INDUSTRY_DIR / f"{slug}.yaml"
     if not path.exists():
         raise ValueError(f"Industry config not found: {path}")
 
@@ -210,6 +263,21 @@ def load_industry(slug: str) -> IndustrySpec:
         raw = yaml.safe_load(f)
 
     spec = IndustrySpec(**raw)
+
+    # Auto-discover modifier keys when not explicitly declared. Any cost_modifier
+    # key that appears on a node is added to cost_modifier_keys; same for revenue.
+    # Explicit YAML lists win — only fill the empty case so curated YAMLs (e.g.,
+    # restaurant declaring satisfaction_baseline as a satisfaction modifier rather
+    # than a revenue boost) keep their semantics.
+    ld = spec.location_defaults
+    if not ld.cost_modifier_keys:
+        ld.cost_modifier_keys = sorted({
+            k for n in spec.nodes.values() for k in n.cost_modifiers
+        })
+    if not ld.revenue_modifier_keys and not ld.satisfaction_modifier_keys:
+        ld.revenue_modifier_keys = sorted({
+            k for n in spec.nodes.values() for k in n.revenue_modifiers
+        })
 
     # Cross-reference validation
     if spec.roles.location_type not in spec.nodes:
@@ -241,6 +309,26 @@ def clear_cache() -> None:
 def list_industry_specs() -> list[IndustrySpec]:
     """List all available industry configs from YAML files."""
     specs = []
-    for path in sorted(_INDUSTRY_DIR.glob("*.yaml")):
+    for path in sorted(INDUSTRY_DIR.glob("*.yaml")):
         specs.append(load_industry(path.stem))
     return specs
+
+
+def atomic_write_yaml(path: Path, data: dict) -> None:
+    """Write a YAML file atomically.
+
+    Writes to a tempfile in the same directory then `os.replace`s into
+    position. Avoids readers (e.g. registry refresh) seeing a half-written
+    file when two adaptive sims race to commit.
+    """
+    fd, tmp_str = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f".{path.stem}.", suffix=".yaml.tmp"
+    )
+    tmp = Path(tmp_str)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False, width=120)
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise

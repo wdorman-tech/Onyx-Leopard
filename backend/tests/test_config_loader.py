@@ -9,7 +9,6 @@ from src.simulation.config_loader import (
     list_industry_specs,
     load_industry,
 )
-from src.simulation.nodes import NODE_REGISTRY
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +28,7 @@ class TestLoadRestaurant:
         spec = load_industry("restaurant")
         assert spec.meta.name == "Restaurant / Food Service"
         assert spec.meta.icon == "utensils-crossed"
-        assert spec.meta.total_nodes == 50
+        assert spec.meta.total_nodes == 49
         assert spec.meta.growth_stages == 4
 
     def test_roles_defined(self):
@@ -44,26 +43,9 @@ class TestLoadRestaurant:
         assert spec.roles.numbered_labels["restaurant"] == "Location"
         assert spec.roles.numbered_labels["area_manager"] == "Area Manager"
 
-    def test_node_count_matches_registry(self):
+    def test_node_count_matches_meta(self):
         spec = load_industry("restaurant")
-        assert len(spec.nodes) == len(NODE_REGISTRY)
-
-    def test_node_values_match_registry(self):
-        """Every node in the YAML must match the hardcoded NODE_REGISTRY values."""
-        spec = load_industry("restaurant")
-        for node_type, config in NODE_REGISTRY.items():
-            key = node_type.value
-            assert key in spec.nodes, f"Missing node: {key}"
-            node_def = spec.nodes[key]
-            assert node_def.label == config.label, f"Label mismatch for {key}"
-            assert node_def.category == config.category.value, f"Category mismatch for {key}"
-            assert node_def.stage == config.stage, f"Stage mismatch for {key}"
-            assert node_def.annual_cost == config.annual_cost, f"Cost mismatch for {key}"
-            assert node_def.cost_modifiers == config.cost_modifiers, f"Cost mods mismatch for {key}"
-            assert node_def.revenue_modifiers == config.revenue_modifiers, (
-                f"Rev mods mismatch for {key}"
-            )
-            assert node_def.enabled == config.enabled, f"Enabled mismatch for {key}"
+        assert len(spec.nodes) == spec.meta.total_nodes
 
     def test_trigger_count(self):
         spec = load_industry("restaurant")

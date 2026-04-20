@@ -21,16 +21,17 @@ Tick cycle:
 from __future__ import annotations
 
 import random as _random_module
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from src.simulation.bridge import derive_competitive_attributes
+from biosim.math.competition import build_competition_matrix, step_competition
+
+from src.simulation.agent_memory import AgentMemory, AIBudget
+from src.simulation.bridge import derive_competitive_attributes_batch
 from src.simulation.config_loader import IndustrySpec, load_industry
 from src.simulation.location import tick_locations_batch
 from src.simulation.market.colors import agent_color
 from src.simulation.market.engine import (
-    AGENT_NAMES,
     compute_hhi,
     compute_spawn_probability,
 )
@@ -48,15 +49,12 @@ from src.simulation.models import (
 from src.simulation.triggers import build_triggers
 from src.simulation.unified_models import UnifiedStartConfig
 
-_MAX_THREAD_WORKERS = 8
-_THREADING_LOC_THRESHOLD = 100
-
 
 class CompanyAgent:
     """A single company in the unified simulation.
 
-    Manages its own node graph and trigger state, reusing the same patterns
-    as GrowthEngine but without an independent tick cycle.
+    Manages its own node graph, trigger state, and location economics.
+    Ticked by UnifiedEngine — does not have its own tick cycle.
     """
 
     def __init__(
@@ -91,12 +89,16 @@ class CompanyAgent:
         self.daily_revenue = 0.0
         self.daily_costs = 0.0
 
-        # CEO agent state
+        # CEO agent state — public so heuristic/AI agents can read & write
+        # without poking at private members. Mutated by ceo_agent.apply_decision
+        # and read by heuristic_agent + UnifiedEngine.
         self.strategy: str | None = None
-        self._marketing_boost: float = 0.5  # 0.5 = neutral (no effect)
-        self._expansion_pace: str = "normal"
-        self._max_locations_per_year: int = 999  # uncapped by default
+        self.marketing_boost: float = 0.5  # 0.5 = neutral (no effect)
+        self.expansion_pace: str = "normal"
+        self.max_locations_per_year: int = 999  # uncapped by default
         self._ceo_decision_history: list[dict] = []
+        self._pending_ceo_call: bool = False
+        self.memory = AgentMemory()
 
         self._rng = rng or _random_module.Random()
         np_seed = self._rng.randint(0, 2**32 - 1)
@@ -115,6 +117,9 @@ class CompanyAgent:
             subscription_scaling_increment=ld.subscription_scaling_increment,
             new_customer_ratio=ld.new_customer_ratio,
             days_per_month=spec.constants.days_per_month,
+            cost_modifier_keys=list(ld.cost_modifier_keys),
+            revenue_modifier_keys=list(ld.revenue_modifier_keys),
+            satisfaction_modifier_keys=list(ld.satisfaction_modifier_keys),
             variable_cost_modifier_key=spec.constants.variable_cost_modifier_key,
         )
 
@@ -299,6 +304,40 @@ class CompanyAgent:
     def active_locations(self) -> list[SimNode]:
         return self._cached_location_nodes
 
+    def mean_location_price(self) -> float:
+        """Capacity-weighted mean price across active locations.
+
+        Falls back to ceo.price_default when no locations are active.
+        """
+        total_cap = 0.0
+        total = 0.0
+        for node in self.active_locations():
+            ls = node.location_state
+            if ls is None:
+                continue
+            total_cap += ls.max_capacity
+            total += ls.price * ls.max_capacity
+        if total_cap == 0.0:
+            return self.spec.ceo.price_default
+        return total / total_cap
+
+    def mean_variable_cost(self) -> float:
+        """Capacity-weighted mean variable cost per unit across active locations.
+
+        Falls back to ceo.cost_default when no locations are active.
+        """
+        total_cap = 0.0
+        total = 0.0
+        for node in self.active_locations():
+            ls = node.location_state
+            if ls is None:
+                continue
+            total_cap += ls.max_capacity
+            total += ls.variable_cost_per_unit * ls.max_capacity
+        if total_cap == 0.0:
+            return self.spec.ceo.cost_default
+        return total / total_cap
+
     def aggregate_modifiers(self) -> dict[str, float]:
         """Return aggregated node modifiers from cache, with volume discount."""
         mods = dict(self._cached_cost_mods)
@@ -311,7 +350,8 @@ class CompanyAgent:
                 volume_mult = mult
                 break
         key = self.spec.constants.variable_cost_modifier_key
-        mods[key] = mods.get(key, 1.0) * volume_mult
+        if key:
+            mods[key] = mods.get(key, 1.0) * volume_mult
 
         return mods
 
@@ -344,12 +384,12 @@ class CompanyAgent:
                 # CEO expansion overrides
                 if self.strategy is not None:
                     overrides = expansion_overrides.get(
-                        self._expansion_pace,
+                        self.expansion_pace,
                         expansion_overrides["normal"],
                     )
                     cash_threshold = overrides["cash_threshold"]
                     trigger.cooldown_ticks = int(overrides["cooldown_ticks"])
-                    if self.state.locations_opened_this_year >= self._max_locations_per_year:
+                    if self.state.locations_opened_this_year >= self.max_locations_per_year:
                         continue
                 else:
                     cash_threshold = consts.location_open_cost
@@ -484,23 +524,30 @@ class UnifiedEngine:
 
         self._target_companies = cfg.num_companies
         self._start_mode = cfg.start_mode
+        self._custom_company_names: dict[int, str] = dict(cfg.custom_company_names)
 
         # AI CEO agent settings
         self.ai_ceo_enabled: bool = cfg.ai_ceo_enabled
         self._company_strategies: dict[int, str] = dict(cfg.company_strategies)
         self._pending_ceo_calls: bool = False
+        self._ai_budget = AIBudget(max_spend=cfg.ai_budget_max)
 
         for i in range(initial_count):
             company = self._spawn_company(cfg.start_mode)
             if self.ai_ceo_enabled:
                 company.strategy = self._company_strategies.get(i, "balanced")
 
-        self._executor: ThreadPoolExecutor | None = None
-        self._use_threading = cfg.num_companies > 2
-        if self._use_threading:
-            self._executor = ThreadPoolExecutor(
-                max_workers=min(_MAX_THREAD_WORKERS, cfg.num_companies),
+        # Lotka-Volterra competition state (when math.competition_model == "lotka_volterra")
+        self._use_lv = self.spec.math.competition_model == "lotka_volterra"
+        self._np_rng_engine = np.random.default_rng(seed)
+        self._populations: np.ndarray = np.ones(len(self.companies), dtype=np.float64)
+        self._competition_matrix: np.ndarray = (
+            build_competition_matrix(
+                len(self.companies), self.spec.math.base_competition, self._np_rng_engine,
             )
+            if self._use_lv and len(self.companies) > 1
+            else np.ones((1, 1), dtype=np.float64)
+        )
 
         if self.companies:
             self.focused_company_id = self.companies[0].state.name
@@ -515,9 +562,13 @@ class UnifiedEngine:
         idx = self._next_company_idx
         self._next_company_idx += 1
 
-        name = AGENT_NAMES[idx % len(AGENT_NAMES)]
-        if idx >= len(AGENT_NAMES):
-            name = f"{name} {idx // len(AGENT_NAMES) + 1}"
+        if idx in self._custom_company_names:
+            name = self._custom_company_names[idx]
+        else:
+            names = self.spec.display.company_names
+            name = names[idx % len(names)]
+            if idx >= len(names):
+                name = f"{name} {idx // len(names) + 1}"
 
         consts = self.spec.constants
         cash = self.params.starting_cash
@@ -569,23 +620,29 @@ class UnifiedEngine:
         self.tam *= 1.0 + self.params.g_market
 
         # ── Step 2: Derive competitive attributes from node graphs ──
-        for company in alive:
-            q, m, k = derive_competitive_attributes(
-                company.state, self.spec, marketing_boost=company._marketing_boost,
-            )
+        # Single batched Cobb-Douglas call for all alive companies, instead
+        # of N per-company calls with 1-element NumPy arrays.
+        attrs = derive_competitive_attributes_batch(
+            [c.state for c in alive],
+            self.spec,
+            [c.marketing_boost for c in alive],
+        )
+        for company, (q, m, k) in zip(alive, attrs, strict=True):
             company.quality = q
             company.marketing = m
             company.capacity = k
 
         # ── Step 3: Compute share attraction ──
-        qualities = [c.quality if c.alive else 0.0 for c in self.companies]
-        marketings = [c.marketing if c.alive else 0.0 for c in self.companies]
-        alive_flags = [c.alive for c in self.companies]
-
-        shares = _compute_shares(
-            qualities, marketings, alive_flags,
-            self.params.alpha, self.params.beta,
-        )
+        if self._use_lv and len(alive) > 1:
+            shares = self._compute_shares_lv(alive)
+        else:
+            qualities = [c.quality if c.alive else 0.0 for c in self.companies]
+            marketings = [c.marketing if c.alive else 0.0 for c in self.companies]
+            alive_flags = [c.alive for c in self.companies]
+            shares = _compute_shares(
+                qualities, marketings, alive_flags,
+                self.params.alpha, self.params.beta,
+            )
         for company, share in zip(self.companies, shares, strict=False):
             company.share = share
 
@@ -621,6 +678,8 @@ class UnifiedEngine:
                     company._np_rng, company.state.name, loc_arrays.labels,
                     supply_unit_name=self.spec.location_defaults.supply_unit_name,
                     config=company._loc_config,
+                    growth_model=self.spec.math.growth_model,
+                    growth_rate=self.spec.math.growth_rate,
                 )
                 company._sync_arrays_to_nodes()
                 company_events.extend(batch.events)
@@ -643,32 +702,34 @@ class UnifiedEngine:
             company_events.extend(trigger_events)
             return company_events
 
-        # Thread only when total locations across all companies justify the overhead.
-        total_locs = sum(c._loc_arrays.size for c in alive)
-        use_threads = (
-            self._use_threading
-            and self._executor is not None
-            and len(alive) > 2
-            and total_locs >= _THREADING_LOC_THRESHOLD
-        )
-        if use_threads:
-            futures = [
-                self._executor.submit(_tick_company, company, ceilings[company.index])
-                for company in alive
-            ]
-            for f in futures:
-                events.extend(f.result())
-        else:
-            for company in alive:
-                events.extend(_tick_company(company, ceilings[company.index]))
+        # Per-company tick is GIL-bound (NumPy releases GIL but orchestration cost
+        # exceeds the gain at typical company counts). Run sequentially.
+        for company in alive:
+            events.extend(_tick_company(company, ceilings[company.index]))
 
-        # ── Step 8.5: Flag CEO agent decisions ──
-        if (
-            self.ai_ceo_enabled
-            and self.tick_num > 0
-            and self.tick_num % self.spec.ceo.interval_ticks == 0
-        ):
-            self._pending_ceo_calls = True
+        # ── Step 8.5: CEO agent activation ──
+        if self.ai_ceo_enabled and self.tick_num > 0:
+            ceo_cfg = self.spec.ceo
+            if ceo_cfg.use_probabilistic_activation:
+                # Probabilistic: each company fires independently
+                for company in alive:
+                    if company.strategy is None:
+                        continue
+                    p = ceo_cfg.base_activation_probability
+                    # Crisis modifier: fire more often when struggling
+                    if company.state.cash < 0:
+                        p *= ceo_cfg.crisis_multiplier
+                    elif company.state.cash < self.params.starting_cash * 0.3:
+                        p *= ceo_cfg.crisis_multiplier * 0.5
+                    if self.rng.random() < p:
+                        company._pending_ceo_call = True
+                        self._pending_ceo_calls = True
+            elif self.tick_num % ceo_cfg.interval_ticks == 0:
+                # Fixed interval fallback: all companies fire together
+                for company in alive:
+                    if company.strategy is not None:
+                        company._pending_ceo_call = True
+                self._pending_ceo_calls = True
 
         # ── Step 9: Death check ──
         for company in self.companies:
@@ -785,42 +846,156 @@ class UnifiedEngine:
         }
 
 
+    def _compute_shares_lv(self, alive: list[CompanyAgent]) -> list[float]:
+        """Compute shares via Lotka-Volterra dynamic competition."""
+        n = len(self.companies)
+
+        # Ensure population array matches company count (grows when new entrants spawn)
+        if len(self._populations) < n:
+            old = self._populations
+            self._populations = np.ones(n, dtype=np.float64)
+            self._populations[: len(old)] = old
+            # Rebuild competition matrix with new size
+            self._competition_matrix = build_competition_matrix(
+                n, self.spec.math.base_competition, self._np_rng_engine,
+            )
+
+        # Build per-company growth rates and carrying capacities from bridge attributes
+        growth_rates = np.zeros(n, dtype=np.float64)
+        carrying_caps = np.zeros(n, dtype=np.float64)
+        alive_mask = np.zeros(n, dtype=np.bool_)
+
+        for c in self.companies:
+            i = c.index
+            if not c.alive:
+                self._populations[i] = 0.0
+                continue
+            alive_mask[i] = True
+            # Growth rate proportional to quality * marketing (competitive fitness).
+            # marketing is scaled down by spec.math.marketing_fitness_scale so it
+            # doesn't dwarf quality in the per-company growth term.
+            growth_rates[i] = (
+                self.spec.math.growth_rate
+                * c.quality
+                * (c.marketing / self.spec.math.marketing_fitness_scale)
+            )
+            # Carrying capacity proportional to TAM share based on attractiveness.
+            # tam_capacity_fraction is the slice of TAM a single firm occupies at
+            # unit attractiveness; total caps sum to a bounded fraction of TAM.
+            attractiveness = max(c.quality, 0.01) ** self.params.beta * max(c.marketing, 0.01) ** self.params.alpha
+            carrying_caps[i] = max(
+                1.0, self.tam * self.spec.math.tam_capacity_fraction * attractiveness
+            )
+
+        # Step the L-V ODE
+        self._populations = step_competition(
+            self._populations, growth_rates, carrying_caps,
+            self._competition_matrix[:n, :n], dt=1.0,
+        )
+
+        # Derive shares from populations
+        total_pop = float(self._populations[alive_mask].sum())
+        if total_pop <= 0:
+            alive_count = int(alive_mask.sum())
+            equal = 1.0 / max(alive_count, 1)
+            return [equal if c.alive else 0.0 for c in self.companies]
+
+        return [
+            float(self._populations[c.index] / total_pop) if c.alive else 0.0
+            for c in self.companies
+        ]
+
     async def run_ceo_agents(self) -> list[dict]:
-        """Call Claude API for each alive company with a strategy. Returns decision events."""
+        """Call AI or heuristic agents for companies with pending decisions.
+
+        Uses AI (Claude) when budget allows, falls back to heuristic rules
+        when budget is exhausted. Records decisions in per-agent memory.
+        """
         from src.simulation.ceo_agent import (
             apply_decision,
             build_ceo_system_prompt,
             build_ceo_user_prompt,
             call_ceo_agent,
         )
+        from src.simulation.heuristic_agent import heuristic_decide
 
         decisions: list[dict] = []
-        alive = self._alive_companies()
+        model = self.spec.ceo.model
+        tpy = self.spec.constants.ticks_per_year
 
-        for company in alive:
-            if company.strategy is None:
+        for company in self._alive_companies():
+            if not company._pending_ceo_call:
                 continue
 
-            system_prompt = build_ceo_system_prompt(company.strategy, spec=self.spec)
-            user_prompt = build_ceo_user_prompt(
-                company, self.companies, self.tick_num, self.tam,
-            )
+            company._pending_ceo_call = False
+            tier = "executive"
 
-            decision = await call_ceo_agent(
-                company.state.name, system_prompt, user_prompt,
-            )
+            if self._ai_budget.can_afford(model):
+                system_prompt = build_ceo_system_prompt(
+                    company.strategy, spec=self.spec, params=self.params,
+                )
+
+                # Inject agent memory into user prompt
+                memory_ctx = company.memory.build_prompt_context(tpy)
+                user_prompt = build_ceo_user_prompt(
+                    company, self.companies, self.tick_num, self.tam,
+                )
+                if memory_ctx:
+                    user_prompt = user_prompt + "\n\n" + memory_ctx
+
+                decision = await call_ceo_agent(
+                    company.state.name, system_prompt, user_prompt,
+                    ceo_config=self.spec.ceo,
+                    model=model,
+                )
+                self._ai_budget.record_call(model)
+            else:
+                # Budget exhausted — fall back to heuristic
+                decision = heuristic_decide(
+                    company, self.companies, self.tam, self.tick_num,
+                )
+                tier = "heuristic"
+
             apply_decision(company, decision, self.tick_num)
+
+            # Record in persistent memory
+            company.memory.record_decision(
+                decision_data=decision.model_dump(),
+                tick=self.tick_num,
+                cash=company.state.cash,
+                share=company.share,
+                locations=company.location_count(),
+                daily_revenue=company.daily_revenue,
+            )
 
             decisions.append({
                 "company_name": company.state.name,
                 "tick": self.tick_num,
-                "sim_year": round(self.tick_num / self.spec.constants.ticks_per_year, 1),
+                "sim_year": round(self.tick_num / tpy, 1),
                 "strategy": company.strategy,
+                "tier": tier,
                 "decision": decision.model_dump(),
+                "budget_remaining": round(self._ai_budget.remaining, 3),
             })
 
         self._pending_ceo_calls = False
         return decisions
+
+    async def tick_with_agents(self) -> dict:
+        """Run one tick and handle any pending agent decisions inline.
+
+        Returns a single result dict that includes CEO decisions (if any)
+        merged into the tick data. Used by the SSE handler to produce
+        combined tick+decision events.
+        """
+        result = self.tick()
+
+        if self._pending_ceo_calls:
+            decisions = await self.run_ceo_agents()
+            if decisions:
+                result["ceo_decisions"] = decisions
+
+        return result
 
     async def generate_reports(self) -> list[dict]:
         """Generate end-of-simulation reports for all companies with a strategy."""
@@ -842,6 +1017,7 @@ class UnifiedEngine:
             )
             report = await call_report_agent(
                 company.state.name, system_prompt, user_prompt,
+                model=self.spec.ceo.model,
             )
             reports.append(report.model_dump())
 

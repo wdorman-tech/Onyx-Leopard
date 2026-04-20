@@ -4,7 +4,7 @@ meta:
   description: "Grow a grilled chicken chain from a single location to a national brand"
   icon: utensils-crossed
   playable: true
-  total_nodes: 50
+  total_nodes: 49
   growth_stages: 4
   key_metrics:
     - "Daily Revenue"
@@ -593,6 +593,24 @@ location_defaults:
   demand_cap_ratio: 0.85
   demand_noise_low: 0.9
   demand_noise_high: 1.1
+  # Modifier role declarations — every key here is consumed by location ticks.
+  # Cost mods compound multiplicatively on variable_cost_per_unit and reorder
+  # cost. Revenue mods add to daily revenue. Satisfaction mods add to baseline
+  # satisfaction (which then drives stockout penalties).
+  cost_modifier_keys:
+    - food_cost
+    - labor
+    - food_delivery
+    - waste
+    - turnover
+    - operating
+    - build_cost
+    - financial_controls
+  revenue_modifier_keys:
+    - catering_revenue
+    - customer_reach
+  satisfaction_modifier_keys:
+    - satisfaction_baseline
 
 # ── Frontend display ──
 display:

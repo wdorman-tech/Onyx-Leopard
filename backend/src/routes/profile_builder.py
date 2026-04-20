@@ -5,14 +5,14 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from src.simulation.config_loader import clear_cache
+from src.simulation.industries import commit_industry
 from src.simulation.profile_builder import (
+    analyze_niche as _analyze_niche,
     generate_spec,
     get_first_question,
     get_session,
     process_answer,
     process_upload,
-    save_industry,
     start_session,
 )
 
@@ -25,6 +25,27 @@ class AnswerRequest(BaseModel):
 
 class ConfirmRequest(BaseModel):
     slug: str
+
+
+class NicheRequest(BaseModel):
+    company_name: str
+    description: str
+
+
+@router.post("/analyze-niche")
+async def analyze_niche_route(request: NicheRequest) -> dict:
+    """Analyze a company description and identify the business niche."""
+    from src.simulation.ceo_agent import validate_api_key
+
+    ok, err = await validate_api_key()
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+
+    try:
+        result = await _analyze_niche(request.company_name, request.description)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/start")
@@ -94,23 +115,18 @@ async def confirm_industry(session_id: str, request: ConfirmRequest) -> dict:
             status_code=400, detail="Invalid slug — use only letters, numbers, underscores"
         )
 
-    # Ensure the slug in the spec matches
-    session.generated_spec["meta"]["slug"] = slug
+    # Ensure the slug in the spec matches; profile-builder slugs are prefixed
+    # with `custom_` to keep them visually separate from curated/adaptive ones.
+    namespaced = f"custom_{slug}"
+    session.generated_spec["meta"]["slug"] = namespaced
     session.generated_spec["meta"]["playable"] = True
 
-    path = save_industry(slug, session.generated_spec)
-
-    # Clear config cache so the new industry is discoverable
-    clear_cache()
-
-    # Refresh the industry registry
-    from src.simulation.industries import refresh_registry
-    refresh_registry()
+    path = await commit_industry(namespaced, session.generated_spec)
 
     return {
-        "slug": slug,
+        "slug": namespaced,
         "path": str(path),
-        "message": f"Industry '{slug}' saved and ready for simulation",
+        "message": f"Industry '{namespaced}' saved and ready for simulation",
     }
 
 

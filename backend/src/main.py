@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 
+from src.routes.monte_carlo import router as monte_carlo_router
 from src.routes.profile_builder import router as profile_router
 from src.routes.simulation import router as simulation_router
 
@@ -26,6 +27,7 @@ app.add_middleware(
 
 app.include_router(simulation_router)
 app.include_router(profile_router)
+app.include_router(monte_carlo_router)
 
 
 @app.exception_handler(Exception)

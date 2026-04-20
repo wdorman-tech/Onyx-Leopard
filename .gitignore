@@ -21,6 +21,11 @@ __pycache__/
 # Playwright MCP artifacts
 .playwright-mcp/
 
+# Adaptive industry YAMLs are generated per-session by Claude — they're ephemeral
+# scratch files, not curated presets. The curated industry set lives alongside
+# them as `industries/restaurant.yaml`, `industries/saas_*.yaml`, etc.
+backend/src/simulation/industries/adaptive_*.yaml
+
 # OS
 .DS_Store
 Thumbs.db

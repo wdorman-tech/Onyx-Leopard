@@ -73,7 +73,12 @@ class UnifiedParams(BaseModel):
     beta: float = 0.8   # quality weight
 
     # Entry / exit
-    lambda_entry: float = 0.01  # low — growth comes from within firms
+    # lambda_entry is the base hazard rate for *competitive* market entry — the
+    # default fits multi-company unified/adaptive sims where rivals occasionally
+    # appear. Single-company growth mode overrides this to 0.0 in
+    # SessionManager.create_session, since spawning rivals into a 1-company sim
+    # is meaningless.
+    lambda_entry: float = 0.01
     g_ref: float = 0.001
     b_death: float = -5_000.0   # cash threshold for bankruptcy clock (dollars)
     t_death: int = 30            # consecutive ticks below b_death before death
@@ -95,3 +100,7 @@ class UnifiedStartConfig(BaseModel):
     ai_ceo_enabled: bool = False
     duration_years: int = Field(default=5)  # 5, 10, or 20
     company_strategies: dict[int, str] = Field(default_factory=dict)  # index → strategy
+    ai_budget_max: float = Field(default=1.0, ge=0.0)  # max AI spend per sim run ($)
+
+    # Custom company names (adaptive mode): index → name override
+    custom_company_names: dict[int, str] = Field(default_factory=dict)

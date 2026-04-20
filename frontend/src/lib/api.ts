@@ -1,3 +1,10 @@
+// Regular API calls go through the Next.js rewrite proxy (`/api/backend/*`),
+// which simplifies CORS and lets the dev server forward to FastAPI. SSE and
+// long-running endpoints (niche analysis, adaptive spec generation) bypass
+// the proxy and call FastAPI directly because the Next.js dev proxy buffers
+// streaming responses and times out at ~25s — which kills SSE and any
+// Claude-API-backed handler that takes longer than that. Don't "fix" the
+// duplication unless you've verified the proxy behavior has changed.
 const API_BASE = "/api/backend";
 const SSE_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -127,6 +134,78 @@ export function focusCompany(
     method: "POST",
     body: JSON.stringify({ action: "focus_company", company_id: companyId }),
   });
+}
+
+// ── Adaptive simulation API ──
+
+export interface NicheAnalysis {
+  niche: string;
+  summary: string;
+  economics_model: string;
+}
+
+export async function analyzeNiche(
+  companyName: string,
+  description: string,
+): Promise<NicheAnalysis> {
+  // Call backend directly to avoid proxy timeout on Claude API calls
+  const res = await fetch(`${SSE_BASE}/api/profile/analyze-niche`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ company_name: companyName, description }),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`API error ${res.status}: ${detail}`);
+  }
+  return res.json() as Promise<NicheAnalysis>;
+}
+
+export interface AdaptiveStartResponse extends UnifiedStartResponse {
+  competitor_names: string[];
+}
+
+export async function startAdaptiveSimulation(params: {
+  companyName: string;
+  nicheDescription: string;
+  nicheSummary: string;
+  fullDescription: string;
+  economicsModel: string;
+  numCompetitors: number;
+  startMode: string;
+  durationYears: number;
+  aiCeoEnabled: boolean;
+  companyStrategies: Record<number, string>;
+}): Promise<AdaptiveStartResponse> {
+  // Call backend directly (not through Next.js proxy) because spec generation
+  // involves multiple Claude API calls and can take 30-60 seconds.
+  // max_ticks is intentionally 0 — the backend derives the run length from
+  // duration_years inside SessionManager, so anything we send here is
+  // overwritten. Sending 0 (uncapped) keeps the route schema happy without
+  // duplicating the backend's calculation.
+  const res = await fetch(`${SSE_BASE}/api/simulate/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mode: "adaptive",
+      company_name: params.companyName,
+      niche_description: params.nicheDescription,
+      niche_summary: params.nicheSummary,
+      full_description: params.fullDescription,
+      economics_model: params.economicsModel,
+      num_companies: params.numCompetitors + 1, // +1 for user's company
+      start_mode: params.startMode,
+      max_ticks: 0,
+      ai_ceo_enabled: params.aiCeoEnabled,
+      duration_years: params.durationYears,
+      company_strategies: params.companyStrategies,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`API error ${res.status}: ${detail}`);
+  }
+  return res.json() as Promise<AdaptiveStartResponse>;
 }
 
 // ── Profile Builder API ──

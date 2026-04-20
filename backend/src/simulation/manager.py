@@ -4,10 +4,9 @@ import asyncio
 import uuid
 from typing import TYPE_CHECKING
 
-from src.simulation.growth import GrowthEngine
 from src.simulation.market.engine import MarketEngine
 from src.simulation.unified import UnifiedEngine
-from src.simulation.unified_models import UnifiedStartConfig
+from src.simulation.unified_models import UnifiedParams, UnifiedStartConfig
 
 if TYPE_CHECKING:
     pass
@@ -16,7 +15,7 @@ if TYPE_CHECKING:
 class SimulationSession:
     def __init__(
         self,
-        engine: GrowthEngine | MarketEngine | UnifiedEngine,
+        engine: MarketEngine | UnifiedEngine,
         mode: str = "growth",
     ):
         self.id = str(uuid.uuid4())
@@ -41,8 +40,7 @@ class SimulationSession:
         self._pause_event.set()
 
     def set_speed(self, multiplier: float) -> None:
-        speed_map = {1: 2.0, 2: 1.0, 5: 0.4, 10: 0.2, 50: 0.02, 100: 0.005, 500: 0.001}
-        self.speed = speed_map.get(int(multiplier), 2.0)
+        self.speed = max(0.001, 2.0 / multiplier)
 
     async def wait_if_paused(self) -> bool:
         """Wait while paused. Returns False if stopped."""
@@ -75,7 +73,16 @@ class SessionManager:
             engine = UnifiedEngine(config=config)
             session = SimulationSession(engine, mode="unified")
         else:
-            engine = GrowthEngine(max_ticks=max_ticks, industry=industry)
+            # Single-company growth mode: disable competitive market entry —
+            # the multi-company default (0.01) would spawn rivals into a sim
+            # that's only meant to track one firm's growth.
+            config = UnifiedStartConfig(
+                industry=industry,
+                num_companies=1,
+                max_ticks=max_ticks,
+                params=UnifiedParams(lambda_entry=0.0),
+            )
+            engine = UnifiedEngine(config=config)
             session = SimulationSession(engine, mode="growth")
         self._sessions[session.id] = session
         return session

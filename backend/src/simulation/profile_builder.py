@@ -5,15 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import re
-import tempfile
 import uuid
-from pathlib import Path
 
 import yaml
 from pydantic import BaseModel
 
-from src.simulation.ceo_agent import CEO_MODEL, _get_client
-from src.simulation.config_loader import IndustrySpec, LocationDefaults, _INDUSTRY_DIR
+from src.simulation.ceo_agent import _DEFAULT_CEO_MODEL as CEO_MODEL, _get_client
+from src.simulation.config_loader import INDUSTRY_DIR, IndustrySpec
 
 log = logging.getLogger(__name__)
 
@@ -126,7 +124,7 @@ async def process_answer(session: InterviewSession, answer: str) -> dict:
 
 # ── YAML generation ──
 
-_REFERENCE_YAML = (_INDUSTRY_DIR / "restaurant.yaml").read_text()
+_REFERENCE_YAML = (INDUSTRY_DIR / "restaurant.yaml").read_text()
 
 _GENERATION_SYSTEM = f"""You are a simulation configuration generator. Given an interview transcript
 about a business, generate a complete IndustrySpec YAML configuration that can
@@ -255,13 +253,479 @@ Generate the YAML now. Remember: every trigger node_type and role type must exis
     raise ValueError(session.error)
 
 
-def save_industry(slug: str, spec_dict: dict) -> Path:
-    """Save a generated industry spec to the industries directory."""
-    filename = f"custom_{slug}.yaml"
-    path = _INDUSTRY_DIR / filename
-    with open(path, "w") as f:
-        yaml.dump(spec_dict, f, default_flow_style=False, sort_keys=False, width=120)
-    return path
+# ── Adaptive mode: niche analysis + spec generation ──
+
+_NICHE_ANALYSIS_SYSTEM = """You are a business analyst. Given a company name and a detailed description,
+identify the precise business niche, provide a rich summary of the business model,
+and classify the economics model.
+
+The user may provide extensive detail about their business — pricing, costs, team,
+operations, customers, revenue, growth plans. Use ALL of this information to produce
+an accurate niche classification and a summary that preserves key financial
+and operational details.
+
+Respond with ONLY valid JSON (no markdown fences, no explanation):
+{
+  "niche": "Specific niche label (e.g. 'Premium DTC Coffee Subscription', 'B2B SaaS Revenue Analytics')",
+  "summary": "3-5 sentence summary preserving key details: revenue model, pricing range, cost structure, target customers, team size, and growth stage. Be specific with numbers when the user provides them.",
+  "economics_model": "physical OR subscription OR service"
+}
+
+Economics model classification:
+- "physical": Sells physical goods. Has inventory, spoilage/waste, supply chain.
+- "subscription": Recurring revenue. Has churn, MRR/ARR, customer acquisition cost.
+- "service": Sells time/expertise. Has billable hours, utilization, bench time."""
+
+
+async def analyze_niche(company_name: str, description: str) -> dict:
+    """1-shot niche identification from company name and description.
+
+    Returns: {niche: str, summary: str, economics_model: str}
+    """
+    client = _get_client()
+    response = await client.messages.create(
+        model=CEO_MODEL,
+        max_tokens=500,
+        system=_NICHE_ANALYSIS_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": f"Company: {company_name}\n\nDescription: {description}",
+        }],
+    )
+    raw = response.content[0].text
+    raw = re.sub(r"^```(?:json)?\s*\n", "", raw, flags=re.MULTILINE)
+    raw = re.sub(r"\n```\s*$", "", raw, flags=re.MULTILINE)
+
+    result = json.loads(raw)
+    if result.get("economics_model") not in ("physical", "subscription", "service"):
+        result["economics_model"] = "physical"
+    return result
+
+
+_NICHE_SPEC_SYSTEM = """You are a simulation configuration generator. Given a business niche,
+generate ONLY the niche-specific parts of the config as JSON.
+
+If a FULL BUSINESS DESCRIPTION is provided, use the founder's actual numbers for pricing,
+costs, team structure, and operations. For example:
+- If they say "we charge $150/hour", set price_per_unit to 150.0
+- If they mention "rent is $8,000/month", set location_annual_cost to 96000
+- If they describe specific team roles, map those to corporate_nodes
+- If they mention specific suppliers or partners, map those to external_nodes
+- If they describe revenue streams, map those to revenue_nodes
+
+You must generate EXACTLY this JSON structure (no markdown, no explanation):
+{
+  "meta_name": "Human-readable industry name",
+  "meta_description": "One sentence description of the simulation",
+  "meta_icon": "lucide-icon-name",
+  "location_type_key": "snake_case_key",
+  "location_type_label": "Human Label",
+  "founder_type_key": "snake_case_key",
+  "founder_type_label": "Human Label",
+  "supplier_types": [
+    {"key": "snake_case_key", "label": "Human Label", "cost_modifier_key": "modifier_key", "cost_modifier_value": -0.10}
+  ],
+  "location_annual_cost": 120000,
+  "location_label_for_numbering": "Location",
+  "supply_unit_name": "units",
+  "max_capacity_per_location": 80,
+  "price_per_unit": 50.0,
+  "variable_cost_per_unit": 5.0,
+  "daily_fixed_costs": 300.0,
+  "supply_cost_per_unit": 10.0,
+  "price_unit_label": "per unit",
+  "cost_unit_label": "cost per unit",
+  "starting_cash": 50000,
+  "location_open_cost": 50000,
+  "max_locations_per_year_cap": 12,
+  "variable_cost_modifier_key": "operating_cost",
+  "stages_by_location_count": [1, 2, 11, 51],
+  "corporate_nodes": [
+    {"key": "snake_case", "label": "Human Label", "stage": 2, "annual_cost": 85000,
+     "revenue_modifier_key": null, "revenue_modifier_value": null,
+     "cost_modifier_key": null, "cost_modifier_value": null}
+  ],
+  "external_nodes": [
+    {"key": "snake_case", "label": "Human Label", "stage": 2,
+     "cost_modifier_key": null, "cost_modifier_value": null}
+  ],
+  "revenue_nodes": [
+    {"key": "snake_case", "label": "Human Label", "stage": 2,
+     "revenue_modifier_key": "key", "revenue_modifier_value": 0.10}
+  ],
+  "triggers": [
+    {"node_type": "snake_case_key", "label": "Event description",
+     "condition_type": "monthly_revenue", "condition_op": ">", "condition_value": 15000}
+  ],
+  "marketing_contributors": {"node_key": 12.0},
+  "infrastructure_multipliers": {"node_key": 1.15},
+  "stage_labels": {"1": "Phase 1", "2": "Phase 2", "3": "Phase 3", "4": "Phase 4"}
+}
+
+RULES:
+- corporate_nodes: 4-8 nodes (key hires, departments as company grows)
+- external_nodes: 2-4 nodes (suppliers, partners, investors)
+- revenue_nodes: 2-3 nodes (additional revenue streams)
+- triggers: one per non-location non-founder non-supplier node. Use condition_type from:
+  "monthly_revenue" (with ">" op), "location_count" (with ">=" op), "avg_satisfaction" (with ">" op)
+- For compound conditions use "condition_type": "all" and "condition_items": [{"type": "...", "op": "...", "value": ...}]
+- stage 1 = starter nodes, stage 2 = early growth, stage 3 = scaling, stage 4 = enterprise
+- modifier keys should be descriptive snake_case (e.g. "tech_efficiency", "brand_value")
+- variable_cost_modifier_key MUST match one of the cost_modifier_key values you set on nodes;
+  it is the key whose multiplier carries volume discounts at scale
+- starting_cash should be roughly 4-8 months of single-location operating costs
+- location_open_cost should reflect realistic CapEx for opening one unit
+- stages_by_location_count: thresholds when company moves to next stage; 4 ascending integers
+  (e.g. [1, 2, 11, 51] for retail-style scaling, [1, 3, 10, 30] for B2B SaaS regions)
+- max_locations_per_year_cap: realistic per-year expansion ceiling for the industry
+- Set null for modifier fields when a node has no modifiers
+- All keys must be unique lowercase_with_underscores"""
+
+
+def _build_spec_from_niche_json(niche_json: dict, economics_model: str) -> dict:
+    """Assemble a full IndustrySpec dict from compact niche JSON + economics defaults."""
+    nj = niche_json
+
+    # Build nodes dict
+    nodes: dict[str, dict] = {}
+
+    # Location node
+    loc_key = nj["location_type_key"]
+    nodes[loc_key] = {
+        "label": nj["location_type_label"],
+        "category": "location",
+        "stage": 1,
+        "annual_cost": nj.get("location_annual_cost", 120000),
+    }
+
+    # Founder node
+    founder_key = nj["founder_type_key"]
+    nodes[founder_key] = {
+        "label": nj["founder_type_label"],
+        "category": "corporate",
+        "stage": 1,
+    }
+
+    # Supplier nodes
+    supplier_keys = []
+    for sup in nj.get("supplier_types", []):
+        entry: dict = {
+            "label": sup["label"],
+            "category": "external",
+            "stage": 1,
+        }
+        if sup.get("cost_modifier_key") and sup.get("cost_modifier_value") is not None:
+            entry["cost_modifiers"] = {
+                sup["cost_modifier_key"]: sup["cost_modifier_value"]
+            }
+        nodes[sup["key"]] = entry
+        supplier_keys.append(sup["key"])
+
+    # Corporate, external, revenue nodes
+    for node in nj.get("corporate_nodes", []):
+        entry = {
+            "label": node["label"],
+            "category": "corporate",
+            "stage": node.get("stage", 2),
+            "annual_cost": node.get("annual_cost", 60000),
+        }
+        if node.get("revenue_modifier_key") and node.get("revenue_modifier_value") is not None:
+            entry["revenue_modifiers"] = {node["revenue_modifier_key"]: node["revenue_modifier_value"]}
+        if node.get("cost_modifier_key") and node.get("cost_modifier_value") is not None:
+            entry["cost_modifiers"] = {node["cost_modifier_key"]: node["cost_modifier_value"]}
+        nodes[node["key"]] = entry
+
+    for node in nj.get("external_nodes", []):
+        entry = {
+            "label": node["label"],
+            "category": "external",
+            "stage": node.get("stage", 2),
+        }
+        if node.get("cost_modifier_key") and node.get("cost_modifier_value") is not None:
+            entry["cost_modifiers"] = {node["cost_modifier_key"]: node["cost_modifier_value"]}
+        nodes[node["key"]] = entry
+
+    for node in nj.get("revenue_nodes", []):
+        entry = {
+            "label": node["label"],
+            "category": "revenue",
+            "stage": node.get("stage", 2),
+        }
+        if node.get("revenue_modifier_key") and node.get("revenue_modifier_value") is not None:
+            entry["revenue_modifiers"] = {node["revenue_modifier_key"]: node["revenue_modifier_value"]}
+        nodes[node["key"]] = entry
+
+    # Scale-relative monthly revenue threshold for opening a new location:
+    # 4x the single-location monthly fixed cost burn — proves operations are
+    # paying for themselves before doubling up. Avoids hardcoded restaurant $30k.
+    daily_fixed = float(nj.get("daily_fixed_costs", 300.0))
+    monthly_expansion_threshold = round(daily_fixed * 30 * 4)
+
+    # Build triggers -- location expansion first
+    triggers: list[dict] = [{
+        "node_type": loc_key,
+        "label": f"Opened New {nj['location_type_label']}",
+        "is_location_expansion": True,
+        "cooldown_ticks": 90,
+        "condition": {"monthly_revenue": {">": monthly_expansion_threshold}},
+    }]
+
+    for trig in nj.get("triggers", []):
+        condition: dict
+        if trig.get("condition_type") == "all":
+            items = trig.get("condition_items", [])
+            condition = {"all": [{item["type"]: {item["op"]: item["value"]}} for item in items]}
+        else:
+            condition = {trig["condition_type"]: {trig["condition_op"]: trig["condition_value"]}}
+        triggers.append({
+            "node_type": trig["node_type"],
+            "label": trig["label"],
+            "condition": condition,
+        })
+
+    # Collect quality modifier keys from revenue_modifiers across all nodes
+    quality_keys = ["satisfaction_baseline", "ceo_quality_boost"]
+    for node_def in nodes.values():
+        for k in node_def.get("revenue_modifiers", {}):
+            if k not in quality_keys:
+                quality_keys.append(k)
+
+    # Count categories
+    cat_counts: dict[str, int] = {}
+    cat_map = {"location": "Locations", "corporate": "Corporate", "external": "External", "revenue": "Revenue"}
+    for nd in nodes.values():
+        cat = cat_map.get(nd["category"], nd["category"])
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+    # Variable cost modifier key — AI nominates explicitly. Fall back to first
+    # node-declared cost modifier ONLY if no nomination, or to a generic literal.
+    declared_cost_keys = sorted({
+        k for nd in nodes.values() for k in nd.get("cost_modifiers", {})
+    })
+    var_cost_key = nj.get("variable_cost_modifier_key") or (
+        declared_cost_keys[0] if declared_cost_keys else "operating_cost"
+    )
+
+    # Economics-model-specific location defaults
+    loc_defaults: dict = {
+        "economics_model": economics_model,
+        "supply_unit_name": nj.get("supply_unit_name", "units"),
+        "location_label": nj.get("location_type_label", "Location"),
+        "price": nj.get("price_per_unit", 50.0),
+        "max_capacity": nj.get("max_capacity_per_location", 100),
+        "variable_cost_per_unit": nj.get("variable_cost_per_unit", 5.0),
+        "daily_fixed_costs": daily_fixed,
+        "supply_cost_per_unit": nj.get("supply_cost_per_unit", 10.0),
+    }
+    if economics_model == "subscription":
+        loc_defaults.update({
+            "capacity_decay_rate": 0.0,
+            "churn_rate": 0.03,
+            "acquisition_cost": 200.0,
+            "scaling_cost_per_unit": 5.0,
+        })
+    elif economics_model == "service":
+        loc_defaults.update({
+            "capacity_decay_rate": 0.01,
+        })
+
+    # Stage labels
+    stage_labels = nj.get("stage_labels", {})
+    stage_labels = {int(k): v for k, v in stage_labels.items()}
+    if not stage_labels:
+        stage_labels = {1: "Startup", 2: "Growth", 3: "Scaling", 4: "Enterprise"}
+
+    # Stage thresholds (minimum location counts to enter each stage)
+    stage_thresholds = nj.get("stages_by_location_count", [1, 2, 11, 51])
+    if len(stage_thresholds) != 4:
+        stage_thresholds = [1, 2, 11, 51]
+
+    example_nodes = [nodes[k]["label"] for k in list(nodes.keys())[:4]]
+
+    slug = nj.get("meta_name", "custom").lower().replace(" ", "_").replace("/", "_")
+    slug = re.sub(r"[^a-z0-9_]", "", slug)
+
+    spec = {
+        "meta": {
+            "slug": slug,
+            "name": nj.get("meta_name", "Custom Industry"),
+            "description": nj.get("meta_description", "Custom simulation"),
+            "icon": nj.get("meta_icon", "building"),
+            "playable": True,
+            "total_nodes": len(nodes),
+            "growth_stages": 4,
+            "key_metrics": ["Daily Revenue", "Avg Satisfaction", "Total Locations"],
+            "example_nodes": example_nodes,
+            "categories": cat_counts,
+        },
+        "roles": {
+            "location_type": loc_key,
+            "founder_type": founder_key,
+            "supplier_types": supplier_keys,
+            "numbered_labels": {
+                loc_key: nj.get("location_label_for_numbering", "Location"),
+            },
+        },
+        "nodes": nodes,
+        "triggers": triggers,
+        "bridge": {
+            "marketing_baseline": 5.0,
+            "marketing_per_location": 1.0,
+            "sustainable_utilization": 0.85,
+            "marketing_contributions": nj.get("marketing_contributors", {}),
+            "quality_modifier_keys": quality_keys,
+            "infrastructure_multipliers": nj.get("infrastructure_multipliers", {}),
+        },
+        "constants": {
+            "location_open_cost": nj.get("location_open_cost", 50000),
+            "employees_per_location": 10,
+            "starting_cash": nj.get("starting_cash", 50000),
+            "new_location_starting_customers": 20.0,
+            "new_location_starting_satisfaction": 0.5,
+            "volume_discounts": [[3, 0.90], [1, 1.00]],
+            "variable_cost_modifier_key": var_cost_key,
+        },
+        "stages": [
+            {"min_locations": stage_thresholds[0], "stage": 1},
+            {"min_locations": stage_thresholds[1], "stage": 2},
+            {"min_locations": stage_thresholds[2], "stage": 3},
+            {"min_locations": stage_thresholds[3], "stage": 4},
+        ],
+        "location_defaults": loc_defaults,
+        "ceo": {
+            "interval_ticks": 182,
+            "price_min": round(nj.get("price_per_unit", 50.0) * 0.6, 2),
+            "price_max": round(nj.get("price_per_unit", 50.0) * 1.6, 2),
+            "price_default": nj.get("price_per_unit", 50.0),
+            "cost_min": round(nj.get("variable_cost_per_unit", 5.0) * 0.6, 2),
+            "cost_max": round(nj.get("variable_cost_per_unit", 5.0) * 1.6, 2),
+            "cost_default": nj.get("variable_cost_per_unit", 5.0),
+            "max_locations_per_year_cap": nj.get("max_locations_per_year_cap", 12),
+            "price_unit": nj.get("price_unit_label", "per unit"),
+            "cost_unit": nj.get("cost_unit_label", "cost per unit"),
+            "expansion_overrides": {
+                "aggressive": {"cooldown_ticks": 45, "cash_threshold": 60000},
+                "normal": {"cooldown_ticks": 90, "cash_threshold": 80000},
+                "conservative": {"cooldown_ticks": 180, "cash_threshold": 120000},
+            },
+        },
+        "display": {
+            "stage_labels": stage_labels,
+            # Generated YAMLs ship empty filters — operator events flow through
+            # unfiltered. The frontend can layer industry-specific filters later.
+            "event_noise_filters": [],
+            "duration_options": [1, 5, 10, 20],
+        },
+    }
+    return spec
+
+
+async def generate_spec_from_niche(
+    niche: str, description: str, economics_model: str, full_description: str = ""
+) -> dict:
+    """Generate a complete IndustrySpec from a niche description (no interview needed).
+
+    Uses a two-step approach:
+    1. Claude generates compact niche-specific JSON (nodes, triggers, labels)
+    2. We assemble the full IndustrySpec programmatically with sensible defaults
+    """
+    full_desc_block = ""
+    if full_description.strip():
+        full_desc_block = f"\n\nFULL BUSINESS DESCRIPTION (from the founder — use this for accurate pricing, costs, and structure):\n{full_description}"
+
+    user_prompt = f"""Generate the niche-specific configuration for this business:
+
+BUSINESS NICHE: {niche}
+BUSINESS SUMMARY: {description}
+ECONOMICS MODEL: {economics_model}{full_desc_block}
+
+Generate the JSON now. Remember:
+- 4-8 corporate nodes, 2-4 external nodes, 2-3 revenue nodes
+- One trigger per non-starter node
+- Use the founder's actual pricing, costs, team structure, and revenue details when provided
+- Realistic costs and pricing calibrated to this specific business
+- All keys must be unique snake_case"""
+
+    client = _get_client()
+    last_error = ""
+
+    for attempt in range(3):
+        try:
+            retry_hint = ""
+            if attempt > 0 and last_error:
+                retry_hint = f"\n\nPREVIOUS ATTEMPT FAILED WITH ERROR:\n{last_error}\nFix the issue and regenerate."
+
+            response = await client.messages.create(
+                model=CEO_MODEL,
+                max_tokens=3000,
+                system=_NICHE_SPEC_SYSTEM,
+                messages=[{"role": "user", "content": user_prompt + retry_hint}],
+            )
+            raw = response.content[0].text
+
+            raw = re.sub(r"^```(?:json)?\s*\n", "", raw, flags=re.MULTILINE)
+            raw = re.sub(r"\n```\s*$", "", raw, flags=re.MULTILINE)
+
+            niche_json = json.loads(raw)
+
+            # Assemble full spec from niche JSON + defaults
+            spec_dict = _build_spec_from_niche_json(niche_json, economics_model)
+
+            # Validate with Pydantic
+            spec = IndustrySpec(**spec_dict)
+
+            # Cross-reference validation
+            if spec.roles.location_type not in spec.nodes:
+                raise ValueError(f"roles.location_type '{spec.roles.location_type}' not in nodes")
+            if spec.roles.founder_type not in spec.nodes:
+                raise ValueError(f"roles.founder_type '{spec.roles.founder_type}' not in nodes")
+            for st in spec.roles.supplier_types:
+                if st not in spec.nodes:
+                    raise ValueError(f"supplier_type '{st}' not in nodes")
+            for trigger in spec.triggers:
+                if trigger.node_type not in spec.nodes:
+                    raise ValueError(f"trigger node_type '{trigger.node_type}' not in nodes")
+            expansion = [t for t in spec.triggers if t.is_location_expansion]
+            if len(expansion) != 1:
+                raise ValueError(f"Expected exactly 1 expansion trigger, got {len(expansion)}")
+
+            return spec_dict
+
+        except Exception as e:
+            last_error = str(e)
+            log.warning("Niche spec generation attempt %d/3 failed: %s", attempt + 1, last_error)
+
+    raise ValueError(f"Failed to generate valid spec from niche after 3 attempts: {last_error}")
+
+
+async def generate_competitor_names(niche: str, num_competitors: int) -> list[str]:
+    """Generate niche-appropriate competitor company names via Claude."""
+    client = _get_client()
+    response = await client.messages.create(
+        model=CEO_MODEL,
+        max_tokens=200,
+        system=(
+            "Generate realistic, fictional company names for businesses in the given niche. "
+            "Names should sound like real companies -- use a mix of styles (founder names, "
+            "descriptive names, abstract/modern names). Respond with ONLY a JSON array of "
+            "strings, no explanation. Example: [\"Summit Roasters\", \"Pacific Bean Co\"]"
+        ),
+        messages=[{
+            "role": "user",
+            "content": f"Niche: {niche}\nGenerate exactly {num_competitors} company names.",
+        }],
+    )
+    raw = response.content[0].text
+    raw = re.sub(r"^```(?:json)?\s*\n", "", raw, flags=re.MULTILINE)
+    raw = re.sub(r"\n```\s*$", "", raw, flags=re.MULTILINE)
+
+    names = json.loads(raw)
+    if not isinstance(names, list) or len(names) < num_competitors:
+        # Fallback: pad with generic names
+        from src.simulation.market.engine import AGENT_NAMES
+        while len(names) < num_competitors:
+            names.append(AGENT_NAMES[len(names) % len(AGENT_NAMES)])
+    return names[:num_competitors]
 
 
 # ── Document upload + extraction ──
@@ -306,7 +770,7 @@ async def summarize_document(filename: str, text: str) -> str:
             "Extract business-relevant information from this document. Focus on: "
             "revenue model, pricing, cost structure, organizational structure, "
             "growth metrics, competitive landscape, market size, and any financial data. "
-            "Be concise — bullet points preferred. If the document is not business-related, "
+            "Be concise -- bullet points preferred. If the document is not business-related, "
             "say so briefly."
         ),
         messages=[
