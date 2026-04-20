@@ -55,3 +55,32 @@ class TickPhase(Enum):
     ENV_UPDATE = "env_update"
     SELECTION = "selection"
     EMIT_STATE = "emit_state"
+
+
+class DecisionTier(Enum):
+    ODE = 0          # Pure math, zero cost
+    HEURISTIC = 1    # Rule-based, zero cost
+    HAIKU = 2        # Claude Haiku via CAMEL-AI, low cost
+    SONNET = 3       # Claude Sonnet via CAMEL-AI, standard cost
+
+
+class AgentRole(Enum):
+    """Maps department index to agent decision domain and LLM call frequency."""
+
+    FINANCE = (0, "Budget reallocation, debt decisions, dividend policy", 4)
+    RD = (1, "Innovation direction, patent strategy, tech adoption", 8)
+    DISTRIBUTION = (2, "Route optimization, warehouse placement", 8)
+    PRODUCTION = (3, "Capacity planning, quality targets, make-vs-buy", 4)
+    SALES = (4, "Pricing, deal strategy, channel mix", 2)
+    MARKETING = (5, "Campaign strategy, brand positioning", 4)
+    HR = (6, "Hiring plan, retention strategy, culture", 4)
+    EXECUTIVE = (7, "M&A, market entry/exit, major pivots", 12)
+    CUSTOMER_SERVICE = (8, "Service level targets, feedback response", 4)
+    LEGAL = (9, "Compliance posture, IP strategy", 12)
+    IT = (10, "Infrastructure investment, tooling decisions", 8)
+    PROCUREMENT = (11, "Vendor selection, contract negotiation", 4)
+
+    def __init__(self, dept_index: int, domain: str, llm_frequency: int) -> None:
+        self.dept_index = dept_index
+        self.domain = domain
+        self.llm_frequency = llm_frequency

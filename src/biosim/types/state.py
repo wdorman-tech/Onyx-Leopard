@@ -50,6 +50,12 @@ class StateArrays:
         "apoptosis_triggered",
         # Counters
         "consecutive_insolvent",
+        # Agent decision arrays
+        "directives",           # (max_capacity, 12) — executive directives per dept
+        "charter",              # (max_capacity, 16) — corporate strategy vector
+        "last_decision_tick",   # (max_capacity, 12) — last tick each dept agent made LLM call
+        "decision_tier_counts", # (max_capacity, 4)  — count of Tier 0/1/2/3 decisions
+        "agent_state_deltas",   # (max_capacity, 12) — L2 norm of state change since last LLM call
     )
 
     def __init__(self, max_capacity: int = 50) -> None:
@@ -97,6 +103,13 @@ class StateArrays:
 
         # Counters
         self.consecutive_insolvent = np.zeros(max_capacity, dtype=np.int64)
+
+        # Agent decision arrays
+        self.directives = np.zeros((max_capacity, NUM_DEPARTMENTS), dtype=np.float64)
+        self.charter = np.zeros((max_capacity, 16), dtype=np.float64)
+        self.last_decision_tick = np.zeros((max_capacity, NUM_DEPARTMENTS), dtype=np.float64)
+        self.decision_tier_counts = np.zeros((max_capacity, 4), dtype=np.float64)
+        self.agent_state_deltas = np.zeros((max_capacity, NUM_DEPARTMENTS), dtype=np.float64)
 
     def add_company(self, name: str, color: str, initial_params: dict) -> int:
         """Allocate the next dead slot for a new company. Returns its index."""
@@ -200,4 +213,9 @@ class StateArrays:
             "dept_budget": self.dept_budget[idx].tolist(),
             "alive": self.alive[idx].tolist(),
             "consecutive_insolvent": self.consecutive_insolvent[idx].tolist(),
+            "directives": self.directives[idx].tolist(),
+            "charter": self.charter[idx].tolist(),
+            "last_decision_tick": self.last_decision_tick[idx].tolist(),
+            "decision_tier_counts": self.decision_tier_counts[idx].tolist(),
+            "agent_state_deltas": self.agent_state_deltas[idx].tolist(),
         }
