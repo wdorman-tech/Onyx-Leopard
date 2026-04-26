@@ -175,6 +175,11 @@ class TickResult:
     Carries the minimum the SSE stream and tests need to consume. A separate
     `to_graph_snapshot()` call produces the full graph payload when the
     frontend requests it.
+
+    `critic_scores` carries `critic.CriticScore` objects produced by the
+    optional `CriticAgent` (Phase 2.3). Empty list when no critic is
+    wired or no strategic decision fired this tick. Frontend (Phase 5.3)
+    surfaces these in the Critic Scores panel.
     """
 
     tick: int
@@ -190,6 +195,7 @@ class TickResult:
     arriving_shocks: list[Shock]
     active_shocks: list[Shock]
     bankrupt: bool
+    critic_scores: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -691,7 +697,7 @@ class CompanyAgentV2:
         )
 
         # 8. Orchestrator
-        decisions = await self.orchestrator.tick(state)
+        decisions, critic_scores = await self.orchestrator.tick(state)
         for decision in decisions:
             self._apply_decision(decision)
             self._hist.decisions.append(decision)
@@ -715,6 +721,7 @@ class CompanyAgentV2:
             employee_count=employee_count,
             spawned_nodes=dict(self.spawned_nodes),
             decisions=list(decisions),
+            critic_scores=list(critic_scores),
             arriving_shocks=list(arrivals),
             active_shocks=list(self.active_shocks),
             bankrupt=False,

@@ -149,10 +149,16 @@ class TranscriptEntry(BaseModel):
     `prompt_sha256` is the canonical prompt hash (see `canonicalize_prompt`),
     NOT a hash of the raw prompt string — the canonicalization rule is part
     of the file format.
+
+    `kind` discriminator: defaults to `"decision"` so transcripts written
+    before the critic was added still parse cleanly. `iter_entries` and
+    `_load_index` use the on-disk `kind` field to dispatch between
+    `TranscriptEntry` (CEO decisions) and `CriticEntry` (critic scores).
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    kind: Literal["decision"] = "decision"
     sim_id: str = Field(..., min_length=1)
     tick: int = Field(..., ge=0)
     company_id: str = Field(..., min_length=1)
@@ -165,6 +171,35 @@ class TranscriptEntry(BaseModel):
     input_tokens: int = Field(..., ge=0)
     output_tokens: int = Field(..., ge=0)
     cost_usd: float = Field(..., ge=0.0)
+
+
+class CriticEntry(BaseModel):
+    """One recorded critic score. Keyed by `(tick, company_id)` only.
+
+    Separate model from `TranscriptEntry` — the critic doesn't have a
+    prompt-SHA invariant (it's deterministic given decision+stance+state),
+    doesn't carry a tier, and isn't billed against `MODEL_PRICING` checks
+    in the orchestrator's hot path. Sharing the schema would force a sea
+    of nullable fields on either side; keeping them separate keeps both
+    shapes auditable.
+
+    `kind` discriminator: literal `"critic"`. `_load_index` dispatches on
+    this field so a single JSONL file can interleave decisions and critic
+    scores without ambiguity.
+
+    `parsed_score` carries the actual `CriticScore`. The schema is defined
+    here as a forward-compatible dict (we import `CriticScore` lazily in
+    the agent — `replay.py` is foundational and must not import upward).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["critic"] = "critic"
+    tick: int = Field(..., ge=0)
+    company_id: str = Field(..., min_length=1)
+    score: float = Field(..., ge=0.0, le=1.0)
+    violations: list[str] = Field(default_factory=list)
+    reasoning: str = Field(..., min_length=1)
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +286,10 @@ class Transcript:
         self._lock = threading.Lock()
         # Index built on construction in replay mode; lazy in record/off.
         self._index: dict[tuple[int, str], TranscriptEntry] = {}
+        # Separate critic index — different value type, different keying
+        # semantics (no decision_id since one critic score per strategic
+        # decision per tick). `_load_index` populates both in replay mode.
+        self._critic_index: dict[tuple[int, str], CriticEntry] = {}
 
         if mode == "replay":
             self._load_index()
@@ -301,12 +340,78 @@ class Transcript:
             return None
         return self._index.get((tick, company_id))
 
-    def iter_entries(self) -> Iterator[TranscriptEntry]:
+    # ── Critic API ────────────────────────────────────────────────────────
+
+    def record_critic(
+        self, tick: int, company_id: str, score: Any
+    ) -> None:
+        """Append a critic score to the JSONL file. Mirrors `record(...)`.
+
+        `score` is typed `Any` to avoid an upward import dependency on the
+        `critic` module. In practice it must be a `critic.CriticScore`
+        (duck-typed: needs `.score`, `.violations`, `.reasoning`). Passing
+        anything else raises ValidationError when the `CriticEntry` is
+        constructed.
+
+        Duplicate-detection on `(tick, company_id)` mirrors the decision
+        path so a buggy bundle that calls the critic twice for the same
+        strategic decision fails loudly rather than silently producing a
+        non-reproducible replay.
+        """
+        if self._mode == "off":
+            return
+        if self._mode == "replay":
+            raise RuntimeError(
+                "Transcript opened in replay mode; record_critic is forbidden"
+            )
+
+        entry = CriticEntry(
+            tick=tick,
+            company_id=company_id,
+            score=float(score.score),
+            violations=list(score.violations),
+            reasoning=str(score.reasoning),
+        )
+        line = entry.model_dump_json()
+        with self._lock, self._path.open("a", encoding="utf-8") as f:
+            f.write(line)
+            f.write("\n")
+            f.flush()
+            with contextlib.suppress(OSError, AttributeError):
+                os.fsync(f.fileno())
+
+    def lookup_critic(self, tick: int, company_id: str) -> Any | None:
+        """Return the recorded `CriticScore` for `(tick, company_id)`, or `None`.
+
+        Returns `critic.CriticScore` in practice — typed `Any` here to keep
+        `replay.py` foundational (no upward import). The critic module
+        adapts the on-disk `CriticEntry` back to `CriticScore` itself.
+        """
+        if self._mode != "replay":
+            return None
+        entry = self._critic_index.get((tick, company_id))
+        if entry is None:
+            return None
+        # Lazy import — keeps `replay.py` foundational and import-cycle-free.
+        from src.simulation.critic import CriticScore
+
+        return CriticScore(
+            score=entry.score,
+            violations=list(entry.violations),
+            reasoning=entry.reasoning,
+        )
+
+    def iter_entries(self) -> Iterator[TranscriptEntry | CriticEntry]:
         """Yield every entry in the on-disk file in write order.
 
         Works in all three modes (re-reads the file from disk every call so
         you see entries written after construction in `record` mode). Used by
         analysis tooling, not by the hot orchestrator path.
+
+        Dispatches on the on-disk `kind` field — decisions become
+        `TranscriptEntry`, critic scores become `CriticEntry`. Lines
+        missing `kind` default to `"decision"` for backward-compat with
+        transcripts written before the critic was added.
         """
         if not self._path.exists():
             return
@@ -315,20 +420,37 @@ class Transcript:
                 line = line.strip()
                 if not line:
                     continue
-                yield TranscriptEntry.model_validate_json(line)
+                # Cheap kind dispatch — decode once, branch on kind.
+                obj = json.loads(line)
+                kind = obj.get("kind", "decision")
+                if kind == "critic":
+                    yield CriticEntry.model_validate(obj)
+                else:
+                    yield TranscriptEntry.model_validate(obj)
 
     # ── Internals ─────────────────────────────────────────────────────────
 
     def _load_index(self) -> None:
-        """Build the `(tick, company_id) → entry` index. Strict — duplicates fail.
+        """Build the `(tick, company_id) → entry` indices. Strict — duplicates fail.
 
-        A duplicate `(tick, company_id)` is a recording bug. Refusing to load
-        is safer than silently picking one and producing a non-reproducible
-        replay.
+        A duplicate `(tick, company_id)` is a recording bug for either
+        kind. Refusing to load is safer than silently picking one and
+        producing a non-reproducible replay.
         """
         if not self._path.exists():
             return  # Empty replay is allowed; lookups return None.
         for entry in self.iter_entries():
+            if isinstance(entry, CriticEntry):
+                key = (entry.tick, entry.company_id)
+                if key in self._critic_index:
+                    raise ValueError(
+                        f"duplicate critic entry for tick={entry.tick} "
+                        f"company_id={entry.company_id!r} in {self._path}; "
+                        "this is a recording bug — replay is non-deterministic"
+                    )
+                self._critic_index[key] = entry
+                continue
+            # Decision entry path.
             key = (entry.tick, entry.company_id)
             if key in self._index:
                 raise ValueError(
@@ -534,6 +656,7 @@ __all__ = [
     "CeoDecision",
     "CostCeilingExceededError",
     "CostTracker",
+    "CriticEntry",
     "MissingTranscriptEntryError",
     "PromptHashMismatchError",
     "Tier",

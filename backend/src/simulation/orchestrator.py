@@ -1298,23 +1298,48 @@ class OrchestratorBundle:
       1. Heuristic (every 7 ticks) — if it fires, runs first.
       2. Tactical (every 30 ticks) — if it fires, runs second.
       3. Strategic (every 90 ticks OR severe-shock interrupt) — runs last.
+      4. Critic (Phase 2.3, Decision 3A) — if a strategic decision fired
+         AND `critic` + `stance` are wired, score it and append to the
+         per-tick `critic_scores` list. Critic NEVER blocks the decision —
+         below-threshold scores are logged but the decision still applies.
 
-    Returns the list of decisions emitted this tick (0-3 entries). Order
-    matters — the engine should apply heuristic first (fast operational
-    fixes), then tactical, then strategic, so each higher tier sees the
-    lower tiers' state effects on the next tick.
+    Returns the tuple `(decisions, critic_scores)`. The decisions list has
+    0-3 entries; `critic_scores` has 0-1 entries (one per strategic-tier
+    decision in the same tick). Order matters for `decisions` — the engine
+    should apply heuristic first (fast operational fixes), then tactical,
+    then strategic, so each higher tier sees the lower tiers' state
+    effects on the next tick.
 
     Severe-shock interrupt: any active shock with `severity == "severe"`
     forces a strategic-tier wake regardless of cadence. The interrupt does
     NOT also wake tactical or heuristic — those wait for their own cadences.
+
+    Backward-compat: `critic`, `stance`, and `company_id` default to
+    `None`/empty so existing test fixtures that construct
+    `OrchestratorBundle(heuristic=..., tactical=..., strategic=...)` keep
+    working. The critic only fires when `critic` AND `stance` are both
+    non-None — this is intentional, so the engine can opt out cleanly by
+    leaving `critic=None`.
     """
 
     heuristic: HeuristicOrchestrator
     tactical: TacticalOrchestrator
     strategic: StrategicOrchestrator
+    critic: Any | None = None  # CriticAgent — typed Any to avoid import cycle
+    stance: CeoStance | None = None
+    company_id: str = ""
 
-    async def tick(self, state: CompanyState) -> list[CeoDecision]:
+    async def tick(
+        self, state: CompanyState
+    ) -> tuple[list[CeoDecision], list[Any]]:
+        """Run one tick. Returns `(decisions, critic_scores)`.
+
+        `critic_scores` is `list[critic.CriticScore]` in practice — typed
+        `list[Any]` here to avoid an upward import dependency on
+        `critic.py` (which itself imports from this module).
+        """
         decisions: list[CeoDecision] = []
+        critic_scores: list[Any] = []
 
         # 1. Heuristic — sync, no LLM.
         h = self.heuristic.tick(state)
@@ -1332,7 +1357,29 @@ class OrchestratorBundle:
         if s is not None:
             decisions.append(s)
 
-        return decisions
+        # 4. Critic — Haiku-scored stance alignment for the strategic
+        #    decision (if any). Per Decision 3A: never blocks, only logs.
+        if s is not None and self.critic is not None and self.stance is not None:
+            score = await self.critic.score(
+                s, self.stance, state, company_id=self.company_id
+            )
+            if score is not None:
+                critic_scores.append(score)
+                # Lazy-import the threshold constant to avoid an import
+                # cycle (`critic` imports from this module).
+                from src.simulation.critic import CRITIC_VIOLATION_THRESHOLD
+
+                if score.score < CRITIC_VIOLATION_THRESHOLD:
+                    log.warning(
+                        "Stance violation tick=%d company=%s score=%.2f "
+                        "violations=%s",
+                        state.tick,
+                        self.company_id,
+                        score.score,
+                        score.violations,
+                    )
+
+        return decisions, critic_scores
 
 
 __all__ = [

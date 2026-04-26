@@ -849,13 +849,15 @@ async def test_bundle_tick_210_fires_heuristic_and_tactical(tmp_path: Path) -> N
         spawned=spawned,
         capacity_utilization=0.99,
     )
-    decisions = await bundle.tick(state)
+    decisions, critic_scores = await bundle.tick(state)
 
     tiers = sorted(d.tier for d in decisions)
     # Heuristic is allowed to no-op if no rule matches; but sustained 0.99 util
     # for 3+ samples should produce one. Tactical must fire on cadence.
     assert "tactical" in tiers
     assert "strategic" not in tiers
+    # No strategic → no critic score this tick.
+    assert critic_scores == []
 
 
 @pytest.mark.asyncio
@@ -895,7 +897,7 @@ async def test_bundle_tick_180_fires_all_three(tmp_path: Path) -> None:
         spawned=spawned,
         capacity_utilization=0.99,
     )
-    decisions = await bundle.tick(state)
+    decisions, _critic_scores = await bundle.tick(state)
 
     tiers = sorted(d.tier for d in decisions)
     assert "tactical" in tiers
@@ -928,7 +930,7 @@ async def test_bundle_severe_shock_force_wakes_strategic(tmp_path: Path) -> None
     )
     state = _make_state(tick=15, active_shocks=[severe])
 
-    decisions = await bundle.tick(state)
+    decisions, _critic_scores = await bundle.tick(state)
     tiers = [d.tier for d in decisions]
     assert "strategic" in tiers
     assert "tactical" not in tiers
