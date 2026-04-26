@@ -133,7 +133,7 @@ export function useAdaptiveSetup(): UseAdaptiveSetupReturn {
   const [numCompetitors, setNumCompetitors] = useState(4);
   const [startMode, setStartMode] = useState("identical");
   const [durationYears, setDurationYears] = useState(5);
-  const [aiCeoEnabled, setAiCeoEnabled] = useState(false);
+  const [aiCeoEnabled, setAiCeoEnabled] = useState(true);
   const [companyStrategies, setCompanyStrategies] = useState<
     Record<number, string>
   >({});
@@ -217,7 +217,7 @@ export function useAdaptiveSetup(): UseAdaptiveSetupReturn {
     setNumCompetitors(4);
     setStartMode("identical");
     setDurationYears(5);
-    setAiCeoEnabled(false);
+    setAiCeoEnabled(true);
     setCompanyStrategies({});
     setCompetitorNames([]);
 

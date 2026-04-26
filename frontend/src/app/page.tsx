@@ -36,7 +36,7 @@ export default function Home() {
   const [presetSlug, setPresetSlug] = useState<string | null>(null);
   const [unifiedStartMode, setUnifiedStartMode] = useState("identical");
   const [unifiedCompanyCount, setUnifiedCompanyCount] = useState(4);
-  const [aiCeoEnabled, setAiCeoEnabled] = useState(false);
+  const [aiCeoEnabled, setAiCeoEnabled] = useState(true);
   const [durationYears, setDurationYears] = useState(5);
   const [companyStrategies, setCompanyStrategies] = useState<Record<number, string>>({});
 

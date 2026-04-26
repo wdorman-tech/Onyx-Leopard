@@ -118,7 +118,7 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
     async (
       startMode = "identical",
       numCompanies = 4,
-      aiCeoEnabled = false,
+      aiCeoEnabled = true,
       durationYears = 5,
       companyStrategies: Record<number, string> = {},
     ) => {

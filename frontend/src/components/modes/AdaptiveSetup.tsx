@@ -129,13 +129,13 @@ export function AdaptiveSetup({ adaptive, onBack, onStartSim }: AdaptiveSetupPro
                 <span className={`text-xs ${
                   wordCount < 20
                     ? "text-surface-400"
-                    : wordCount < 50
+                    : wordCount < 500
                       ? "text-amber-500"
                       : "text-emerald-500"
                 }`}>
                   {wordCount} {wordCount === 1 ? "word" : "words"}
                   {wordCount > 0 && wordCount < 20 && " — keep going, more detail = better simulation"}
-                  {wordCount >= 50 && " — great level of detail"}
+                  {wordCount >= 500 && " — great level of detail"}
                 </span>
               </div>
             </div>

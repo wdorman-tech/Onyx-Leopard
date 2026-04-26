@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, Users } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 
 interface ModeSelectorProps {
@@ -31,27 +31,10 @@ export function ModeSelector({
           Choose your simulation mode
         </p>
 
-        <div className="max-w-2xl w-full grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button
-            onClick={onSelectUnified}
-            className="group flex flex-col items-start gap-3 p-6 rounded-2xl border border-surface-200 hover:border-accent hover:bg-accent/5 transition-all text-left"
-          >
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-surface-100 group-hover:bg-accent/10 transition-colors">
-              <Users size={20} className="text-surface-500 group-hover:text-accent transition-colors" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-surface-800 mb-1">
-                Static Simulation
-              </h2>
-              <p className="text-xs text-surface-500 leading-relaxed">
-                Pre-built companies with configurable AI CEOs competing in a shared market
-              </p>
-            </div>
-          </button>
-
+        <div className="max-w-md w-full">
           <button
             onClick={onSelectAdaptive}
-            className="group flex flex-col items-start gap-3 p-6 rounded-2xl border border-surface-200 hover:border-accent hover:bg-accent/5 transition-all text-left"
+            className="group w-full flex flex-col items-start gap-3 p-6 rounded-2xl border border-surface-200 hover:border-accent hover:bg-accent/5 transition-all text-left"
           >
             <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-surface-100 group-hover:bg-accent/10 transition-colors">
               <Sparkles size={20} className="text-surface-500 group-hover:text-accent transition-colors" />
@@ -69,6 +52,12 @@ export function ModeSelector({
       </div>
 
       <div className="absolute bottom-4 right-5 flex items-center gap-4">
+        <button
+          onClick={onSelectUnified}
+          className="text-xs text-surface-400 hover:text-surface-600 transition-colors"
+        >
+          Static Simulation
+        </button>
         <button
           onClick={onSelectMarket}
           className="text-xs text-surface-400 hover:text-surface-600 transition-colors"

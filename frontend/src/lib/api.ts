@@ -108,7 +108,7 @@ export function startUnifiedSimulation(
   startMode = "identical",
   numCompanies = 4,
   maxTicks = 0,
-  aiCeoEnabled = false,
+  aiCeoEnabled = true,
   durationYears = 5,
   companyStrategies: Record<number, string> = {},
 ): Promise<UnifiedStartResponse> {
