@@ -1,237 +1,188 @@
 """Bridge between company node graphs and market competition variables.
 
-Maps a company's node graph -> (quality, marketing, capacity) for the market
-share attraction formula, and maps market-allocated demand -> per-location
-customer allocation.
+Auto-derives every modifier set per tick from the actual spawned nodes'
+`modifier_keys` (declared in `node_library.yaml`). No static declaration;
+by construction this eliminates the entire empty-modifier-key class of
+silent-failure bugs (V2 plan §6).
+
+──────────────────────────────────────────────────────────────────────────
+Suffix taxonomy (v2) — PART OF THIS FILE'S CONTRACT
+──────────────────────────────────────────────────────────────────────────
+
+`bucket_modifiers` partitions an aggregated `dict[str, float]` of modifier
+keys into four buckets by suffix match. A key K matches bucket tag T iff:
+
+    K == T          (exact match — the whole modifier_key IS the tag)
+    K endswith "_T" (snake_case suffix — T is the trailing token chain)
+
+The first matching tag (in the order listed below) wins. Anything that
+matches no tag goes to `other`.
+
+    quality       : "quality", "satisfaction", "retention", "churn_reduction"
+    marketing     : "marketing", "lead_gen", "pipeline_strength",
+                    "brand", "awareness"
+    infrastructure: "infrastructure", "capacity_uplift", "throughput",
+                    "efficiency"
+    other         : everything else
+
+Author convention for `node_library.yaml`: pick a modifier_key name whose
+trailing token (or the whole name, for short names) matches the bucket the
+modifier should land in. Anything unprincipled lands in `other` and is then
+the caller's problem to interpret.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict, Field
 
-import numpy as np
-from biosim.math.production import cobb_douglas
+from src.simulation.library_loader import NodeLibrary
 
-from src.simulation.config_loader import IndustrySpec
-from src.simulation.models import CompanyState, SimNode
+# ─────────────────────────────────────────────────────────────────────────────
+# v2 — auto-derived modifier aggregation
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Bucket tag tables. Order of buckets in `_BUCKETS` is the priority order:
+#: a key that could match more than one bucket lands in the first match.
+#: Tags within a bucket are tried longest-first to avoid `_efficiency`
+#: shadowing a hypothetical `_throughput_efficiency` (none today, but the
+#: rule is stable as the library grows).
+QUALITY_TAGS: tuple[str, ...] = (
+    "churn_reduction",  # 2-token, must precede single-token "retention" etc.
+    "satisfaction",
+    "retention",
+    "quality",
+)
+MARKETING_TAGS: tuple[str, ...] = (
+    "pipeline_strength",  # 2-token first
+    "lead_gen",
+    "awareness",
+    "marketing",
+    "brand",
+)
+INFRASTRUCTURE_TAGS: tuple[str, ...] = (
+    "capacity_uplift",  # 2-token first
+    "infrastructure",
+    "throughput",
+    "efficiency",
+)
+
+#: Bucket priority order — first match wins. Keep `quality` first so a
+#: hypothetical `*_quality_efficiency` lands in quality, not infrastructure.
+_BUCKETS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("quality", QUALITY_TAGS),
+    ("marketing", MARKETING_TAGS),
+    ("infrastructure", INFRASTRUCTURE_TAGS),
+)
 
 
-@dataclass
-class _CompanyAggregate:
-    """Per-company aggregates from a single node-graph pass.
+class BridgeAggregate(BaseModel):
+    """Bucketed view of a company's auto-derived modifier set.
 
-    Holds everything the capacity calculation needs *before* the Cobb-Douglas
-    step, so the batch path can compute Cobb-Douglas once across all firms
-    instead of N times with 1-element arrays.
+    Produced by `bucket_modifiers` from the dict that `aggregate_modifiers`
+    returns. All four buckets are `dict[str, float]`; empty dicts are
+    expected (early ticks where only the founder is spawned will populate
+    nothing).
     """
 
-    has_locations: bool
-    marketing: float
-    avg_price: float
-    avg_satisfaction: float
-    quality_mult: float
-    infra_mult: float
-    total_max_capacity: float
-    capital_val: float
-    labor_val: float
+    model_config = ConfigDict(extra="forbid")
+
+    quality: dict[str, float] = Field(default_factory=dict)
+    marketing: dict[str, float] = Field(default_factory=dict)
+    infrastructure: dict[str, float] = Field(default_factory=dict)
+    other: dict[str, float] = Field(default_factory=dict)
 
 
-def _aggregate_company(
-    state: CompanyState, spec: IndustrySpec, marketing_boost: float,
-) -> _CompanyAggregate:
-    """Single pass over a company's node graph to build the aggregate inputs."""
-    bridge = spec.bridge
-    location_type = spec.roles.location_type
-    quality_keys = frozenset(bridge.quality_modifier_keys)
-    infra_mults = bridge.infrastructure_multipliers
-    marketing_contribs = bridge.marketing_contributions
+def aggregate_modifiers(
+    library: NodeLibrary,
+    spawned_nodes: dict[str, int],
+) -> dict[str, float]:
+    """Sum each modifier_key across all spawned nodes (count-weighted).
 
-    locations: list[SimNode] = []
-    infra_mult = 1.0
-    quality_mult = 1.0
-    marketing = bridge.marketing_baseline
-
-    for node in state.nodes.values():
-        if not node.active:
-            continue
-        if node.type == location_type and node.location_state is not None:
-            locations.append(node)
-        if node.type in infra_mults:
-            infra_mult *= infra_mults[node.type]
-        for key, val in node.revenue_modifiers.items():
-            if key in quality_keys:
-                quality_mult *= 1.0 + val
-        if node.type in marketing_contribs:
-            marketing += marketing_contribs[node.type]
-
-    if not locations:
-        return _CompanyAggregate(
-            has_locations=False,
-            marketing=bridge.marketing_baseline,
-            avg_price=0.0,
-            avg_satisfaction=0.0,
-            quality_mult=1.0,
-            infra_mult=1.0,
-            total_max_capacity=0.0,
-            capital_val=0.0,
-            labor_val=1.0,
-        )
-
-    loc_count = len(locations)
-    marketing += loc_count * bridge.marketing_per_location
-
-    if marketing_boost != bridge.marketing_boost_neutral:
-        boost_delta = marketing_boost - bridge.marketing_boost_neutral
-        marketing = max(
-            1.0,
-            marketing + boost_delta * bridge.marketing_boost_multiplier,
-        )
-
-    avg_price = sum(loc.location_state.price for loc in locations) / loc_count  # type: ignore[union-attr]
-    total_max_capacity = sum(
-        loc.location_state.max_capacity for loc in locations  # type: ignore[union-attr]
-    )
-    avg_satisfaction = (
-        sum(loc.location_state.satisfaction for loc in locations) / loc_count  # type: ignore[union-attr]
-    )
-    capital_val = sum(
-        loc.location_state.daily_fixed_costs for loc in locations  # type: ignore[union-attr]
-    ) * 365.0  # annualize
-    labor_val = float(state.total_employees) if state.total_employees > 0 else 1.0
-
-    return _CompanyAggregate(
-        has_locations=True,
-        marketing=marketing,
-        avg_price=avg_price,
-        avg_satisfaction=avg_satisfaction,
-        quality_mult=quality_mult,
-        infra_mult=infra_mult,
-        total_max_capacity=total_max_capacity,
-        capital_val=capital_val,
-        labor_val=labor_val,
-    )
-
-
-def _capacity_from_raw_output(
-    agg: _CompanyAggregate, raw_output: float, spec: IndustrySpec,
-) -> float:
-    """Turn a Cobb-Douglas raw output into a $-revenue/day capacity ceiling."""
-    util = spec.bridge.sustainable_utilization
-    if spec.math.production_model == "cobb_douglas":
-        return raw_output * agg.avg_price * util
-    return agg.total_max_capacity * agg.avg_price * agg.infra_mult * util
-
-
-def derive_competitive_attributes(
-    state: CompanyState,
-    spec: IndustrySpec,
-    marketing_boost: float = 0.5,
-) -> tuple[float, float, float]:
-    """Extract (quality, marketing, capacity) from a company's node graph.
+    For each `(node_key, count)` in `spawned_nodes`, looks up
+    `library.nodes[node_key].modifier_keys`, multiplies each value by `count`,
+    and sums into a running dict.
 
     Args:
-        state: The company's current state with node graph.
-        spec: Industry specification with bridge mappings.
-        marketing_boost: CEO agent marketing intensity (0.0-1.0). 0.5 = neutral.
+        library: Validated node library (typically from `get_library()`).
+        spawned_nodes: Map of `node_key -> count` of currently-spawned nodes.
+            Counts of 0 are skipped; negative counts raise `ValueError`.
 
-    Returns values in market-compatible units:
-        quality  — [0, ~1.5] range, fed into q^beta in share attraction
-        marketing — [5, ~50] range, fed into m^alpha in share attraction
-        capacity  — $/day of maximum revenue, used as K_i ceiling
+    Returns:
+        Mapping of `modifier_key -> summed magnitude`. Empty dict if
+        `spawned_nodes` is empty or no spawned node carries any modifiers.
+
+    Raises:
+        KeyError: if any `node_key` in `spawned_nodes` is not present in
+            `library` — V2 plan §1 hard-fail validation rule.
+        ValueError: if any count is negative.
     """
-    agg = _aggregate_company(state, spec, marketing_boost)
-    if not agg.has_locations:
-        return (0.01, spec.bridge.marketing_baseline, 0.0)
-
-    if spec.math.production_model == "cobb_douglas":
-        raw = float(cobb_douglas(
-            np.array([agg.infra_mult]),
-            np.array([agg.capital_val]),
-            np.array([agg.labor_val]),
-            np.array([spec.math.production_alpha]),
-            np.array([spec.math.production_beta]),
-        )[0])
-    else:
-        raw = 0.0  # unused in non-cobb_douglas branch
-
-    capacity = _capacity_from_raw_output(agg, raw, spec)
-    quality = max(0.01, agg.avg_satisfaction * agg.quality_mult)
-    return (quality, agg.marketing, capacity)
-
-
-def derive_competitive_attributes_batch(
-    states: list[CompanyState],
-    spec: IndustrySpec,
-    marketing_boosts: list[float],
-) -> list[tuple[float, float, float]]:
-    """Vectorized variant: one Cobb-Douglas call across all companies.
-
-    Equivalent to calling `derive_competitive_attributes` per company, but
-    batches the capacity production function so we hit NumPy once per tick
-    instead of N times with 1-element arrays.
-    """
-    if not states:
-        return []
-    if len(states) != len(marketing_boosts):
-        raise ValueError(
-            f"states ({len(states)}) / marketing_boosts ({len(marketing_boosts)}) length mismatch",
-        )
-
-    aggregates = [
-        _aggregate_company(s, spec, mb)
-        for s, mb in zip(states, marketing_boosts, strict=True)
-    ]
-
-    if spec.math.production_model == "cobb_douglas":
-        n = len(aggregates)
-        infra_arr = np.fromiter((a.infra_mult for a in aggregates), dtype=float, count=n)
-        capital_arr = np.fromiter((a.capital_val for a in aggregates), dtype=float, count=n)
-        labor_arr = np.fromiter((a.labor_val for a in aggregates), dtype=float, count=n)
-        alpha_arr = np.full(n, spec.math.production_alpha)
-        beta_arr = np.full(n, spec.math.production_beta)
-        raw_outputs = cobb_douglas(infra_arr, capital_arr, labor_arr, alpha_arr, beta_arr)
-    else:
-        raw_outputs = np.zeros(len(aggregates))
-
-    results: list[tuple[float, float, float]] = []
-    for agg, raw in zip(aggregates, raw_outputs, strict=True):
-        if not agg.has_locations:
-            results.append((0.01, spec.bridge.marketing_baseline, 0.0))
+    out: dict[str, float] = {}
+    for node_key, count in spawned_nodes.items():
+        if count < 0:
+            raise ValueError(
+                f"spawned_nodes[{node_key!r}] = {count}; counts cannot be negative"
+            )
+        if count == 0:
             continue
-        capacity = _capacity_from_raw_output(agg, float(raw), spec)
-        quality = max(0.01, agg.avg_satisfaction * agg.quality_mult)
-        results.append((quality, agg.marketing, capacity))
-    return results
+        node = library.get(node_key)
+        if node is None:
+            raise KeyError(
+                f"spawned_nodes references unknown node_key {node_key!r} "
+                "(not present in node library). V2 plan: hard-fail validation."
+            )
+        for mod_key, magnitude in node.modifier_keys.items():
+            out[mod_key] = out.get(mod_key, 0.0) + magnitude * count
+    return out
 
 
-def allocate_demand_to_locations(
-    total_customers: float,
-    locations: list[SimNode],
-) -> dict[str, float]:
-    """Distribute a firm's market-allocated customer demand across its locations.
+def _classify_modifier_key(key: str) -> str:
+    """Return bucket name (`quality` / `marketing` / `infrastructure` / `other`).
 
-    Allocation is proportional to each location's attractiveness score:
-        attractiveness_j = satisfaction_j * max_capacity_j
-
-    Better-performing, larger locations attract more of the firm's share.
+    Strict semantics: a tag T matches `key` iff `key == T` or `key.endswith("_" + T)`.
+    First bucket (in priority order) with any matching tag wins. Within a
+    bucket, tags are searched longest-first so multi-word tags (e.g.
+    `pipeline_strength`) win over their single-word substrings.
     """
-    if not locations or total_customers <= 0:
-        return {loc.id: 0.0 for loc in locations}
+    for bucket_name, tags in _BUCKETS:
+        for tag in tags:
+            if key == tag or key.endswith("_" + tag):
+                return bucket_name
+    return "other"
 
-    scores: dict[str, float] = {}
-    total_score = 0.0
-    for loc in locations:
-        if loc.location_state is None:
-            continue
-        score = loc.location_state.satisfaction * loc.location_state.max_capacity
-        scores[loc.id] = score
-        total_score += score
 
-    if total_score <= 0:
-        per_loc = total_customers / len(locations)
-        return {loc.id: per_loc for loc in locations}
+def bucket_modifiers(modifiers: dict[str, float]) -> BridgeAggregate:
+    """Partition an aggregated modifier dict into four buckets by suffix.
 
-    return {
-        loc_id: total_customers * (score / total_score)
-        for loc_id, score in scores.items()
+    See module docstring for the suffix taxonomy. The taxonomy is the file's
+    contract — `node_library.yaml` authors should pick modifier_key names
+    that match the bucket they're meant for.
+    """
+    buckets: dict[str, dict[str, float]] = {
+        "quality": {},
+        "marketing": {},
+        "infrastructure": {},
+        "other": {},
     }
+    for key, val in modifiers.items():
+        buckets[_classify_modifier_key(key)][key] = val
+    return BridgeAggregate(**buckets)
+
+
+def derive_bridge_aggregate(
+    library: NodeLibrary,
+    spawned_nodes: dict[str, int],
+) -> BridgeAggregate:
+    """One-shot helper: aggregate then bucket. The hot path for v2 callers."""
+    return bucket_modifiers(aggregate_modifiers(library, spawned_nodes))
+
+
+
+__all__ = [
+    "INFRASTRUCTURE_TAGS",
+    "MARKETING_TAGS",
+    "QUALITY_TAGS",
+    "BridgeAggregate",
+    "aggregate_modifiers",
+    "bucket_modifiers",
+    "derive_bridge_aggregate",
+]

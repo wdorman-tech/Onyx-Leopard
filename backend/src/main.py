@@ -11,9 +11,7 @@ from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 
-from src.routes.monte_carlo import router as monte_carlo_router
-from src.routes.profile_builder import router as profile_router
-from src.routes.simulation import router as simulation_router
+from src.routes.simulation_v2 import router as simulation_v2_router
 
 app = FastAPI(title="Onyx Leopard", version="0.3.0")
 
@@ -25,9 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(simulation_router)
-app.include_router(profile_router)
-app.include_router(monte_carlo_router)
+app.include_router(simulation_v2_router)
 
 
 @app.exception_handler(Exception)

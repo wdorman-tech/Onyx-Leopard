@@ -1,0 +1,2194 @@
+# Onyx Leopard — Universal Node Library
+#
+# Single source of truth for every node type the engine knows. Industry-agnostic.
+# A BD rep is the same node whether the company is a restaurant or a SaaS firm —
+# what changes is *whether* the CEO chooses to hire one, given the seed and stance.
+#
+# Schema (per node entry):
+#   category: one of [location, supplier, ops, sales, marketing, finance, exec, external, revenue]
+#   label: human-readable display name
+#   hire_cost: float — one-time cash outlay to spawn (recruiting, onboarding, build-out)
+#   daily_fixed_costs: float — ongoing daily wage / overhead burn
+#   employees_count: int — headcount added to total_employees on spawn
+#   capacity_contribution: int — adds to company physical capacity (0 unless a location)
+#   modifier_keys: dict[str, float] — modifier name → magnitude registered when spawned
+#   prerequisites: list[str] — node_keys that must already exist in the company
+#   category_caps:
+#     soft_cap: int — diminishing returns past this count
+#     hard_cap: int — maximum possible spawns of this node
+#   applicable_economics: list[str] — which economics models this node is appropriate for
+#
+# Numeric notes:
+#   * daily_fixed_costs is derived from US labor-market annual salary / 365 where the
+#     existing YAMLs declared annual_cost; rounded to 2 decimals.
+#   * hire_cost for roles ~= 1-3 months salary (recruiting + ramp); for locations,
+#     explicit build-out cost (lease, equipment, fitout). Externals/partnerships ~= 0
+#     unless there's a real onboarding fee (legal, regulatory).
+#   * Prerequisites enforce realistic org-build sequencing (e.g., CMO requires
+#     marketing_manager; second location requires first).
+#   * modifier_keys magnitudes mirror the values the existing YAMLs used for the
+#     same-or-similar concept; kept conservative (most ≤ 0.20).
+
+# ──────────────────────────────────────────────────────────────────────────
+# LOCATIONS — physical or virtual revenue-bearing units
+# Hard cap is high (999) because the CEO drives expansion via the orchestrator.
+# ──────────────────────────────────────────────────────────────────────────
+
+restaurant_location:
+  category: location
+  label: "Restaurant Location"
+  hire_cost: 50000.0
+  daily_fixed_costs: 300.0
+  employees_count: 15
+  capacity_contribution: 80
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 50
+    hard_cap: 999
+  applicable_economics:
+    - physical
+
+retail_location:
+  category: location
+  label: "Retail Location"
+  hire_cost: 40000.0
+  daily_fixed_costs: 250.0
+  employees_count: 10
+  capacity_contribution: 60
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 50
+    hard_cap: 999
+  applicable_economics:
+    - physical
+
+commissary_kitchen:
+  category: location
+  label: "Commissary Kitchen"
+  hire_cost: 150000.0
+  daily_fixed_costs: 493.15
+  employees_count: 12
+  capacity_contribution: 0
+  modifier_keys:
+    labor: -0.15
+  prerequisites:
+    - restaurant_location
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - physical
+
+distribution_center:
+  category: location
+  label: "Distribution Center"
+  hire_cost: 250000.0
+  daily_fixed_costs: 821.92
+  employees_count: 20
+  capacity_contribution: 0
+  modifier_keys:
+    food_delivery: -0.10
+  prerequisites:
+    - commissary_kitchen
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - physical
+
+drive_thru_unit:
+  category: location
+  label: "Drive-Thru Unit"
+  hire_cost: 80000.0
+  daily_fixed_costs: 328.77
+  employees_count: 8
+  capacity_contribution: 60
+  modifier_keys: {}
+  prerequisites:
+    - restaurant_location
+  category_caps:
+    soft_cap: 25
+    hard_cap: 500
+  applicable_economics:
+    - physical
+
+ghost_kitchen:
+  category: location
+  label: "Ghost Kitchen"
+  hire_cost: 35000.0
+  daily_fixed_costs: 197.26
+  employees_count: 5
+  capacity_contribution: 50
+  modifier_keys: {}
+  prerequisites:
+    - restaurant_location
+  category_caps:
+    soft_cap: 25
+    hard_cap: 500
+  applicable_economics:
+    - physical
+
+food_court_location:
+  category: location
+  label: "Food Court Location"
+  hire_cost: 50000.0
+  daily_fixed_costs: 263.01
+  employees_count: 6
+  capacity_contribution: 50
+  modifier_keys: {}
+  prerequisites:
+    - restaurant_location
+  category_caps:
+    soft_cap: 25
+    hard_cap: 500
+  applicable_economics:
+    - physical
+
+franchise_location:
+  category: location
+  label: "Franchise Location"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 80
+  modifier_keys: {}
+  prerequisites:
+    - franchise_development
+  category_caps:
+    soft_cap: 200
+    hard_cap: 999
+  applicable_economics:
+    - physical
+
+product_instance:
+  category: location
+  label: "Product Instance"
+  hire_cost: 30000.0
+  daily_fixed_costs: 98.63
+  employees_count: 5
+  capacity_contribution: 500
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 10
+    hard_cap: 50
+  applicable_economics:
+    - subscription
+
+enterprise_product:
+  category: location
+  label: "Enterprise Product"
+  hire_cost: 60000.0
+  daily_fixed_costs: 197.26
+  employees_count: 8
+  capacity_contribution: 200
+  modifier_keys:
+    infra_cost: -0.10
+    customer_growth_marketing: 0.15
+  prerequisites:
+    - product_instance
+  category_caps:
+    soft_cap: 5
+    hard_cap: 20
+  applicable_economics:
+    - subscription
+
+api_platform:
+  category: location
+  label: "API Platform"
+  hire_cost: 40000.0
+  daily_fixed_costs: 131.51
+  employees_count: 4
+  capacity_contribution: 400
+  modifier_keys:
+    customer_growth_marketing: 0.20
+  prerequisites:
+    - product_instance
+  category_caps:
+    soft_cap: 5
+    hard_cap: 20
+  applicable_economics:
+    - subscription
+
+white_label_product:
+  category: location
+  label: "White-Label Product"
+  hire_cost: 50000.0
+  daily_fixed_costs: 164.38
+  employees_count: 3
+  capacity_contribution: 300
+  modifier_keys:
+    customer_reach_marketing: 0.30
+  prerequisites:
+    - product_instance
+  category_caps:
+    soft_cap: 5
+    hard_cap: 20
+  applicable_economics:
+    - subscription
+
+data_center:
+  category: location
+  label: "Data Center"
+  hire_cost: 50000.0
+  daily_fixed_costs: 263.01
+  employees_count: 8
+  capacity_contribution: 500
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 10
+    hard_cap: 50
+  applicable_economics:
+    - subscription
+
+saas_platform:
+  category: location
+  label: "SaaS Platform"
+  hire_cost: 50000.0
+  daily_fixed_costs: 263.01
+  employees_count: 8
+  capacity_contribution: 200
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 10
+    hard_cap: 50
+  applicable_economics:
+    - subscription
+
+service_engagement:
+  category: location
+  label: "Service Engagement / Territory"
+  hire_cost: 5000.0
+  daily_fixed_costs: 49.32
+  employees_count: 1
+  capacity_contribution: 6
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 12
+    hard_cap: 100
+  applicable_economics:
+    - service
+
+# ──────────────────────────────────────────────────────────────────────────
+# SUPPLIERS — input providers (physical goods, infra, tooling)
+# Externals with annual_cost: 0; partnership-only (no wages).
+# ──────────────────────────────────────────────────────────────────────────
+
+chicken_supplier:
+  category: supplier
+  label: "Primary Protein Supplier"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+
+produce_supplier:
+  category: supplier
+  label: "Produce & Packaging Supplier"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+
+beverage_supplier:
+  category: supplier
+  label: "Beverage Supplier"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - restaurant_location
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - physical
+
+cloud_provider:
+  category: supplier
+  label: "Cloud Infrastructure Provider"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    infra_cost: -0.05
+    cloud_cost_reduction: -0.12
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+    - service
+
+managed_db_vendor:
+  category: supplier
+  label: "Managed Database Vendor"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    db_reliability_boost: -0.08
+  prerequisites:
+    - cloud_provider
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - subscription
+    - service
+
+data_warehouse_vendor:
+  category: supplier
+  label: "Data Warehouse Vendor"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    data_processing_savings: -0.08
+  prerequisites:
+    - cloud_provider
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - subscription
+
+open_source_stack:
+  category: supplier
+  label: "Open Source Stack"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    licensing_savings: -0.15
+    oss_cost_savings: -0.18
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+    - service
+
+ai_tooling_stack:
+  category: supplier
+  label: "AI Tooling Stack"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    tooling_cost: -0.12
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - service
+    - subscription
+
+ai_platform_partner:
+  category: supplier
+  label: "AI Platform Partner"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    delivery_cost: -0.09
+    tooling_cost: -0.15
+  prerequisites:
+    - ai_tooling_stack
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - service
+    - subscription
+
+payment_processor:
+  category: supplier
+  label: "Payment Processor"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - subscription
+    - physical
+    - service
+
+subcontractor_network:
+  category: supplier
+  label: "Subcontractor Network"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    delivery_cost: -0.08
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - service
+
+freelance_engineer_pool:
+  category: supplier
+  label: "Freelance Engineer Pool"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    delivery_cost: -0.08
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - service
+
+landlord:
+  category: supplier
+  label: "Landlord"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+# ──────────────────────────────────────────────────────────────────────────
+# OPS — operational, delivery, infrastructure, R&D, quality
+# ──────────────────────────────────────────────────────────────────────────
+
+owner_operator:
+  category: ops
+  label: "Owner / Operator"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+general_manager:
+  category: ops
+  label: "General Manager"
+  hire_cost: 13500.0
+  daily_fixed_costs: 147.95
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - owner_operator
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+
+area_manager:
+  category: ops
+  label: "Area Manager"
+  hire_cost: 22500.0
+  daily_fixed_costs: 246.58
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - general_manager
+  category_caps:
+    soft_cap: 6
+    hard_cap: 30
+  applicable_economics:
+    - physical
+
+regional_vp:
+  category: exec
+  label: "Regional VP"
+  hire_cost: 37500.0
+  daily_fixed_costs: 410.96
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - area_manager
+  category_caps:
+    soft_cap: 4
+    hard_cap: 10
+  applicable_economics:
+    - physical
+
+training_program:
+  category: ops
+  label: "Training Program"
+  hire_cost: 12000.0
+  daily_fixed_costs: 131.51
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    location_satisfaction: 0.05
+  prerequisites:
+    - general_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+    - service
+
+quality_assurance:
+  category: ops
+  label: "Quality Assurance"
+  hire_cost: 15000.0
+  daily_fixed_costs: 164.38
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    baseline_satisfaction: 0.03
+  prerequisites:
+    - general_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - physical
+    - service
+
+procurement:
+  category: ops
+  label: "Procurement / Supply Chain"
+  hire_cost: 18000.0
+  daily_fixed_costs: 197.26
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    food_cost: -0.08
+  prerequisites:
+    - general_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 4
+  applicable_economics:
+    - physical
+
+it_support:
+  category: ops
+  label: "IT Support"
+  hire_cost: 15000.0
+  daily_fixed_costs: 164.38
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    operating: -0.02
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+real_estate_dept:
+  category: ops
+  label: "Real Estate Department"
+  hire_cost: 30000.0
+  daily_fixed_costs: 328.77
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - general_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+
+construction_facilities:
+  category: ops
+  label: "Construction & Facilities"
+  hire_cost: 24000.0
+  daily_fixed_costs: 263.01
+  employees_count: 3
+  capacity_contribution: 0
+  modifier_keys:
+    build_cost: -0.20
+  prerequisites:
+    - real_estate_dept
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+
+rnd_menu:
+  category: ops
+  label: "R&D / Menu Development"
+  hire_cost: 24000.0
+  daily_fixed_costs: 263.01
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys:
+    menu_innovation: 0.05
+  prerequisites:
+    - general_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+
+food_safety_lab:
+  category: ops
+  label: "Food Safety Lab"
+  hire_cost: 30000.0
+  daily_fixed_costs: 328.77
+  employees_count: 3
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - rnd_menu
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - physical
+
+secret_shopper_program:
+  category: ops
+  label: "Secret Shopper Program"
+  hire_cost: 9000.0
+  daily_fixed_costs: 98.63
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    baseline_satisfaction: 0.02
+  prerequisites:
+    - quality_assurance
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+sustainability_team:
+  category: ops
+  label: "Sustainability Team"
+  hire_cost: 24000.0
+  daily_fixed_costs: 263.01
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - operations_director
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+founder_engineer:
+  category: ops
+  label: "Founder Engineer / CTO"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+    - service
+
+first_engineer:
+  category: ops
+  label: "First Engineer"
+  hire_cost: 30000.0
+  daily_fixed_costs: 328.77
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    baseline_satisfaction: 0.03
+  prerequisites:
+    - founder_engineer
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+    - service
+
+engineering_lead:
+  category: ops
+  label: "Engineering Lead"
+  hire_cost: 37500.0
+  daily_fixed_costs: 410.96
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    baseline_satisfaction: 0.05
+    product_velocity: 0.08
+  prerequisites:
+    - first_engineer
+  category_caps:
+    soft_cap: 1
+    hard_cap: 4
+  applicable_economics:
+    - subscription
+    - service
+
+senior_engineer:
+  category: ops
+  label: "Senior Engineer"
+  hire_cost: 32500.0
+  daily_fixed_costs: 356.16
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    product_velocity: 0.06
+  prerequisites:
+    - engineering_lead
+  category_caps:
+    soft_cap: 8
+    hard_cap: 50
+  applicable_economics:
+    - subscription
+    - service
+
+junior_engineer:
+  category: ops
+  label: "Junior Engineer"
+  hire_cost: 21250.0
+  daily_fixed_costs: 232.88
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    delivery_cost: -0.10
+  prerequisites:
+    - engineering_lead
+  category_caps:
+    soft_cap: 12
+    hard_cap: 60
+  applicable_economics:
+    - subscription
+    - service
+
+product_manager:
+  category: ops
+  label: "Product Manager"
+  hire_cost: 32500.0
+  daily_fixed_costs: 356.16
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    product_innovation: 0.05
+    customer_growth_marketing: 0.10
+  prerequisites:
+    - engineering_lead
+  category_caps:
+    soft_cap: 4
+    hard_cap: 20
+  applicable_economics:
+    - subscription
+
+devops_team:
+  category: ops
+  label: "DevOps / SRE Team"
+  hire_cost: 35000.0
+  daily_fixed_costs: 383.56
+  employees_count: 3
+  capacity_contribution: 0
+  modifier_keys:
+    infra_cost: -0.08
+    infra_efficiency: -0.10
+    infrastructure_efficiency: -0.10
+    baseline_satisfaction: 0.03
+  prerequisites:
+    - engineering_lead
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - subscription
+    - service
+
+data_team:
+  category: ops
+  label: "Data / Analytics Team"
+  hire_cost: 32500.0
+  daily_fixed_costs: 356.16
+  employees_count: 3
+  capacity_contribution: 0
+  modifier_keys:
+    product_innovation: 0.05
+    analytics_depth: 0.09
+  prerequisites:
+    - engineering_lead
+  category_caps:
+    soft_cap: 1
+    hard_cap: 4
+  applicable_economics:
+    - subscription
+    - service
+
+data_science_team:
+  category: ops
+  label: "Data Science & AI Team"
+  hire_cost: 70000.0
+  daily_fixed_costs: 767.12
+  employees_count: 4
+  capacity_contribution: 0
+  modifier_keys:
+    ai_feature_premium: 0.18
+  prerequisites:
+    - data_team
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+
+solutions_architect:
+  category: ops
+  label: "Solutions Architect"
+  hire_cost: 32500.0
+  daily_fixed_costs: 356.16
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    deal_size_uplift: 0.25
+    delivery_cost: -0.12
+  prerequisites:
+    - engineering_lead
+  category_caps:
+    soft_cap: 2
+    hard_cap: 10
+  applicable_economics:
+    - service
+    - subscription
+
+delivery_engineer:
+  category: ops
+  label: "Delivery Engineer"
+  hire_cost: 23750.0
+  daily_fixed_costs: 260.27
+  employees_count: 1
+  capacity_contribution: 2
+  modifier_keys:
+    delivery_capacity_uplift: 0.20
+    delivery_cost: -0.10
+  prerequisites: []
+  category_caps:
+    soft_cap: 8
+    hard_cap: 40
+  applicable_economics:
+    - service
+
+project_manager:
+  category: ops
+  label: "Engagement Project Manager"
+  hire_cost: 22500.0
+  daily_fixed_costs: 246.58
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    client_retention: 0.10
+    delivery_cost: -0.07
+  prerequisites: []
+  category_caps:
+    soft_cap: 4
+    hard_cap: 20
+  applicable_economics:
+    - service
+
+ops_coordinator:
+  category: ops
+  label: "Operations Coordinator"
+  hire_cost: 14500.0
+  daily_fixed_costs: 158.90
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    infra_cost: -0.10
+  prerequisites: []
+  category_caps:
+    soft_cap: 2
+    hard_cap: 8
+  applicable_economics:
+    - service
+    - physical
+
+operations_director:
+  category: exec
+  label: "Operations Director (COO-track)"
+  hire_cost: 35000.0
+  daily_fixed_costs: 383.56
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - area_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+# ──────────────────────────────────────────────────────────────────────────
+# SALES — revenue acquisition (BD reps, AEs, sales leadership)
+# ──────────────────────────────────────────────────────────────────────────
+
+sales_contractor:
+  category: sales
+  label: "Sales Contractor"
+  hire_cost: 9000.0
+  daily_fixed_costs: 98.63
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    pipeline_growth_marketing: 0.18
+    pipeline_conversion_marketing: 0.18
+  prerequisites: []
+  category_caps:
+    soft_cap: 4
+    hard_cap: 12
+  applicable_economics:
+    - service
+    - subscription
+
+bd_rep:
+  category: sales
+  label: "Business Development Rep"
+  hire_cost: 18000.0
+  daily_fixed_costs: 197.26
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    pipeline_growth_marketing: 0.18
+    pipeline_strength: 0.10
+  prerequisites: []
+  category_caps:
+    soft_cap: 6
+    hard_cap: 30
+  applicable_economics:
+    - subscription
+    - service
+
+account_executive:
+  category: sales
+  label: "Account Executive"
+  hire_cost: 25000.0
+  daily_fixed_costs: 273.97
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    enterprise_deals_marketing: 0.15
+    enterprise_deal_flow_marketing: 0.15
+  prerequisites:
+    - bd_rep
+  category_caps:
+    soft_cap: 6
+    hard_cap: 30
+  applicable_economics:
+    - subscription
+    - service
+
+sales_team:
+  category: sales
+  label: "Sales Team"
+  hire_cost: 25000.0
+  daily_fixed_costs: 273.97
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys:
+    customer_growth_marketing: 0.25
+    customer_reach_marketing: 0.15
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - subscription
+
+enterprise_sales_team:
+  category: sales
+  label: "Enterprise Sales Team"
+  hire_cost: 87500.0
+  daily_fixed_costs: 958.90
+  employees_count: 4
+  capacity_contribution: 0
+  modifier_keys:
+    enterprise_deals_marketing: 0.15
+    large_account_expansion: 0.22
+  prerequisites:
+    - sales_director
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+    - service
+
+sales_director:
+  category: sales
+  label: "Sales Director"
+  hire_cost: 36250.0
+  daily_fixed_costs: 397.26
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    enterprise_deal_flow_marketing: 0.15
+    enterprise_deals_marketing: 0.15
+  prerequisites:
+    - bd_rep
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+    - service
+
+vp_sales:
+  category: exec
+  label: "VP of Sales"
+  hire_cost: 35000.0
+  daily_fixed_costs: 383.56
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    enterprise_pipeline_marketing: 0.30
+    pipeline_conversion_marketing: 0.28
+  prerequisites:
+    - sales_director
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+    - service
+
+industry_vertical_lead:
+  category: sales
+  label: "Industry / Vertical Lead"
+  hire_cost: 27500.0
+  daily_fixed_costs: 301.37
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    sector_authority_brand: 0.20
+    vertical_credibility_brand: 0.20
+    pipeline_growth_marketing: 0.20
+  prerequisites:
+    - bd_rep
+  category_caps:
+    soft_cap: 3
+    hard_cap: 8
+  applicable_economics:
+    - service
+    - subscription
+
+# ──────────────────────────────────────────────────────────────────────────
+# MARKETING — demand generation
+# ──────────────────────────────────────────────────────────────────────────
+
+marketing_manager:
+  category: marketing
+  label: "Marketing Manager"
+  hire_cost: 16500.0
+  daily_fixed_costs: 180.82
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    customer_growth_marketing: 0.40
+    customer_reach_marketing: 0.20
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 4
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+growth_marketer:
+  category: marketing
+  label: "Growth Marketer"
+  hire_cost: 23750.0
+  daily_fixed_costs: 260.27
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    user_acquisition_marketing: 0.12
+    customer_growth_marketing: 0.15
+  prerequisites: []
+  category_caps:
+    soft_cap: 4
+    hard_cap: 15
+  applicable_economics:
+    - subscription
+    - service
+
+content_marketing_strategist:
+  category: marketing
+  label: "Content & Inbound Marketing Strategist"
+  hire_cost: 16250.0
+  daily_fixed_costs: 178.08
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    inbound_demand_marketing: 0.14
+  prerequisites: []
+  category_caps:
+    soft_cap: 2
+    hard_cap: 6
+  applicable_economics:
+    - subscription
+    - service
+
+marketing_department:
+  category: marketing
+  label: "Growth & Marketing Department"
+  hire_cost: 48750.0
+  daily_fixed_costs: 534.25
+  employees_count: 4
+  capacity_contribution: 0
+  modifier_keys:
+    inbound_lead_gen: 0.14
+    customer_growth_marketing: 0.20
+    customer_reach_marketing: 0.20
+  prerequisites:
+    - marketing_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - subscription
+    - service
+    - physical
+
+cmo:
+  category: exec
+  label: "CMO"
+  hire_cost: 45000.0
+  daily_fixed_costs: 493.15
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    customer_growth_marketing: 0.15
+  prerequisites:
+    - marketing_department
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+    - service
+    - physical
+
+# ──────────────────────────────────────────────────────────────────────────
+# FINANCE — bookkeeping, accounting, FP&A, CFO
+# ──────────────────────────────────────────────────────────────────────────
+
+bookkeeper:
+  category: finance
+  label: "Bookkeeper"
+  hire_cost: 9000.0
+  daily_fixed_costs: 98.63
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    waste: -0.03
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+finance_fpa:
+  category: finance
+  label: "Finance & FP&A"
+  hire_cost: 21000.0
+  daily_fixed_costs: 230.14
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys:
+    financial_controls: -0.02
+  prerequisites:
+    - bookkeeper
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+ops_finance_director:
+  category: finance
+  label: "Ops & Finance Director"
+  hire_cost: 28750.0
+  daily_fixed_costs: 315.07
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    tooling_cost: -0.08
+  prerequisites:
+    - finance_fpa
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - service
+    - subscription
+
+cfo:
+  category: exec
+  label: "CFO"
+  hire_cost: 50000.0
+  daily_fixed_costs: 547.95
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    financial_operational_efficiency: -0.07
+  prerequisites:
+    - finance_fpa
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+investor_relations:
+  category: finance
+  label: "Investor Relations"
+  hire_cost: 30000.0
+  daily_fixed_costs: 328.77
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - cfo
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+captive_insurance:
+  category: finance
+  label: "Captive Insurance Entity"
+  hire_cost: 30000.0
+  daily_fixed_costs: 164.38
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - cfo
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+# ──────────────────────────────────────────────────────────────────────────
+# EXEC — c-suite & top-level leadership
+# (Founder/CEO is the seed-default; spawned implicitly. CEO node here is the
+#  hired-CEO archetype — i.e., founder steps aside and brings in operator CEO.)
+# ──────────────────────────────────────────────────────────────────────────
+
+founder_ceo:
+  category: exec
+  label: "Founder / CEO"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    baseline_satisfaction: 0.05
+    customer_growth_marketing: 0.10
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+ceo:
+  category: exec
+  label: "CEO (Hired Operator)"
+  hire_cost: 62500.0
+  daily_fixed_costs: 684.93
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - founder_ceo
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+coo:
+  category: exec
+  label: "COO"
+  hire_cost: 50000.0
+  daily_fixed_costs: 547.95
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - operations_director
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+vp_product:
+  category: exec
+  label: "VP of Product"
+  hire_cost: 43750.0
+  daily_fixed_costs: 479.45
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    product_market_fit: 0.11
+  prerequisites:
+    - product_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+
+vp_delivery:
+  category: exec
+  label: "VP of Delivery"
+  hire_cost: 35000.0
+  daily_fixed_costs: 383.56
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    client_retention: 0.12
+    delivery_cost: -0.10
+  prerequisites:
+    - project_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - service
+
+head_of_product:
+  category: exec
+  label: "Head of Product"
+  hire_cost: 32500.0
+  daily_fixed_costs: 356.16
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    product_led_growth_marketing: 0.08
+  prerequisites:
+    - product_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+
+corporate_hq:
+  category: exec
+  label: "Corporate HQ"
+  hire_cost: 200000.0
+  daily_fixed_costs: 547.95
+  employees_count: 10
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - operations_director
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+# ──────────────────────────────────────────────────────────────────────────
+# OPS — HR / People (subcategory of ops)
+# ──────────────────────────────────────────────────────────────────────────
+
+hr_department:
+  category: ops
+  label: "HR Department"
+  hire_cost: 15000.0
+  daily_fixed_costs: 164.38
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    turnover: -0.15
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+people_operations:
+  category: ops
+  label: "People Operations"
+  hire_cost: 23750.0
+  daily_fixed_costs: 260.27
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - hr_department
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - subscription
+    - service
+
+customer_service:
+  category: ops
+  label: "Customer Service"
+  hire_cost: 12000.0
+  daily_fixed_costs: 131.51
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 2
+    hard_cap: 10
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+customer_success_team:
+  category: ops
+  label: "Customer Success Team"
+  hire_cost: 27500.0
+  daily_fixed_costs: 301.37
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys:
+    churn_reduction: 0.22
+    baseline_satisfaction: 0.08
+    retainer_retention: 0.15
+    retainer_expansion: 0.15
+    client_retention: 0.10
+  prerequisites: []
+  category_caps:
+    soft_cap: 2
+    hard_cap: 10
+  applicable_economics:
+    - subscription
+    - service
+
+client_success_manager:
+  category: ops
+  label: "Client Success Manager"
+  hire_cost: 16250.0
+  daily_fixed_costs: 178.08
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    retainer_expansion: 0.15
+    retainer_retention: 0.15
+  prerequisites: []
+  category_caps:
+    soft_cap: 4
+    hard_cap: 20
+  applicable_economics:
+    - service
+    - subscription
+
+# ──────────────────────────────────────────────────────────────────────────
+# OPS — Legal / Compliance
+# ──────────────────────────────────────────────────────────────────────────
+
+legal_dept:
+  category: ops
+  label: "Legal Department"
+  hire_cost: 24000.0
+  daily_fixed_costs: 263.01
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+security_compliance:
+  category: ops
+  label: "Security & Compliance"
+  hire_cost: 33750.0
+  daily_fixed_costs: 369.86
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys:
+    enterprise_trust_brand: 0.07
+    compliance_savings: -0.05
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+    - service
+
+# ──────────────────────────────────────────────────────────────────────────
+# EXTERNAL — partners, investors, advisors, regulatory bodies
+# Not employees; usually no daily cost; can register modifier keys.
+# ──────────────────────────────────────────────────────────────────────────
+
+angel_investor:
+  category: external
+  label: "Angel Investor"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    seed_runway: -0.08
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+    - service
+
+vc_firm:
+  category: external
+  label: "VC Firm"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    vc_scale_capital: -0.12
+    runway_extension: -0.09
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+    - service
+
+vc_investor:
+  category: external
+  label: "Strategic VC Investor"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    customer_reach_marketing: 0.10
+    runway_extension: -0.09
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - subscription
+    - service
+
+strategic_partner:
+  category: external
+  label: "Strategic Partner"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    customer_growth_marketing: 0.15
+    customer_reach_marketing: 0.10
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - subscription
+    - service
+
+system_integrator_partner:
+  category: external
+  label: "System Integrator Partner"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - subscription
+    - service
+
+reseller_network:
+  category: external
+  label: "Channel Reseller Network"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - subscription
+    - service
+
+referral_partner_network:
+  category: external
+  label: "Referral Partner Network"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    cac_cost: -0.20
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - service
+    - subscription
+
+industry_association:
+  category: external
+  label: "Industry Association"
+  hire_cost: 5000.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - service
+    - subscription
+    - physical
+
+api_data_partner:
+  category: external
+  label: "API Data Partner"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 5
+  applicable_economics:
+    - subscription
+
+erp_integration_partner:
+  category: external
+  label: "ERP Integration Partner"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    delivery_cost: -0.07
+    infra_cost: -0.12
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - service
+    - subscription
+
+legal_compliance_partner:
+  category: external
+  label: "Legal & Compliance Partner"
+  hire_cost: 5000.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - service
+    - subscription
+    - physical
+
+compliance_auditor:
+  category: external
+  label: "Compliance Auditor (e.g., SOC2)"
+  hire_cost: 10000.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    compliance_overhead: 0.05
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 2
+  applicable_economics:
+    - subscription
+    - service
+
+franchise_owner:
+  category: external
+  label: "Franchise Owner"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - franchise_development
+  category_caps:
+    soft_cap: 100
+    hard_cap: 999
+  applicable_economics:
+    - physical
+
+area_developer:
+  category: external
+  label: "Area Developer"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - franchise_development
+  category_caps:
+    soft_cap: 20
+    hard_cap: 200
+  applicable_economics:
+    - physical
+
+franchise_advisory_council:
+  category: external
+  label: "Franchise Advisory Council"
+  hire_cost: 6000.0
+  daily_fixed_costs: 65.75
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - franchise_development
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+franchise_development:
+  category: ops
+  label: "Franchise Development"
+  hire_cost: 30000.0
+  daily_fixed_costs: 328.77
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - regional_vp
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+# ──────────────────────────────────────────────────────────────────────────
+# REVENUE — revenue streams (catering, retainers, marketplace, etc.)
+# A first-class category present in all 7 source YAMLs. Distinct from sales:
+# sales is the function that drives demand; revenue is the monetization channel.
+# ──────────────────────────────────────────────────────────────────────────
+
+catering_division:
+  category: revenue
+  label: "Catering Division"
+  hire_cost: 12000.0
+  daily_fixed_costs: 131.51
+  employees_count: 2
+  capacity_contribution: 0
+  modifier_keys:
+    catering_revenue: 0.15
+  prerequisites:
+    - restaurant_location
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+delivery_partnership:
+  category: revenue
+  label: "Delivery Partnerships"
+  hire_cost: 6000.0
+  daily_fixed_costs: 65.75
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    customer_reach_marketing: 0.20
+  prerequisites:
+    - restaurant_location
+  category_caps:
+    soft_cap: 1
+    hard_cap: 3
+  applicable_economics:
+    - physical
+
+loyalty_program:
+  category: revenue
+  label: "Loyalty Program"
+  hire_cost: 15000.0
+  daily_fixed_costs: 164.38
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - marketing_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+
+merchandise_retail:
+  category: revenue
+  label: "Merchandise / Retail"
+  hire_cost: 9000.0
+  daily_fixed_costs: 98.63
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - marketing_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+licensing_ip:
+  category: revenue
+  label: "Licensing & IP"
+  hire_cost: 12000.0
+  daily_fixed_costs: 131.51
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - legal_dept
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+    - subscription
+    - service
+
+gift_card_program:
+  category: revenue
+  label: "Gift Card Program"
+  hire_cost: 6000.0
+  daily_fixed_costs: 65.75
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys: {}
+  prerequisites:
+    - marketing_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - physical
+
+subscription_revenue:
+  category: revenue
+  label: "Subscription Revenue Stream"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    subscription_revenue: 0.10
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+
+enterprise_contracts:
+  category: revenue
+  label: "Enterprise Contracts"
+  hire_cost: 15000.0
+  daily_fixed_costs: 41.10
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    subscription_revenue: 0.20
+  prerequisites:
+    - account_executive
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+    - service
+
+usage_based_billing:
+  category: revenue
+  label: "Usage-Based Billing"
+  hire_cost: 5000.0
+  daily_fixed_costs: 13.70
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    subscription_revenue: 0.15
+  prerequisites:
+    - data_team
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+
+professional_services:
+  category: revenue
+  label: "Professional Services & Implementation"
+  hire_cost: 10000.0
+  daily_fixed_costs: 27.40
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    services_upsell: 0.10
+    services_revenue_boost: 0.11
+  prerequisites: []
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+    - service
+
+marketplace_addons:
+  category: revenue
+  label: "Marketplace / Integration Add-ons"
+  hire_cost: 20000.0
+  daily_fixed_costs: 54.79
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    addon_revenue: 0.13
+    addon_upsell_revenue: 0.13
+    customer_reach_marketing: 0.10
+  prerequisites:
+    - data_team
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+
+data_export_api_tier:
+  category: revenue
+  label: "Data API & Embedded Analytics Tier"
+  hire_cost: 15000.0
+  daily_fixed_costs: 41.10
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    api_monetization: 0.09
+    api_licensing_revenue: 0.17
+  prerequisites:
+    - data_team
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - subscription
+
+retainer_contracts:
+  category: revenue
+  label: "Ongoing Retainer Contracts"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    recurring_revenue: 0.22
+    retainer_retention: 0.18
+    retainer_expansion: 0.20
+  prerequisites:
+    - client_success_manager
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - service
+
+custom_software_builds:
+  category: revenue
+  label: "Custom Software Builds"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    deal_size_uplift: 0.18
+  prerequisites:
+    - solutions_architect
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - service
+
+ai_training_workshops:
+  category: revenue
+  label: "AI Training Workshops"
+  hire_cost: 8000.0
+  daily_fixed_costs: 21.92
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    sector_authority_brand: 0.12
+    inbound_demand_marketing: 0.12
+  prerequisites:
+    - industry_vertical_lead
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - service
+    - subscription
+
+licensed_frameworks:
+  category: revenue
+  label: "Licensed Frameworks & Toolkits"
+  hire_cost: 12000.0
+  daily_fixed_costs: 32.88
+  employees_count: 1
+  capacity_contribution: 0
+  modifier_keys:
+    recurring_revenue: 0.15
+  prerequisites:
+    - solutions_architect
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - service
+    - subscription
+
+enterprise_implementations:
+  category: revenue
+  label: "Enterprise Implementations ($25k–$85k)"
+  hire_cost: 0.0
+  daily_fixed_costs: 0.0
+  employees_count: 0
+  capacity_contribution: 0
+  modifier_keys:
+    enterprise_pipeline_marketing: 0.28
+  prerequisites:
+    - solutions_architect
+  category_caps:
+    soft_cap: 1
+    hard_cap: 1
+  applicable_economics:
+    - service

@@ -1,0 +1,98 @@
+{
+  "economics_model": "physical",
+  "location_defaults_dump": {
+    "acquisition_cost": 0.0,
+    "capacity_decay_rate": 0.05,
+    "churn_rate": 0.0,
+    "cost_modifier_keys": [
+      "food_cost",
+      "labor",
+      "food_delivery",
+      "waste",
+      "turnover",
+      "operating",
+      "build_cost",
+      "financial_controls"
+    ],
+    "customer_convergence_rate": 0.05,
+    "customers": 30.0,
+    "daily_fixed_costs": 300.0,
+    "demand_cap_ratio": 0.85,
+    "demand_noise_high": 1.1,
+    "demand_noise_low": 0.9,
+    "economics_model": "physical",
+    "inventory": 80.0,
+    "location_label": "Restaurant",
+    "max_capacity": 80,
+    "max_local_customers": 120.0,
+    "new_customer_ratio": 0.95,
+    "price": 14.0,
+    "replenish_amount": 100.0,
+    "replenish_threshold": 30.0,
+    "revenue_modifier_keys": [
+      "catering_revenue",
+      "customer_reach"
+    ],
+    "satisfaction": 0.7,
+    "satisfaction_modifier_keys": [
+      "satisfaction_baseline"
+    ],
+    "satisfaction_penalty_rate": 0.02,
+    "satisfaction_recovery_rate": 0.005,
+    "scaling_cost_per_unit": 0.0,
+    "subscription_scaling_increment": 0.1,
+    "subscription_scaling_threshold": 0.8,
+    "supply_cost_per_unit": 3.5,
+    "supply_unit_name": "lbs chicken",
+    "unified_replenish_amount": 200.0,
+    "unified_replenish_threshold": 80.0,
+    "variable_cost_per_unit": 1.5,
+    "word_of_mouth_rate": 0.02
+  },
+  "starting_cash": 50000.0,
+  "to_location_state_output": {
+    "acquisition_cost": 0.0,
+    "capacity_decay_rate": 0.05,
+    "churn_rate": 0.0,
+    "cost_modifier_keys": [
+      "food_cost",
+      "labor",
+      "food_delivery",
+      "waste",
+      "turnover",
+      "operating",
+      "build_cost",
+      "financial_controls"
+    ],
+    "customer_convergence_rate": 0.05,
+    "customers": 30.0,
+    "daily_fixed_costs": 300.0,
+    "demand_cap_ratio": 0.85,
+    "demand_noise_high": 1.1,
+    "demand_noise_low": 0.9,
+    "economics_model": "physical",
+    "inventory": 80.0,
+    "max_capacity": 80,
+    "max_local_customers": 120.0,
+    "new_customer_ratio": 0.95,
+    "price": 14.0,
+    "replenish_amount": 200.0,
+    "replenish_threshold": 80.0,
+    "revenue_modifier_keys": [
+      "catering_revenue",
+      "customer_reach"
+    ],
+    "satisfaction": 0.7,
+    "satisfaction_modifier_keys": [
+      "satisfaction_baseline"
+    ],
+    "satisfaction_penalty_rate": 0.02,
+    "satisfaction_recovery_rate": 0.005,
+    "scaling_cost_per_unit": 0.0,
+    "subscription_scaling_increment": 0.1,
+    "subscription_scaling_threshold": 0.8,
+    "supply_cost_per_unit": 3.5,
+    "variable_cost_per_unit": 1.5,
+    "word_of_mouth_rate": 0.02
+  }
+}
