@@ -146,6 +146,55 @@ SOFT_CAP_EMERGENCY_OK: bool = True
 
 
 # ---------------------------------------------------------------------------
+# adjust_params bounds (P-AI-2 — Phase 2.1) — orchestrator-side validation.
+#
+# These mirror the engine-side last-line clamps in `unified_v2.py`
+# (PRICE_ADJUST_*, MARKETING_INTENSITY_*, RAISE_ALLOWED_ARCHETYPES). They
+# are duplicated rather than imported because `unified_v2.py` already
+# imports from this module — pulling them the other way would create a
+# cycle. A follow-up phase that consolidates the bounds will move the
+# canonical definition here and have `unified_v2.py` import from this
+# module instead.
+# ---------------------------------------------------------------------------
+
+#: Lower bound multiplier on `seed.starting_price` for CEO-proposed prices.
+#: A `price` value below `seed.starting_price * PRICE_LOWER_BOUND_MULT` is
+#: dropped (not clamped) — extreme repricing should be a strategic decision,
+#: not silently floored.
+PRICE_LOWER_BOUND_MULT: float = 0.1
+
+#: Upper bound multiplier on `seed.starting_price` for CEO-proposed prices.
+#: A `price` above `seed.starting_price * PRICE_UPPER_BOUND_MULT` is dropped.
+PRICE_UPPER_BOUND_MULT: float = 10.0
+
+#: Bounds on `marketing_intensity` from the CEO. Out-of-range values are
+#: CLAMPED (not dropped) — marketing intensity is a continuous knob, so a
+#: clamp gives the engine a usable signal while the warning surfaces drift.
+MARKETING_INTENSITY_LOWER: float = 0.0
+MARKETING_INTENSITY_UPPER: float = 2.0
+
+#: Bounds on `replenish_supplier` signal. Conceptually a dosage in [0, 1]
+#: where 0 = no restock, 1 = full inventory cycle. Out-of-range CLAMPED.
+REPLENISH_SUPPLIER_LOWER: float = 0.0
+REPLENISH_SUPPLIER_UPPER: float = 1.0
+
+#: Stance archetypes that may submit a nonzero `raise_amount`. Bootstrap /
+#: founder_operator / turnaround stances do not access external capital
+#: markets — a `raise_amount` from one of those archetypes is dropped
+#: outright with a warning. Matches `unified_v2.RAISE_ALLOWED_ARCHETYPES`.
+RAISE_ALLOWED_STANCE_ARCHETYPES: frozenset[str] = frozenset(
+    {"venture_growth", "consolidator"}
+)
+
+#: The set of `adjust_params` keys this module knows how to validate. Any
+#: key NOT in this set is dropped with a warning — the orchestrator refuses
+#: to forward inputs it hasn't bounded.
+KNOWN_ADJUST_PARAMS_KEYS: frozenset[str] = frozenset(
+    {"price", "marketing_intensity", "raise_amount", "replenish_supplier"}
+)
+
+
+# ---------------------------------------------------------------------------
 # LLM tier constants — cadences, model IDs, prompt sizing, retry policy.
 # ---------------------------------------------------------------------------
 
@@ -903,10 +952,10 @@ class _LlmOrchestratorBase:
                 tick=state.tick,
             )
 
-            # 7. Filter spawns post-parse: drop unmet prereqs and hard-cap
-            #    breaches. Append a note to reasoning so the next call can
-            #    correct course.
-            decision = self._filter_invalid_spawns(decision, state)
+            # 7. Filter post-parse: drop unmet prereqs / hard-cap breaches
+            #    in `spawn_nodes`, then bounds-check `adjust_params`. Append
+            #    a note to reasoning so the next call can correct course.
+            decision = self._filter_invalid_decision(decision, state)
             return decision
 
         return None
@@ -1163,13 +1212,25 @@ class _LlmOrchestratorBase:
         # tactical → "tactical", strategic → "strategic" (same string)
         return self.TIER  # type: ignore[return-value]
 
-    def _filter_invalid_spawns(self, decision: CeoDecision, state: CompanyState) -> CeoDecision:
-        """Drop spawns whose prerequisites aren't met or that breach hard_cap.
+    def _filter_invalid_decision(
+        self, decision: CeoDecision, state: CompanyState
+    ) -> CeoDecision:
+        """Sanitize the decision before it leaves the orchestrator.
 
-        Returns the same decision when nothing is dropped. When something IS
-        dropped, returns a copy with `spawn_nodes` filtered and a note
-        appended to `reasoning` explaining what was removed and why — so the
-        CEO can re-plan on the next call.
+        Two passes:
+          1. Drop spawns whose prerequisites aren't met or that breach
+             ``hard_cap``.
+          2. Filter / clamp ``adjust_params`` via ``_validate_adjust_params``
+             (P-AI-2): out-of-bounds ``price`` is dropped, out-of-range
+             ``marketing_intensity`` and ``replenish_supplier`` are clamped,
+             ``raise_amount`` is gated by ``stance.archetype``, unknown keys
+             are dropped.
+
+        Returns the same decision instance when nothing is dropped/clamped.
+        Otherwise returns a NEW ``CeoDecision`` with the surviving spawns,
+        the validated ``adjust_params``, and a note appended to
+        ``reasoning`` explaining what changed — so the CEO can re-plan on
+        the next call.
         """
         kept: list[str] = []
         dropped: list[tuple[str, str]] = []
@@ -1199,25 +1260,166 @@ class _LlmOrchestratorBase:
             kept.append(key)
             in_flight[key] = in_flight.get(key, 0) + 1
 
-        if not dropped:
+        # P-AI-2: bounds-check every adjust_params key. Always runs (even if
+        # the spawn list is fully accepted) so the CEO can't sneak an
+        # unbounded float past the orchestrator.
+        validated_params = self._validate_adjust_params(
+            dict(decision.adjust_params), self.seed, self.stance
+        )
+        params_changed = validated_params != decision.adjust_params
+
+        if not dropped and not params_changed:
             return decision
 
-        notes = "; ".join(f"{k} ({why})" for k, why in dropped)
-        reasoning = (
-            f"{decision.reasoning} "
-            f"[orchestrator note: dropped invalid spawns — {notes}. "
-            "Adjust on next tick.]"
-        )
+        reasoning = decision.reasoning
+        if dropped:
+            notes = "; ".join(f"{k} ({why})" for k, why in dropped)
+            reasoning = (
+                f"{reasoning} "
+                f"[orchestrator note: dropped invalid spawns — {notes}. "
+                "Adjust on next tick.]"
+            )
+        if params_changed:
+            reasoning = (
+                f"{reasoning} "
+                "[orchestrator note: adjust_params filtered/clamped to "
+                "stay within engine bounds. See logs for per-key detail.]"
+            )
+
         return CeoDecision(
             spawn_nodes=kept,
             retire_nodes=list(decision.retire_nodes),
-            adjust_params=dict(decision.adjust_params),
+            adjust_params=validated_params,
             open_locations=decision.open_locations,
             reasoning=reasoning,
             references_stance=list(decision.references_stance),
             tier=decision.tier,
             tick=decision.tick,
         )
+
+    def _validate_adjust_params(
+        self,
+        params: dict[str, float],
+        seed: CompanySeed,
+        stance: CeoStance,
+    ) -> dict[str, float]:
+        """Bounds-check every CEO-proposed ``adjust_params`` key (P-AI-2).
+
+        Returns a NEW dict containing only the keys that survived
+        validation. Does NOT mutate ``params``. Per-key behavior:
+
+          * ``price`` — must be in
+            ``[seed.starting_price * PRICE_LOWER_BOUND_MULT,
+              seed.starting_price * PRICE_UPPER_BOUND_MULT]``.
+            Out-of-range or non-finite → dropped (logged).
+          * ``marketing_intensity`` — clamped into
+            ``[MARKETING_INTENSITY_LOWER, MARKETING_INTENSITY_UPPER]``.
+            Logged when clamping changes the value.
+          * ``raise_amount`` — must be ``>= 0`` AND
+            ``stance.archetype in RAISE_ALLOWED_STANCE_ARCHETYPES``.
+            Either condition violated → dropped (logged).
+          * ``replenish_supplier`` — clamped into
+            ``[REPLENISH_SUPPLIER_LOWER, REPLENISH_SUPPLIER_UPPER]``.
+            Logged when clamping changes the value.
+
+        Any key not in ``KNOWN_ADJUST_PARAMS_KEYS`` is dropped with a
+        warning — the orchestrator refuses to forward inputs it cannot
+        bound.
+        """
+        result: dict[str, float] = {}
+
+        for key, raw_value in params.items():
+            if key not in KNOWN_ADJUST_PARAMS_KEYS:
+                log.warning(
+                    "%s tier: dropping unknown adjust_params key %r=%r "
+                    "(company=%s, archetype=%s)",
+                    self.TIER, key, raw_value, self._company_id, stance.archetype,
+                )
+                continue
+
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                log.warning(
+                    "%s tier: dropping adjust_params[%s]=%r (not coercible to float) "
+                    "(company=%s)",
+                    self.TIER, key, raw_value, self._company_id,
+                )
+                continue
+
+            # Reject non-finite values up-front for every key — NaN/Inf
+            # can't be clamped meaningfully and indicate a model malfunction.
+            if value != value or value in (float("inf"), float("-inf")):
+                log.warning(
+                    "%s tier: dropping adjust_params[%s]=%r (non-finite) "
+                    "(company=%s)",
+                    self.TIER, key, value, self._company_id,
+                )
+                continue
+
+            if key == "price":
+                lo = seed.starting_price * PRICE_LOWER_BOUND_MULT
+                hi = seed.starting_price * PRICE_UPPER_BOUND_MULT
+                if value < lo or value > hi:
+                    log.warning(
+                        "%s tier: dropping price=%.4f — outside "
+                        "[%.4f, %.4f] (company=%s, starting_price=%.4f)",
+                        self.TIER, value, lo, hi,
+                        self._company_id, seed.starting_price,
+                    )
+                    continue
+                result[key] = value
+
+            elif key == "marketing_intensity":
+                clamped = max(
+                    MARKETING_INTENSITY_LOWER,
+                    min(MARKETING_INTENSITY_UPPER, value),
+                )
+                if clamped != value:
+                    log.warning(
+                        "%s tier: clamped marketing_intensity %.4f -> %.4f "
+                        "(allowed [%.2f, %.2f], company=%s)",
+                        self.TIER, value, clamped,
+                        MARKETING_INTENSITY_LOWER, MARKETING_INTENSITY_UPPER,
+                        self._company_id,
+                    )
+                result[key] = clamped
+
+            elif key == "raise_amount":
+                if value < 0:
+                    log.warning(
+                        "%s tier: dropping raise_amount=%.2f (must be >= 0) "
+                        "(company=%s)",
+                        self.TIER, value, self._company_id,
+                    )
+                    continue
+                if stance.archetype not in RAISE_ALLOWED_STANCE_ARCHETYPES:
+                    log.warning(
+                        "%s tier: dropping raise_amount=%.2f — stance "
+                        "archetype %r does not permit external capital raises "
+                        "(company=%s, allowed=%s)",
+                        self.TIER, value, stance.archetype, self._company_id,
+                        sorted(RAISE_ALLOWED_STANCE_ARCHETYPES),
+                    )
+                    continue
+                result[key] = value
+
+            elif key == "replenish_supplier":
+                clamped = max(
+                    REPLENISH_SUPPLIER_LOWER,
+                    min(REPLENISH_SUPPLIER_UPPER, value),
+                )
+                if clamped != value:
+                    log.warning(
+                        "%s tier: clamped replenish_supplier %.4f -> %.4f "
+                        "(allowed [%.2f, %.2f], company=%s)",
+                        self.TIER, value, clamped,
+                        REPLENISH_SUPPLIER_LOWER, REPLENISH_SUPPLIER_UPPER,
+                        self._company_id,
+                    )
+                result[key] = clamped
+
+        return result
 
 
 def _validate_references_stance(refs: list[str]) -> list[str]:
