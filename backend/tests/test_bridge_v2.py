@@ -194,22 +194,100 @@ class TestBucketModifiers:
         agg = bucket_modifiers({"infra_efficiency": 0.10})
         assert agg.infrastructure == {"infra_efficiency": 0.10}
 
-    # ── Other bucket ──
+    # ── Cost / revenue / capital buckets (Phase 1.4 — P-ENG-6) ──
 
-    def test_unmatched_keys_land_in_other(self):
-        # `customer_growth` and `delivery_cost` don't end in any bucket tag.
-        # `food_cost` likewise. They should all land in `other`.
+    def test_cost_suffix_lands_in_cost(self):
         agg = bucket_modifiers(
-            {"customer_growth": 0.20, "delivery_cost": -0.10, "food_cost": -0.08},
+            {"delivery_cost": -0.10, "food_cost": -0.08, "build_cost": -0.20},
+        )
+        assert agg.cost == {
+            "delivery_cost": -0.10,
+            "food_cost": -0.08,
+            "build_cost": -0.20,
+        }
+        assert agg.other == {}
+
+    def test_savings_and_overhead_land_in_cost(self):
+        agg = bucket_modifiers(
+            {
+                "compliance_savings": -0.05,
+                "compliance_overhead": 0.05,
+                "waste": -0.03,
+            },
+        )
+        assert agg.cost == {
+            "compliance_savings": -0.05,
+            "compliance_overhead": 0.05,
+            "waste": -0.03,
+        }
+
+    def test_cost_reduction_two_token_suffix_lands_in_cost(self):
+        # `cloud_cost_reduction` matches the longer `cost_reduction` tag,
+        # not the shorter `cost`. Both still land in cost — verifies the
+        # longest-tag-first ordering.
+        agg = bucket_modifiers({"cloud_cost_reduction": -0.12})
+        assert agg.cost == {"cloud_cost_reduction": -0.12}
+
+    def test_revenue_suffix_lands_in_revenue(self):
+        agg = bucket_modifiers(
+            {
+                "subscription_revenue": 0.10,
+                "addon_revenue": 0.13,
+                "api_monetization": 0.09,
+            },
+        )
+        assert agg.revenue == {
+            "subscription_revenue": 0.10,
+            "addon_revenue": 0.13,
+            "api_monetization": 0.09,
+        }
+
+    def test_upsell_and_expansion_land_in_revenue(self):
+        agg = bucket_modifiers(
+            {
+                "services_upsell": 0.10,
+                "retainer_expansion": 0.20,
+                "large_account_expansion": 0.22,
+            },
+        )
+        assert agg.revenue == {
+            "services_upsell": 0.10,
+            "retainer_expansion": 0.20,
+            "large_account_expansion": 0.22,
+        }
+
+    def test_capital_and_runway_land_in_capital(self):
+        agg = bucket_modifiers(
+            {
+                "vc_scale_capital": -0.12,
+                "seed_runway": -0.08,
+                "runway_extension": -0.09,
+            },
+        )
+        assert agg.capital == {
+            "vc_scale_capital": -0.12,
+            "seed_runway": -0.08,
+            "runway_extension": -0.09,
+        }
+
+    # ── Other bucket — only truly unmatched keys ──
+
+    def test_truly_unmatched_keys_land_in_other(self):
+        # None of these end in any tag. They should land in `other`.
+        agg = bucket_modifiers(
+            {"customer_growth": 0.20, "deal_size_uplift": 0.07, "labor": 0.05},
         )
         assert agg.other == {
             "customer_growth": 0.20,
-            "delivery_cost": -0.10,
-            "food_cost": -0.08,
+            "deal_size_uplift": 0.07,
+            "labor": 0.05,
         }
         assert agg.quality == {}
         assert agg.marketing == {}
         assert agg.infrastructure == {}
+        assert agg.cost == {}
+        assert agg.revenue == {}
+        assert agg.capital == {}
 
     def test_partial_string_match_does_not_classify(self):
         # `marketing_baseline` does NOT end in `_marketing`, it ends in
@@ -221,23 +299,25 @@ class TestBucketModifiers:
 
     # ── Mixed input — full taxonomy exercised in one shot ──
 
-    def test_three_node_mix_produces_all_four_buckets(self):
-        # One key per bucket plus an unmatched key, mimicking a real CEO mid-game:
-        #   sales hire   → pipeline_strength      → marketing
-        #   support team → churn_reduction        → quality
-        #   data layer   → infrastructure_efficiency-style → infrastructure
-        #   founder boost→ customer_growth        → other
+    def test_seven_bucket_mix_populates_each_bucket(self):
+        # One key per non-other bucket, plus an unmatched stray.
         agg = bucket_modifiers(
             {
-                "pipeline_strength": 0.10,
-                "churn_reduction": 0.15,
-                "infra_efficiency": 0.10,
-                "customer_growth": 0.25,
+                "pipeline_strength": 0.10,           # marketing
+                "churn_reduction": 0.15,             # quality
+                "infra_efficiency": 0.10,            # infrastructure
+                "delivery_cost": -0.08,              # cost
+                "addon_revenue": 0.13,               # revenue
+                "vc_scale_capital": -0.12,           # capital
+                "customer_growth": 0.25,             # other
             },
         )
         assert agg.marketing == {"pipeline_strength": 0.10}
         assert agg.quality == {"churn_reduction": 0.15}
         assert agg.infrastructure == {"infra_efficiency": 0.10}
+        assert agg.cost == {"delivery_cost": -0.08}
+        assert agg.revenue == {"addon_revenue": 0.13}
+        assert agg.capital == {"vc_scale_capital": -0.12}
         assert agg.other == {"customer_growth": 0.25}
 
 
@@ -277,11 +357,48 @@ class TestDeriveBridgeAggregate:
 
     def test_empty_spawned_yields_all_empty_buckets(self):
         # Early-tick reality: only the founder is spawned and the founder
-        # carries no modifier_keys. All four buckets must be empty dicts —
+        # carries no modifier_keys. All seven buckets must be empty dicts —
         # never raise, never invent.
         lib = _library(_node("founder", modifier_keys={}, category="exec"))
         agg = derive_bridge_aggregate(lib, {"founder": 1})
         assert agg.quality == {}
         assert agg.marketing == {}
         assert agg.infrastructure == {}
+        assert agg.cost == {}
+        assert agg.revenue == {}
+        assert agg.capital == {}
         assert agg.other == {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Production library coverage (Phase 1.4 — P-ENG-6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _all_production_modifier_keys() -> set[str]:
+    """Collect every distinct `modifier_keys` key from the production library."""
+    from src.simulation.library_loader import get_library
+
+    lib = get_library()
+    out: set[str] = set()
+    for node in lib.nodes.values():
+        out.update(node.modifier_keys.keys())
+    return out
+
+
+def test_production_library_other_bucket_is_small():
+    """The production node_library should leave at most a handful of keys
+    in `other`. Every cost/revenue/capital signal is meant to be consumed
+    by the engine; anything still in `other` is an unprincipled name and
+    a future-cleanup target.
+    """
+    keys = _all_production_modifier_keys()
+    # Aggregate all keys with magnitude 1.0 then bucket — purely classification.
+    agg = bucket_modifiers({k: 1.0 for k in keys})
+    # Hard ceiling: at most 20 keys may live in `other` — empirical floor
+    # given today's library; lower this as the library is cleaned up.
+    assert len(agg.other) <= 20, (
+        f"too many modifier keys in `other` ({len(agg.other)}); "
+        f"either rename the keys to fit existing buckets or extend the "
+        f"taxonomy. Offenders: {sorted(agg.other.keys())}"
+    )

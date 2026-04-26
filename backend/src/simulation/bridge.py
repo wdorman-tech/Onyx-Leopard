@@ -10,20 +10,35 @@ Suffix taxonomy (v2) — PART OF THIS FILE'S CONTRACT
 ──────────────────────────────────────────────────────────────────────────
 
 `bucket_modifiers` partitions an aggregated `dict[str, float]` of modifier
-keys into four buckets by suffix match. A key K matches bucket tag T iff:
+keys into seven buckets by suffix match. A key K matches bucket tag T iff:
 
     K == T          (exact match — the whole modifier_key IS the tag)
     K endswith "_T" (snake_case suffix — T is the trailing token chain)
 
 The first matching tag (in the order listed below) wins. Anything that
-matches no tag goes to `other`.
+matches no tag goes to `other`. Phase 1.4 (P-ENG-6) introduced `cost`,
+`revenue`, and `capital` so the production node library no longer leaves
+quantities in `other` that the engine never reads.
 
     quality       : "quality", "satisfaction", "retention", "churn_reduction"
     marketing     : "marketing", "lead_gen", "pipeline_strength",
                     "brand", "awareness"
     infrastructure: "infrastructure", "capacity_uplift", "throughput",
                     "efficiency"
+    cost          : "cost", "cost_reduction", "savings", "overhead", "waste"
+    revenue       : "revenue", "monetization", "upsell", "expansion",
+                    "premium", "revenue_boost"
+    capital       : "capital", "runway", "runway_extension", "funding"
     other         : everything else
+
+Sign conventions consumed by `unified_v2.py`:
+  * `cost` bucket: signed sum. Negative total = savings (lowers daily_burn);
+    positive total = added cost. Authors often encode reductions as
+    negative magnitudes ("cloud_cost_reduction": -0.12).
+  * `revenue` bucket: signed sum. Positive total = revenue uplift fraction.
+  * `capital` bucket: magnitude (abs of signed sum) = daily access-to-
+    capital signal, gated on stance archetype (only venture_growth /
+    consolidator can convert it to cash).
 
 Author convention for `node_library.yaml`: pick a modifier_key name whose
 trailing token (or the whole name, for short names) matches the bucket the
@@ -65,13 +80,40 @@ INFRASTRUCTURE_TAGS: tuple[str, ...] = (
     "throughput",
     "efficiency",
 )
+COST_TAGS: tuple[str, ...] = (
+    "cost_reduction",  # 2-token first — beats "cost" alone
+    "overhead",
+    "savings",
+    "waste",
+    "cost",
+)
+REVENUE_TAGS: tuple[str, ...] = (
+    "revenue_boost",  # 2-token first
+    "monetization",
+    "expansion",
+    "upsell",
+    "premium",
+    "revenue",
+)
+CAPITAL_TAGS: tuple[str, ...] = (
+    "runway_extension",  # 2-token first
+    "runway",
+    "funding",
+    "capital",
+)
 
-#: Bucket priority order — first match wins. Keep `quality` first so a
-#: hypothetical `*_quality_efficiency` lands in quality, not infrastructure.
+#: Bucket priority order — first match wins. Quality precedes infrastructure
+#: (so a hypothetical `*_quality_efficiency` lands in quality, not infra).
+#: Cost/revenue/capital sit after the "modifier" buckets so a key like
+#: `marketing_cost` (not currently in the library) would still go to the
+#: marketing modifier bucket if added later.
 _BUCKETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("quality", QUALITY_TAGS),
     ("marketing", MARKETING_TAGS),
     ("infrastructure", INFRASTRUCTURE_TAGS),
+    ("revenue", REVENUE_TAGS),
+    ("capital", CAPITAL_TAGS),
+    ("cost", COST_TAGS),
 )
 
 
@@ -89,6 +131,9 @@ class BridgeAggregate(BaseModel):
     quality: dict[str, float] = Field(default_factory=dict)
     marketing: dict[str, float] = Field(default_factory=dict)
     infrastructure: dict[str, float] = Field(default_factory=dict)
+    cost: dict[str, float] = Field(default_factory=dict)
+    revenue: dict[str, float] = Field(default_factory=dict)
+    capital: dict[str, float] = Field(default_factory=dict)
     other: dict[str, float] = Field(default_factory=dict)
 
 
@@ -161,6 +206,9 @@ def bucket_modifiers(modifiers: dict[str, float]) -> BridgeAggregate:
         "quality": {},
         "marketing": {},
         "infrastructure": {},
+        "cost": {},
+        "revenue": {},
+        "capital": {},
         "other": {},
     }
     for key, val in modifiers.items():
@@ -178,9 +226,12 @@ def derive_bridge_aggregate(
 
 
 __all__ = [
+    "CAPITAL_TAGS",
+    "COST_TAGS",
     "INFRASTRUCTURE_TAGS",
     "MARKETING_TAGS",
     "QUALITY_TAGS",
+    "REVENUE_TAGS",
     "BridgeAggregate",
     "aggregate_modifiers",
     "bucket_modifiers",

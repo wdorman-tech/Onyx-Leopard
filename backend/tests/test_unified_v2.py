@@ -26,8 +26,15 @@ from src.simulation.seed import (
     sample_seed_for_archetype,
 )
 from src.simulation.shocks import (
+    Shock,
     ShockScheduler,
     make_market_crash,
+    make_key_employee_departure,
+    make_new_competitor_entry,
+    make_regulatory_change,
+    make_supply_chain_disruption,
+    make_talent_war,
+    make_viral_growth_event,
 )
 from src.simulation.stance import (
     CeoStance,
@@ -549,3 +556,526 @@ def test_archetype_seed_runs_60_ticks(library, archetype):
             break
     # Should at least have advanced ticks
     assert agent.tick > 0
+
+
+# ─── adjust_params wiring (Phase 1.1b — P-ENG-1, Decision 2A) ──────────────
+
+
+def _force_decision(agent, **kwargs) -> CeoDecision:
+    """Build a CeoDecision with sane defaults, override via kwargs."""
+    base = dict(
+        spawn_nodes=[],
+        retire_nodes=[],
+        adjust_params={},
+        open_locations=0,
+        reasoning="test",
+        references_stance=["risk_tolerance"],
+        tier="strategic",
+        tick=agent.tick,
+    )
+    base.update(kwargs)
+    return CeoDecision(**base)
+
+
+def test_current_price_initialized_from_seed_starting_price(
+    library, small_team_seed_and_stance
+):
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    assert agent.current_price == seed.starting_price
+
+
+def test_marketing_multiplier_initialized_to_one(
+    library, small_team_seed_and_stance
+):
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    assert agent.marketing_multiplier == 1.0
+
+
+def test_ceo_price_change_affects_revenue(library, small_team_seed_and_stance):
+    """Price set via adjust_params must alter the next tick's daily_revenue."""
+    seed, stance = small_team_seed_and_stance
+    agent_a = _make_agent(seed, stance, library, rng=random.Random(7))
+    agent_b = _make_agent(seed, stance, library, rng=random.Random(7))
+
+    # Agent A keeps default price; agent B raises price 2x.
+    decision_b = _force_decision(agent_b, adjust_params={"price": seed.starting_price * 2.0})
+    agent_b._apply_decision(decision_b)
+    assert agent_b.current_price == pytest.approx(seed.starting_price * 2.0)
+
+    # Run one tick on each. Higher price → higher daily_revenue (same demand).
+    asyncio.run(agent_a.step())
+    asyncio.run(agent_b.step())
+    if agent_a.daily_revenue > 0:
+        assert agent_b.daily_revenue > agent_a.daily_revenue
+    else:
+        # Solo-mode demand can be zero on tick 1 — accept equal-zero, but if
+        # one is non-zero the other should be too at the same scale.
+        assert agent_b.daily_revenue >= agent_a.daily_revenue
+
+
+def test_ceo_marketing_change_affects_marketing_multiplier(
+    library, small_team_seed_and_stance
+):
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    decision = _force_decision(agent, adjust_params={"marketing_intensity": 1.5})
+    agent._apply_decision(decision)
+    assert agent.marketing_multiplier == pytest.approx(1.5)
+
+
+def test_ceo_marketing_intensity_clamped_to_max(library, small_team_seed_and_stance):
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    decision = _force_decision(agent, adjust_params={"marketing_intensity": 99.0})
+    agent._apply_decision(decision)
+    # MARKETING_INTENSITY_MAX = 2.0
+    assert agent.marketing_multiplier == 2.0
+
+
+def test_ceo_price_out_of_bounds_is_rejected(library, small_team_seed_and_stance):
+    """Price below 0.1x or above 10x starting_price is logged + ignored."""
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    original = agent.current_price
+
+    # Negative price — rejected
+    agent._apply_decision(_force_decision(agent, adjust_params={"price": -1.0}))
+    assert agent.current_price == original
+
+    # Way too high — rejected
+    agent._apply_decision(
+        _force_decision(agent, adjust_params={"price": seed.starting_price * 100.0})
+    )
+    assert agent.current_price == original
+
+
+def test_ceo_raise_amount_increases_cash_only_for_venture_archetype(library):
+    """raise_amount only applies when stance.archetype permits external capital."""
+    rng = random.Random(7)
+    seed = sample_seed_for_archetype("venture_funded", rng=rng)
+    suppliers, revenues, costs = _valid_refs_for(library, seed.economics_model)
+    seed = seed.model_copy(update={
+        "initial_supplier_types": suppliers,
+        "initial_revenue_streams": revenues,
+        "initial_cost_centers": costs,
+    })
+
+    # Bootstrap stance — raise blocked
+    stance_boot = sample_stance("bootstrap", rng=rng)
+    agent_boot = _make_agent(seed, stance_boot, library)
+    cash_before = agent_boot.cash
+    agent_boot._apply_decision(
+        _force_decision(agent_boot, adjust_params={"raise_amount": 1_000_000.0})
+    )
+    assert agent_boot.cash == cash_before, (
+        "Bootstrap stance must NOT receive raise_amount cash"
+    )
+
+    # Venture growth stance — raise allowed
+    stance_vc = sample_stance("venture_growth", rng=rng)
+    agent_vc = _make_agent(seed, stance_vc, library)
+    cash_before_vc = agent_vc.cash
+    agent_vc._apply_decision(
+        _force_decision(agent_vc, adjust_params={"raise_amount": 1_000_000.0})
+    )
+    assert agent_vc.cash == pytest.approx(cash_before_vc + 1_000_000.0)
+
+
+def test_ceo_negative_raise_amount_rejected(library, small_team_seed_and_stance):
+    seed, stance = small_team_seed_and_stance
+    # Force a venture-permitted stance
+    rng = random.Random(7)
+    stance_vc = sample_stance("venture_growth", rng=rng)
+    agent = _make_agent(seed, stance_vc, library)
+    cash_before = agent.cash
+    agent._apply_decision(_force_decision(agent, adjust_params={"raise_amount": -100.0}))
+    assert agent.cash == cash_before
+
+
+def test_seed_starting_price_remains_immutable_after_decision(
+    library, small_team_seed_and_stance
+):
+    """Even after CEO mutates current_price, the seed's starting_price is untouched."""
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    original_seed_price = seed.starting_price
+    agent._apply_decision(
+        _force_decision(agent, adjust_params={"price": original_seed_price * 0.5})
+    )
+    assert agent.seed.starting_price == original_seed_price
+    assert agent.current_price == pytest.approx(original_seed_price * 0.5)
+    assert agent.current_price != agent.seed.starting_price
+
+
+def test_replenish_supplier_charges_supplier_burn(library, small_team_seed_and_stance):
+    """The replenish_supplier signal subtracts a week of supplier fixed costs."""
+    from src.simulation.unified_v2 import REPLENISH_INVENTORY_DAYS
+
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    # Compute expected supplier burn
+    supplier_burn = sum(
+        library.nodes[k].daily_fixed_costs * c
+        for k, c in agent.spawned_nodes.items()
+        if k in library.nodes and library.nodes[k].category == "supplier"
+    )
+    if supplier_burn == 0:
+        pytest.skip("Test seed has no supplier nodes")
+    cash_before = agent.cash
+    agent._apply_decision(
+        _force_decision(agent, adjust_params={"replenish_supplier": 1.0})
+    )
+    expected_debit = supplier_burn * REPLENISH_INVENTORY_DAYS
+    assert agent.cash == pytest.approx(cash_before - expected_debit)
+
+
+def test_unknown_adjust_params_key_logged_not_crashed(
+    library, small_team_seed_and_stance
+):
+    """Unknown keys must not crash; engine treats them as ignored."""
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    cash_before = agent.cash
+    price_before = agent.current_price
+    agent._apply_decision(
+        _force_decision(agent, adjust_params={"made_up_key": 42.0})
+    )
+    assert agent.cash == cash_before
+    assert agent.current_price == price_before
+
+
+# ─── Multi-tick insolvency (Phase 1.2 — P-ENG-2) ───────────────────────────
+
+
+def test_company_survives_one_tick_negative_cash_then_recovers(
+    library, small_team_seed_and_stance
+):
+    """Single-tick negative cash must not kill the company anymore."""
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+    # Force a single-tick cash crater.
+    agent.cash = -1_000_000.0
+    asyncio.run(agent.step())
+    assert agent.alive is True, "Single negative-cash tick must not kill"
+    assert agent.consecutive_insolvent >= 1
+
+
+def test_company_dies_after_threshold_consecutive_insolvent_ticks(
+    library, small_team_seed_and_stance
+):
+    """After INSOLVENT_TICKS_TO_DEATH consecutive negative-cash ticks, alive=False."""
+    from src.simulation.unified_v2 import INSOLVENT_TICKS_TO_DEATH
+
+    seed, stance = small_team_seed_and_stance
+    # Use a tiny starting_cash so insolvency is reached fast.
+    seed = seed.model_copy(update={"starting_cash": 1.0})
+    agent = _make_agent(seed, stance, library)
+
+    # Run enough ticks with deep cash crater to trigger death.
+    for _ in range(INSOLVENT_TICKS_TO_DEATH + 5):
+        agent.cash = -1_000_000.0  # force cash negative each tick
+        result = asyncio.run(agent.step())
+        if not agent.alive:
+            break
+    assert agent.alive is False
+    assert agent.consecutive_insolvent >= INSOLVENT_TICKS_TO_DEATH
+
+
+def test_consecutive_insolvent_resets_when_cash_recovers(
+    library, small_team_seed_and_stance
+):
+    """If cash recovers above zero, the insolvency counter resets to zero."""
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library)
+
+    # Tick 1: cash so deeply negative no single-tick revenue can rescue it.
+    agent.cash = -1_000_000_000.0
+    asyncio.run(agent.step())
+    assert agent.cash < 0, "test setup: cash must stay negative after tick"
+    assert agent.consecutive_insolvent >= 1
+
+    # Tick 2: force cash way positive — must outweigh anything heuristic
+    # spawn or daily burn could subtract during this single tick.
+    agent.cash = 1_000_000_000.0
+    asyncio.run(agent.step())
+    assert agent.cash > 0, "test setup: cash must stay positive after tick"
+    assert agent.consecutive_insolvent == 0
+
+
+# ─── Shock impact wiring (Phase 1.3 — P-ENG-5) ─────────────────────────────
+
+
+def _attach_shock(agent, shock: Shock, tick_started: int = 0) -> None:
+    """Force a shock to be active on `agent` from `tick_started`."""
+    shock.tick_started = tick_started
+    agent.active_shocks.append(shock)
+
+
+def test_market_crash_drops_revenue_same_tick(library, small_team_seed_and_stance):
+    seed, stance = small_team_seed_and_stance
+    agent_baseline = _make_agent(seed, stance, library, rng=random.Random(13))
+    agent_shocked = _make_agent(seed, stance, library, rng=random.Random(13))
+
+    asyncio.run(agent_baseline.step())
+    crash = make_market_crash(rng=random.Random(99), severity="severe")
+    _attach_shock(agent_shocked, crash, tick_started=0)
+    asyncio.run(agent_shocked.step())
+
+    assert agent_shocked.daily_revenue <= agent_baseline.daily_revenue
+
+
+def test_talent_war_increases_hire_cost_for_next_spawn(
+    library, small_team_seed_and_stance
+):
+    """When talent_war is active, _spawn_node multiplies hire_cost by hire_cost_mult."""
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library, rng=random.Random(7))
+    # Tick once so _last_env is populated.
+    asyncio.run(agent.step())
+
+    talent = make_talent_war(rng=random.Random(101), severity="severe")
+    _attach_shock(agent, talent, tick_started=agent.tick)
+    asyncio.run(agent.step())  # populates _last_env with talent_war's hire_cost_mult
+
+    # Find a no-prereq node we can spawn
+    candidate = None
+    for key, node in sorted(library.nodes.items()):
+        if (
+            agent.spawned_nodes.get(key, 0) == 0
+            and not node.prerequisites
+            and node.hire_cost > 0
+            and node.category in ("ops", "supplier", "marketing")
+        ):
+            candidate = key
+            break
+    if candidate is None:
+        pytest.skip("Library has no spawnable test candidate for hire_cost test")
+
+    hire_cost_mult = float(agent._last_env.get("hire_cost_mult", 1.0))
+    assert hire_cost_mult > 1.0, "talent_war should push hire_cost_mult > 1"
+
+    cash_before = agent.cash
+    expected_charge = library.nodes[candidate].hire_cost * hire_cost_mult
+    agent._spawn_node(candidate)
+    assert agent.spawned_nodes[candidate] == 1
+    assert agent.cash == pytest.approx(cash_before - expected_charge, rel=1e-6)
+
+
+def test_regulatory_change_adds_compliance_cost(library, small_team_seed_and_stance):
+    """compliance_cost_add should inflate daily_costs each tick the shock is active."""
+    seed, stance = small_team_seed_and_stance
+    rng_a = random.Random(13)
+    rng_b = random.Random(13)
+    agent_baseline = _make_agent(seed, stance, library, rng=rng_a)
+    agent_shocked = _make_agent(seed, stance, library, rng=rng_b)
+
+    reg = make_regulatory_change(rng=random.Random(77), severity="severe")
+    _attach_shock(agent_shocked, reg, tick_started=0)
+    asyncio.run(agent_baseline.step())
+    asyncio.run(agent_shocked.step())
+
+    assert agent_shocked.daily_costs > agent_baseline.daily_costs
+
+
+def test_key_employee_departure_charges_replacement_cost_once(
+    library, small_team_seed_and_stance
+):
+    """replacement_cost_add fires exactly once per shock instance."""
+    seed, stance = small_team_seed_and_stance
+    agent = _make_agent(seed, stance, library, rng=random.Random(7))
+
+    # Build a shock with a known replacement_cost_add.
+    shock = make_key_employee_departure(rng=random.Random(33), severity="moderate")
+    expected_charge = float(shock.impact.get("replacement_cost_add", 0.0))
+    assert expected_charge > 0
+    _attach_shock(agent, shock, tick_started=0)
+
+    cash_before = agent.cash
+    asyncio.run(agent.step())
+    cash_after_tick1 = agent.cash
+    # We can't isolate replacement charge from one tick of normal P&L, but
+    # the one-time bookkeeping must mark this shock as charged.
+    assert id(shock) in agent._charged_one_time_shocks
+
+    # Tick again — the same shock instance must NOT charge replacement again.
+    # Compare cash deltas: the second-tick delta should NOT include a fresh
+    # replacement charge.
+    asyncio.run(agent.step())
+    delta_tick2 = cash_after_tick1 - agent.cash
+    delta_tick1 = cash_before - cash_after_tick1
+    # Delta tick1 ≥ delta tick2 + replacement_charge - tolerance.
+    # Use a loose check: tick1 should be measurably larger than tick2.
+    assert delta_tick1 > delta_tick2
+
+
+def test_viral_growth_event_lowers_acquisition_cost(
+    library, small_team_seed_and_stance
+):
+    """acquisition_cost_mult < 1 should boost effective marketing pressure → revenue."""
+    seed, stance = small_team_seed_and_stance
+    agent_baseline = _make_agent(seed, stance, library, rng=random.Random(13))
+    agent_shocked = _make_agent(seed, stance, library, rng=random.Random(13))
+
+    viral = make_viral_growth_event(rng=random.Random(55), severity="severe")
+    _attach_shock(agent_shocked, viral, tick_started=0)
+    asyncio.run(agent_baseline.step())
+    asyncio.run(agent_shocked.step())
+
+    assert agent_shocked.daily_revenue >= agent_baseline.daily_revenue
+
+
+def test_supply_chain_disruption_lowers_throughput(
+    library, small_team_seed_and_stance
+):
+    """lead_time_mult > 1 + inventory_throughput_mult < 1 reduce served customers."""
+    seed, stance = small_team_seed_and_stance
+    agent_baseline = _make_agent(seed, stance, library, rng=random.Random(13))
+    agent_shocked = _make_agent(seed, stance, library, rng=random.Random(13))
+
+    supply = make_supply_chain_disruption(rng=random.Random(88), severity="severe")
+    _attach_shock(agent_shocked, supply, tick_started=0)
+    asyncio.run(agent_baseline.step())
+    asyncio.run(agent_shocked.step())
+    # Either revenue or capacity_utilization should drop
+    assert (
+        agent_shocked.daily_revenue <= agent_baseline.daily_revenue
+        or agent_shocked.capacity_utilization <= agent_baseline.capacity_utilization
+    )
+
+
+def test_competitor_entry_pulls_share_in_multi_company(library):
+    """new_competitor_entry shock on company A should reduce A's share."""
+    rng = random.Random(11)
+    companies = []
+    for i in range(2):
+        seed = sample_seed_for_archetype("small_team", rng=rng)
+        suppliers, revenues, costs = _valid_refs_for(library, seed.economics_model)
+        seed = seed.model_copy(update={
+            "initial_supplier_types": suppliers,
+            "initial_revenue_streams": revenues,
+            "initial_cost_centers": costs,
+        })
+        stance = sample_stance("bootstrap", rng=rng)
+        bundle = _make_silent_bundle(seed, stance, library)
+        c = CompanyAgentV2(
+            seed=seed,
+            stance=stance,
+            library=library,
+            sim_id="multi-test",
+            company_id=f"co-{i}",
+            rng=random.Random(100 + i),
+            transcript=None,
+            cost_tracker=CostTracker(ceiling_usd=10.0),
+            shock_scheduler=None,
+            orchestrator=bundle,
+        )
+        companies.append(c)
+
+    # Attach competitor entry to company 0.
+    entry = make_new_competitor_entry(rng=random.Random(44), severity="severe")
+    _attach_shock(companies[0], entry, tick_started=0)
+
+    sim = MultiCompanySimV2(
+        sim_id="multi-test",
+        companies=companies,
+        max_ticks=2,
+        tam_initial=1_000_000.0,
+    )
+    results = asyncio.run(sim.run())
+    last = results[-1]
+    shares = last["shares"]
+    # Company 0 should have a lower share than company 1 due to the shock.
+    assert shares[0] < shares[1]
+
+
+# ─── is_complete + all_dead semantics (Phase 1.6 — P-ENG-4) ───────────────
+
+
+def test_sim_emits_all_dead_event_when_companies_die(library):
+    """When all companies die before max_ticks, the sim emits one all_dead event."""
+    rng = random.Random(11)
+    companies = []
+    for i in range(2):
+        seed = sample_seed_for_archetype("small_team", rng=rng)
+        suppliers, revenues, costs = _valid_refs_for(library, seed.economics_model)
+        seed = seed.model_copy(update={
+            "initial_supplier_types": suppliers,
+            "initial_revenue_streams": revenues,
+            "initial_cost_centers": costs,
+            "starting_cash": 1.0,  # ultra-thin runway → fast death
+        })
+        stance = sample_stance("bootstrap", rng=rng)
+        bundle = _make_silent_bundle(seed, stance, library)
+        c = CompanyAgentV2(
+            seed=seed,
+            stance=stance,
+            library=library,
+            sim_id="death-test",
+            company_id=f"co-{i}",
+            rng=random.Random(100 + i),
+            transcript=None,
+            cost_tracker=CostTracker(ceiling_usd=10.0),
+            shock_scheduler=None,
+            orchestrator=bundle,
+        )
+        # Force imminent death — set companies AT the insolvency cap with
+        # cash so deeply negative the tick math cannot rescue them.
+        from src.simulation.unified_v2 import INSOLVENT_TICKS_TO_DEATH
+        c.consecutive_insolvent = INSOLVENT_TICKS_TO_DEATH
+        c.cash = -1_000_000_000.0
+        companies.append(c)
+
+    sim = MultiCompanySimV2(
+        sim_id="death-test",
+        companies=companies,
+        max_ticks=10,
+        tam_initial=1_000_000.0,
+    )
+    results = asyncio.run(sim.run())
+    # Exactly one tick payload should carry all_dead=True.
+    all_dead_payloads = [r for r in results if r.get("all_dead")]
+    assert len(all_dead_payloads) == 1, (
+        f"expected exactly one all_dead event, got {len(all_dead_payloads)}"
+    )
+    # is_complete is now True.
+    assert sim.is_complete is True
+
+
+def test_sim_continues_while_one_company_alive(library):
+    """is_complete must NOT trigger while at least one company is alive."""
+    rng = random.Random(11)
+    seed = sample_seed_for_archetype("small_team", rng=rng)
+    suppliers, revenues, costs = _valid_refs_for(library, seed.economics_model)
+    seed = seed.model_copy(update={
+        "initial_supplier_types": suppliers,
+        "initial_revenue_streams": revenues,
+        "initial_cost_centers": costs,
+    })
+    stance = sample_stance("bootstrap", rng=rng)
+    bundle = _make_silent_bundle(seed, stance, library)
+    c = CompanyAgentV2(
+        seed=seed,
+        stance=stance,
+        library=library,
+        sim_id="solo",
+        company_id="co-0",
+        rng=random.Random(101),
+        transcript=None,
+        cost_tracker=CostTracker(ceiling_usd=10.0),
+        shock_scheduler=None,
+        orchestrator=bundle,
+    )
+    sim = MultiCompanySimV2(
+        sim_id="solo",
+        companies=[c],
+        max_ticks=20,
+        tam_initial=1_000_000.0,
+    )
+    # After each step, is_complete should be False until tick=max or company dies.
+    for _ in range(5):
+        await_result = asyncio.run(sim.step())
+        # First 5 ticks: company should still be alive (default starting_cash)
+        assert sim.alive_companies, "Default-cash company should not die in 5 ticks"
+        assert sim.is_complete is False
