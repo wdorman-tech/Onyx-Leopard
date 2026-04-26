@@ -524,10 +524,11 @@ def replay_or_call(
 
     cost_usd = 0.0
     if cost_tracker is not None:
-        # `record` may raise CostCeilingExceededError; it leaves the tracker
-        # unchanged so the partial mutation is bounded.
-        cost_tracker.record(input_tokens, output_tokens, model)
+        # Compute the pure cost FIRST so `cost_usd` is attributed to this call's
+        # tokens before any mutation. `record` may raise CostCeilingExceededError;
+        # it leaves the tracker unchanged so the partial mutation is bounded.
         cost_usd = cost_tracker.cost_for(input_tokens, output_tokens, model)
+        cost_tracker.record(input_tokens, output_tokens, model)
 
     if transcript.mode == "record":
         entry = TranscriptEntry(

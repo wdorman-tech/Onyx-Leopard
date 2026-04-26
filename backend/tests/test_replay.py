@@ -507,6 +507,100 @@ def test_replay_or_call_charges_cost_tracker_in_record_mode(tmp_path: Path) -> N
     assert tracker.total_cost() == pytest.approx(0.0035, rel=1e-9)
 
 
+def test_replay_cost_for_runs_before_record(tmp_path: Path) -> None:
+    """Ordering invariant (P-AI-4): `cost_for` (pure) must be invoked BEFORE
+    `record` (mutating) in `replay_or_call`.
+
+    The pure read-then-mutate ordering means `cost_usd` is attributed to this
+    call's tokens against the tracker's PRE-record state. We verify by
+    monkey-patching both methods with side effects that append to a shared
+    call log. (Note: `record` internally calls `cost_for` to compute its own
+    delta — so the call log will contain a third entry from inside `record`.
+    The invariant we care about is the ORDER of the FIRST two calls.)
+    """
+    path = tmp_path / "sim.jsonl"
+    transcript = Transcript(path, mode="record")
+    tracker = CostTracker(ceiling_usd=10.0)
+
+    call_order: list[str] = []
+    real_cost_for = tracker.cost_for
+    real_record = tracker.record
+
+    def spy_cost_for(input_tokens: int, output_tokens: int, model: str) -> float:
+        call_order.append("cost_for")
+        return real_cost_for(input_tokens, output_tokens, model)
+
+    def spy_record(input_tokens: int, output_tokens: int, model: str) -> None:
+        call_order.append("record")
+        real_record(input_tokens, output_tokens, model)
+
+    # `cost_for` is a staticmethod accessed on the instance — overriding via
+    # `tracker.cost_for = spy_cost_for` masks it on the instance only.
+    tracker.cost_for = spy_cost_for  # type: ignore[method-assign]
+    tracker.record = spy_record  # type: ignore[method-assign]
+
+    replay_or_call(
+        transcript,
+        '{"x": 1}',
+        _stub_llm(_make_decision(), model="claude-haiku-4-5",
+                  input_tokens=2_000, output_tokens=400),
+        sim_id="s1",
+        tick=0,
+        company_id="c1",
+        tier="operational",
+        cost_tracker=tracker,
+    )
+
+    # Pure cost computation must come first; mutation second. (Internal
+    # `cost_for` from inside `record` shows up as a third entry — fine.)
+    assert call_order[:2] == ["cost_for", "record"]
+
+
+def test_replay_cost_usd_attributed_against_pre_record_state(tmp_path: Path) -> None:
+    """Alternative verification of the swap (P-AI-4): the `cost_usd` recorded
+    in the transcript entry equals `cost_for(input, output, model)` computed
+    against the tracker's PRE-call state — i.e. the cost of THIS call alone.
+
+    Pre-existing tracker spend is irrelevant to a single call's cost, but the
+    assertion is meaningful as a regression guard: if anyone re-orders the
+    call so `record` runs first, `cost_for` would still return the same
+    pure-function output (it does not depend on tracker state), so the
+    written `cost_usd` would be unchanged numerically. The order test above
+    is the load-bearing assertion; this one verifies the resulting transcript
+    is internally consistent.
+    """
+    path = tmp_path / "sim.jsonl"
+    # Pre-charge the tracker so we'd notice if `cost_usd` accidentally became
+    # `total_cost()` instead of the per-call cost.
+    tracker = CostTracker(ceiling_usd=10.0)
+    tracker.record(input_tokens=5_000, output_tokens=1_000, model="claude-haiku-4-5")
+    pre_existing_total = tracker.total_cost()
+    assert pre_existing_total > 0.0
+
+    transcript = Transcript(path, mode="record")
+    replay_or_call(
+        transcript,
+        '{"x": 1}',
+        _stub_llm(_make_decision(), model="claude-haiku-4-5",
+                  input_tokens=2_000, output_tokens=400),
+        sim_id="s1",
+        tick=0,
+        company_id="c1",
+        tier="operational",
+        cost_tracker=tracker,
+    )
+
+    # Read the recorded entry back and check `cost_usd`.
+    rep = Transcript(path, mode="replay")
+    entry = rep.lookup(0, "c1")
+    assert entry is not None
+    expected_per_call_cost = CostTracker.cost_for(2_000, 400, "claude-haiku-4-5")
+    assert entry.cost_usd == pytest.approx(expected_per_call_cost, rel=1e-12)
+    # And the `cost_usd` is NOT the cumulative total — sanity check the swap
+    # didn't accidentally regress to logging the running total.
+    assert entry.cost_usd != pytest.approx(tracker.total_cost(), rel=1e-12)
+
+
 def test_replay_or_call_does_not_charge_in_replay_mode(tmp_path: Path) -> None:
     path = tmp_path / "sim.jsonl"
     decision = _make_decision()

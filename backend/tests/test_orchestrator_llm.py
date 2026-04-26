@@ -578,6 +578,117 @@ async def test_persistent_empty_references_stance_returns_none(tmp_path: Path) -
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# references_stance — hallucinated field filtering (P-AI-1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_references_stance_garbage_filtered_out(tmp_path: Path) -> None:
+    """Hallucinated stance attribute names are dropped; real ones survive.
+
+    The LLM proposes a mix of one real `CeoStance` field and two made-up
+    names. The post-parse filter must keep only `risk_tolerance` — the engine
+    must never see `made_up_field` / `another_garbage` because they have no
+    semantic meaning to the orchestrator/critic.
+    """
+    client = _make_mock_client(
+        [
+            _decision_json(
+                reasoning="Citing a real attribute and two hallucinations.",
+                references_stance=["risk_tolerance", "made_up_field", "another_garbage"],
+            ),
+        ]
+    )
+    transcript = Transcript(tmp_path / "sim.jsonl", mode="off")
+    orch = TacticalOrchestrator(
+        seed=_make_seed(),
+        stance=_make_stance(),
+        library=_make_library(),
+        transcript=transcript,
+        cost_tracker=_make_tracker(),
+        client=client,
+    )
+
+    decision = await orch.tick(_make_state(tick=TACTICAL_CADENCE_TICKS))
+    assert decision is not None
+    assert decision.references_stance == ["risk_tolerance"]
+    # No retry — the survivor list was non-empty so one call was enough.
+    assert client.messages.create.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_references_stance_retry_when_filter_empties_list(tmp_path: Path) -> None:
+    """Filter empties the list → retry with explicit prompt → second reply
+    has valid fields → final decision uses the second response, exactly one retry."""
+    client = _make_mock_client(
+        [
+            _decision_json(
+                reasoning="All hallucinated names — should trigger a retry.",
+                references_stance=["fake_field"],
+            ),
+            _decision_json(
+                reasoning="Now using a real attribute.",
+                references_stance=["cash_comfort", "growth_obsession"],
+            ),
+        ]
+    )
+    transcript = Transcript(tmp_path / "sim.jsonl", mode="off")
+    orch = TacticalOrchestrator(
+        seed=_make_seed(),
+        stance=_make_stance(),
+        library=_make_library(),
+        transcript=transcript,
+        cost_tracker=_make_tracker(),
+        client=client,
+    )
+
+    decision = await orch.tick(_make_state(tick=TACTICAL_CADENCE_TICKS))
+    assert decision is not None
+    # Second response wins — both real fields survive.
+    assert decision.references_stance == ["cash_comfort", "growth_obsession"]
+    # Exactly one retry: initial call + one retry == 2 total.
+    assert client.messages.create.await_count == 2
+    assert client.messages.create.await_count == LLM_MAX_RETRIES + 1
+
+
+@pytest.mark.asyncio
+async def test_references_stance_retry_feedback_lists_valid_fields(tmp_path: Path) -> None:
+    """The retry feedback must enumerate valid stance field names so the model
+    can correct course on the second attempt."""
+    client = _make_mock_client(
+        [
+            _decision_json(
+                reasoning="Garbage refs.",
+                references_stance=["totally_wrong"],
+            ),
+            _decision_json(
+                reasoning="Recovered.",
+                references_stance=["risk_tolerance"],
+            ),
+        ]
+    )
+    transcript = Transcript(tmp_path / "sim.jsonl", mode="off")
+    orch = TacticalOrchestrator(
+        seed=_make_seed(),
+        stance=_make_stance(),
+        library=_make_library(),
+        transcript=transcript,
+        cost_tracker=_make_tracker(),
+        client=client,
+    )
+
+    await orch.tick(_make_state(tick=TACTICAL_CADENCE_TICKS))
+
+    # Pull the retry's user prompt — must contain at least one real field name.
+    retry_call_kwargs = client.messages.create.await_args_list[1].kwargs
+    retry_user_prompt = retry_call_kwargs["messages"][0]["content"]
+    # The feedback enumerates valid field names; spot-check three of them.
+    assert "risk_tolerance" in retry_user_prompt
+    assert "cash_comfort" in retry_user_prompt
+    assert "hiring_bias" in retry_user_prompt
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Decision filtering — prerequisites and hard_cap
 # ─────────────────────────────────────────────────────────────────────────────
 

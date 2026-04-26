@@ -194,6 +194,13 @@ STRATEGIC_MAX_TOKENS: int = 1500
 #: with `LLM_MAX_RETRIES = 1` the LLM gets exactly one second chance.
 LLM_MAX_RETRIES: int = 1
 
+#: Frozen set of valid `CeoStance` field names. Used post-parse to filter the
+#: LLM's `references_stance` list — anything not in this set is hallucinated
+#: and dropped before the decision reaches the engine. Built from
+#: `CeoStance.model_fields` so it stays in sync if stance gains/loses fields
+#: without touching this module.
+_STANCE_FIELDS: frozenset[str] = frozenset(CeoStance.model_fields.keys())
+
 
 # ---------------------------------------------------------------------------
 # Pydantic models — public contract of this module.
@@ -855,33 +862,43 @@ class _LlmOrchestratorBase:
                 )
                 continue
 
-            # 5. Validate role-lock invariant — references_stance must be non-empty.
-            if not base_decision.references_stance:
+            # 5. Validate role-lock invariant — `references_stance` must contain
+            #    at least one real `CeoStance` field after filtering hallucinations.
+            #    Filter FIRST, retry if the survivor list is empty, return None
+            #    if the retry also yields nothing real.
+            filtered_refs = _validate_references_stance(
+                list(base_decision.references_stance)
+            )
+            if not filtered_refs:
                 if attempt >= LLM_MAX_RETRIES:
                     log.warning(
-                        "%s tier returned empty references_stance after retry "
-                        "at tick=%d (company=%s); returning None",
+                        "%s tier returned empty references_stance after filter+retry "
+                        "at tick=%d (company=%s); raw refs were %r; returning None",
                         self.TIER,
                         state.tick,
                         self._company_id,
+                        list(base_decision.references_stance),
                     )
                     return None
+                valid_fields = ", ".join(sorted(_STANCE_FIELDS))
                 feedback = (
-                    "Your previous response had an empty `references_stance`. "
-                    "You MUST cite at least one stance attribute that drove "
-                    "the decision (e.g. 'risk_tolerance', 'cash_comfort'). "
+                    "Your previous `references_stance` contained no recognized "
+                    "stance attributes (after filtering hallucinated names). "
+                    f"You MUST cite at least one of: {valid_fields}. "
                     "Reply with VALID JSON only matching the schema."
                 )
                 continue
 
-            # 6. Build the tiered decision (adds tier + tick metadata).
+            # 6. Build the tiered decision (adds tier + tick metadata). Use the
+            #    FILTERED references list so hallucinated attribute names never
+            #    reach the engine, transcript, or critic agent.
             decision = CeoDecision(
                 spawn_nodes=list(base_decision.spawn_nodes),
                 retire_nodes=list(base_decision.retire_nodes),
                 adjust_params=dict(base_decision.adjust_params),
                 open_locations=base_decision.open_locations,
                 reasoning=base_decision.reasoning,
-                references_stance=list(base_decision.references_stance),
+                references_stance=filtered_refs,
                 tier=self.TIER,
                 tick=state.tick,
             )
@@ -1201,6 +1218,17 @@ class _LlmOrchestratorBase:
             tier=decision.tier,
             tick=decision.tick,
         )
+
+
+def _validate_references_stance(refs: list[str]) -> list[str]:
+    """Filter `refs` down to keys that exist on `CeoStance`.
+
+    LLMs occasionally hallucinate stance attributes ("aggressiveness",
+    "founder_intuition") that have no engine meaning. Anything not in
+    `_STANCE_FIELDS` is dropped — order of survivors is preserved so the
+    transcript stays stable.
+    """
+    return [r for r in refs if r in _STANCE_FIELDS]
 
 
 def _parse_llm_json(raw: str) -> dict[str, Any]:
