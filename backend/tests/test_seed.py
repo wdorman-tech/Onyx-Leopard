@@ -29,7 +29,7 @@ def _valid_seed_kwargs() -> dict:
         "industry_keywords": ["test", "fixture"],
         "location_label": "Location",
         "economics_model": "physical",
-        "base_price": 14.0,
+        "starting_price": 14.0,
         "base_unit_cost": 4.0,
         "daily_fixed_costs": 300.0,
         "starting_cash": 50_000.0,
@@ -82,7 +82,7 @@ def test_required_field_groups_present():
         "location_label",
         # Economics (8)
         "economics_model",
-        "base_price",
+        "starting_price",
         "base_unit_cost",
         "daily_fixed_costs",
         "starting_cash",
@@ -146,15 +146,15 @@ def test_rejects_negative_starting_cash():
         CompanySeed(**bad)
 
 
-def test_rejects_negative_base_price():
-    bad = _valid_seed_kwargs() | {"base_price": -1.0}
+def test_rejects_negative_starting_price():
+    bad = _valid_seed_kwargs() | {"starting_price": -1.0}
     with pytest.raises(ValidationError):
         CompanySeed(**bad)
 
 
-def test_rejects_zero_base_price():
-    """base_price has gt=0 — zero is invalid (no business model)."""
-    bad = _valid_seed_kwargs() | {"base_price": 0.0}
+def test_rejects_zero_starting_price():
+    """starting_price has gt=0 — zero is invalid (no business model)."""
+    bad = _valid_seed_kwargs() | {"starting_price": 0.0}
     with pytest.raises(ValidationError):
         CompanySeed(**bad)
 
@@ -167,7 +167,7 @@ def test_rejects_negative_base_unit_cost():
 
 def test_rejects_unit_cost_above_price():
     """Negative gross margin at t=0 is rejected (cross-field validator)."""
-    bad = _valid_seed_kwargs() | {"base_price": 10.0, "base_unit_cost": 15.0}
+    bad = _valid_seed_kwargs() | {"starting_price": 10.0, "base_unit_cost": 15.0}
     with pytest.raises(ValidationError):
         CompanySeed(**bad)
 
@@ -310,7 +310,7 @@ def test_sampler_is_deterministic_with_same_rng_seed():
 def test_sampler_produces_variation_with_different_seeds():
     a = sample_seed_for_archetype("venture_funded", rng=random.Random(1))
     b = sample_seed_for_archetype("venture_funded", rng=random.Random(2))
-    # They might happen to produce same economics_model but base_price will diverge
+    # They might happen to produce same economics_model but starting_price will diverge
     assert a != b
 
 
@@ -394,7 +394,7 @@ def test_all_archetypes_produce_valid_margins():
         for s in _sample_n(archetype, 100):
             assert 0.05 <= s.margin_target <= 0.85
             # And by construction unit cost cannot exceed price
-            assert s.base_unit_cost <= s.base_price
+            assert s.base_unit_cost <= s.starting_price
 
 
 def test_all_archetypes_produce_valid_competitor_density():

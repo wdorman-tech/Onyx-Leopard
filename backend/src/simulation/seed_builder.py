@@ -109,7 +109,7 @@ FINAL_JSON: {
     "industry_keywords": ["...", "..."],
     "location_label": "Location",
     "economics_model": "physical",
-    "base_price": 14.0,
+    "starting_price": 14.0,
     "base_unit_cost": 4.0,
     "daily_fixed_costs": 300.0,
     "starting_cash": 50000.0,

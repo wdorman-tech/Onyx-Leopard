@@ -168,7 +168,7 @@ def test_lhs_variation_produces_distinct_seeds(physical_refs, library):
         sample_interval=5,
         base_seed=42,
         parameter_variations=[
-            SeedVariation(field="base_price", low=10.0, high=100.0),
+            SeedVariation(field="starting_price", low=10.0, high=100.0),
             SeedVariation(field="competitor_density", low=1, high=8),
         ],
         initial_supplier_types=s,
@@ -179,7 +179,7 @@ def test_lhs_variation_produces_distinct_seeds(physical_refs, library):
     runner = MonteCarloRunnerV2(config=cfg, library=library)
     report = asyncio.run(runner.run_sequential())
 
-    prices = sorted({r.varied_params["base_price"] for r in report.results})
+    prices = sorted({r.varied_params["starting_price"] for r in report.results})
     assert len(prices) == 4, f"LHS should produce 4 distinct prices, got: {prices}"
 
 

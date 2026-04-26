@@ -28,7 +28,7 @@ export interface CompanySeed {
   location_label: string;
 
   economics_model: EconomicsModel;
-  base_price: number;
+  starting_price: number;
   base_unit_cost: number;
   daily_fixed_costs: number;
   starting_cash: number;

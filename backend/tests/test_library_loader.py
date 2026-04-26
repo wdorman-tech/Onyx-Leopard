@@ -79,7 +79,7 @@ def _subscription_seed_kwargs() -> dict[str, Any]:
         "industry_keywords": ["saas", "test"],
         "location_label": "Product",
         "economics_model": "subscription",
-        "base_price": 99.0,
+        "starting_price": 99.0,
         "base_unit_cost": 12.0,
         "daily_fixed_costs": 1500.0,
         "starting_cash": 2_000_000.0,

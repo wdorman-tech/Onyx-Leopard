@@ -82,12 +82,12 @@ class CompanySeed(BaseModel):
 
     # ── Economics (8) ──
     # Note: spec §2 lists 8 economics fields but enumerates only 7 named
-    # entries (economics_model, base_price, base_unit_cost, daily_fixed_costs,
+    # entries (economics_model, starting_price, base_unit_cost, daily_fixed_costs,
     # starting_cash, starting_employees, base_capacity_per_location,
     # margin_target). The 8th is `revenue_per_employee_target` — added so the
     # CEO orchestrator has a productivity yardstick when evaluating hires.
     economics_model: EconomicsModel
-    base_price: float = Field(..., gt=0.0, le=10_000_000.0)
+    starting_price: float = Field(..., gt=0.0, le=10_000_000.0)
     base_unit_cost: float = Field(..., ge=0.0, le=10_000_000.0)
     daily_fixed_costs: float = Field(..., ge=0.0, le=1_000_000.0)
     starting_cash: float = Field(..., ge=0.0, le=1_000_000_000.0)
@@ -140,13 +140,13 @@ class CompanySeed(BaseModel):
     @field_validator("base_unit_cost")
     @classmethod
     def _cost_below_price(cls, v: float, info) -> float:  # type: ignore[no-untyped-def]
-        # base_unit_cost == base_price means zero gross margin, which is
+        # base_unit_cost == starting_price means zero gross margin, which is
         # legal for a loss-leader stance but a strict "cost > price" seed is
         # never economically coherent — reject it.
-        price = info.data.get("base_price")
+        price = info.data.get("starting_price")
         if price is not None and v > price:
             raise ValueError(
-                f"base_unit_cost ({v}) cannot exceed base_price ({price}) — "
+                f"base_unit_cost ({v}) cannot exceed starting_price ({price}) — "
                 "negative gross margin is not a valid starting position"
             )
         return v
@@ -204,17 +204,17 @@ _ARCHETYPE_BANDS: dict[Archetype, dict[str, tuple[float, float]]] = {
 #   service:      consulting ($12k-$28k engagement, $1.8k-$4.2k cost, 4-6 cap)
 _ECONOMICS_BANDS: dict[EconomicsModel, dict[str, tuple[float, float]]] = {
     "physical": {
-        "base_price": (5.0, 60.0),
-        "cost_ratio": (0.20, 0.55),  # base_unit_cost = base_price * ratio
+        "starting_price": (5.0, 60.0),
+        "cost_ratio": (0.20, 0.55),  # base_unit_cost = starting_price * ratio
         "base_capacity_per_location_int": (40, 250),
     },
     "subscription": {
-        "base_price": (15.0, 1_500.0),
+        "starting_price": (15.0, 1_500.0),
         "cost_ratio": (0.05, 0.30),
         "base_capacity_per_location_int": (100, 5_000),
     },
     "service": {
-        "base_price": (3_000.0, 80_000.0),
+        "starting_price": (3_000.0, 80_000.0),
         "cost_ratio": (0.15, 0.45),
         "base_capacity_per_location_int": (3, 30),
     },
@@ -272,9 +272,9 @@ def sample_seed_for_archetype(
     )
     econ_bands = _ECONOMICS_BANDS[chosen_economics]
 
-    base_price = round(_sample_uniform(rng, *econ_bands["base_price"]), 2)
+    starting_price = round(_sample_uniform(rng, *econ_bands["starting_price"]), 2)
     cost_ratio = _sample_uniform(rng, *econ_bands["cost_ratio"])
-    base_unit_cost = round(base_price * cost_ratio, 2)
+    base_unit_cost = round(starting_price * cost_ratio, 2)
     margin_target = round(1.0 - cost_ratio - rng.uniform(0.0, 0.10), 3)
     margin_target = max(0.05, min(0.85, margin_target))
 
@@ -311,7 +311,7 @@ def sample_seed_for_archetype(
         industry_keywords=fallback_keywords,
         location_label=_LOCATION_LABELS[chosen_economics],
         economics_model=chosen_economics,
-        base_price=base_price,
+        starting_price=starting_price,
         base_unit_cost=base_unit_cost,
         daily_fixed_costs=daily_fixed,
         starting_cash=starting_cash,

@@ -12,7 +12,7 @@ Design notes:
     different RNG seeds aggregate cleanly.
 
   * **Latin Hypercube sampling** over a list of parameter perturbations
-    expressed as dotted paths into the seed (e.g., `"base_price"`,
+    expressed as dotted paths into the seed (e.g., `"starting_price"`,
     `"competitor_density"`). Each MC run samples one point in the
     [low, high] hypercube and overrides those seed fields.
 
@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 class SeedVariation(BaseModel):
     """A single field on `CompanySeed` to vary across MC runs.
 
-    `field` is the attribute name on `CompanySeed` (e.g., "base_price",
+    `field` is the attribute name on `CompanySeed` (e.g., "starting_price",
     "competitor_density", "tam"). Numeric fields only.
     """
 

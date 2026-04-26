@@ -422,11 +422,11 @@ class CompanyAgentV2:
             served / total_capacity if total_capacity > 0 else 0.0
         )
 
-        # Revenue = served * base_price.
+        # Revenue = served * starting_price.
         # Cost side: served * base_unit_cost + daily_burn (scaled by shocks).
         supply_cost_mult = float(env.get("supply_cost_mult", 1.0))
         fixed_cost_mult = float(env.get("fixed_cost_mult", 1.0))
-        self.daily_revenue = served * self.seed.base_price
+        self.daily_revenue = served * self.seed.starting_price
         self.daily_costs = (
             served * self.seed.base_unit_cost * supply_cost_mult
             + daily_burn * fixed_cost_mult
@@ -711,12 +711,12 @@ class MultiCompanySimV2:
             shares = [a / total_attraction for a in attractions]
 
         # Revenue ceiling per company = TAM * share, in customers (divide by
-        # avg seed.base_price).
+        # avg seed.starting_price).
         for c, share in zip(alive, shares, strict=True):
             ceiling_revenue = self.tam * share
             ceiling_customers = (
-                ceiling_revenue / c.seed.base_price
-                if c.seed.base_price > 0
+                ceiling_revenue / c.seed.starting_price
+                if c.seed.starting_price > 0
                 else 0.0
             )
             c.allocated_demand = ceiling_customers

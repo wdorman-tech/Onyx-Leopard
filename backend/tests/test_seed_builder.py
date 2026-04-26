@@ -79,7 +79,7 @@ _VALID_PAYLOAD = {
         "industry_keywords": ["test", "fixture"],
         "location_label": "Location",
         "economics_model": "physical",
-        "base_price": 14.0,
+        "starting_price": 14.0,
         "base_unit_cost": 4.0,
         "daily_fixed_costs": 300.0,
         "starting_cash": 50_000.0,
@@ -254,7 +254,7 @@ async def test_final_json_with_markdown_fences_still_parses() -> None:
 async def test_bad_payload_then_good_payload_succeeds() -> None:
     """First FINAL_JSON has bad data; second is correct → interview succeeds."""
     bad_payload = json.loads(json.dumps(_VALID_PAYLOAD))
-    bad_payload["seed"]["base_price"] = -5.0  # invalid: must be > 0
+    bad_payload["seed"]["starting_price"] = -5.0  # invalid: must be > 0
 
     scripted = [
         _final_json_reply(bad_payload),
@@ -271,14 +271,14 @@ async def test_bad_payload_then_good_payload_succeeds() -> None:
     assert session is not None
     assert session.retries_used == 1
     assert len(session.errors) == 1
-    assert "base_price" in session.errors[0]
+    assert "starting_price" in session.errors[0]
 
 
 @pytest.mark.asyncio
 async def test_bad_json_triggers_retry_and_eventual_raise() -> None:
     """Three consecutive bad payloads exhaust retries and raise."""
     bad_payload = json.loads(json.dumps(_VALID_PAYLOAD))
-    bad_payload["seed"]["base_price"] = -5.0
+    bad_payload["seed"]["starting_price"] = -5.0
 
     # start + 2 retries before final raise = 3 total bad replies needed
     scripted = [_final_json_reply(bad_payload)] * (MAX_VALIDATION_RETRIES + 1)
@@ -321,7 +321,7 @@ async def test_missing_stance_key_triggers_retry() -> None:
 async def test_retry_budget_is_per_session_not_global() -> None:
     """Two separate sessions each get their own retry budget."""
     bad_payload = json.loads(json.dumps(_VALID_PAYLOAD))
-    bad_payload["seed"]["base_price"] = -5.0
+    bad_payload["seed"]["starting_price"] = -5.0
 
     # Session A: bad → good (uses 1 retry, succeeds)
     # Session B: bad → good (also uses 1 retry, succeeds — proves budget isn't shared)
