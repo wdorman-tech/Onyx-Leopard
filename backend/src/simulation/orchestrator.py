@@ -85,6 +85,15 @@ from src.simulation.seed import CompanySeed
 from src.simulation.shocks import Shock
 from src.simulation.stance import CeoStance, to_system_prompt
 
+# Critic is imported eagerly at module bottom to keep the cycle one-directional:
+# `critic.py` only references orchestrator types behind `TYPE_CHECKING`, so this
+# direction is safe.
+from src.simulation.critic import (
+    CRITIC_VIOLATION_THRESHOLD,
+    CriticAgent,
+    CriticScore,
+)
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -1325,21 +1334,16 @@ class OrchestratorBundle:
     heuristic: HeuristicOrchestrator
     tactical: TacticalOrchestrator
     strategic: StrategicOrchestrator
-    critic: Any | None = None  # CriticAgent — typed Any to avoid import cycle
+    critic: CriticAgent | None = None
     stance: CeoStance | None = None
     company_id: str = ""
 
     async def tick(
         self, state: CompanyState
-    ) -> tuple[list[CeoDecision], list[Any]]:
-        """Run one tick. Returns `(decisions, critic_scores)`.
-
-        `critic_scores` is `list[critic.CriticScore]` in practice — typed
-        `list[Any]` here to avoid an upward import dependency on
-        `critic.py` (which itself imports from this module).
-        """
+    ) -> tuple[list[CeoDecision], list[CriticScore]]:
+        """Run one tick. Returns `(decisions, critic_scores)`."""
         decisions: list[CeoDecision] = []
-        critic_scores: list[Any] = []
+        critic_scores: list[CriticScore] = []
 
         # 1. Heuristic — sync, no LLM.
         h = self.heuristic.tick(state)
@@ -1365,10 +1369,6 @@ class OrchestratorBundle:
             )
             if score is not None:
                 critic_scores.append(score)
-                # Lazy-import the threshold constant to avoid an import
-                # cycle (`critic` imports from this module).
-                from src.simulation.critic import CRITIC_VIOLATION_THRESHOLD
-
                 if score.score < CRITIC_VIOLATION_THRESHOLD:
                     log.warning(
                         "Stance violation tick=%d company=%s score=%.2f "

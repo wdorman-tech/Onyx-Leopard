@@ -34,18 +34,25 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from anthropic import AsyncAnthropic
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from src.simulation.orchestrator import CeoDecision, CompanyState
 from src.simulation.replay import (
+    CeoDecision,
+    CostTracker,
     MissingTranscriptEntryError,
     Transcript,
-    CostTracker,
 )
 from src.simulation.stance import CeoStance, to_system_prompt
+
+if TYPE_CHECKING:
+    # `CompanyState` lives in `orchestrator.py`, which imports from this
+    # module at runtime — so import it as a type-only reference to break
+    # the cycle. `from __future__ import annotations` (above) means every
+    # annotation is a string, so this works for parameter and return types.
+    from src.simulation.orchestrator import CompanyState
 
 log = logging.getLogger(__name__)
 
