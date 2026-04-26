@@ -275,11 +275,14 @@ async def run_single_v2(
         )
         companies.append(company)
 
+    # Seed.market_growth_rate is annualized; convert to per-tick (1 tick = 1 day).
+    daily_growth = seed.market_growth_rate / 365.0
     sim = MultiCompanySimV2(
         sim_id=f"mc-{run_index}",
         companies=companies,
         max_ticks=config.ticks_per_run,
         tam_initial=config.tam_initial,
+        market_growth_rate=daily_growth,
     )
 
     # Sampling buffers

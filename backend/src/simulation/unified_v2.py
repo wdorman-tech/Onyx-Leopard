@@ -639,12 +639,18 @@ class CompanyAgentV2:
         #     of the signed bucket sum becomes a small daily cash inflow,
         #     gated on whether the stance archetype raises external capital
         #     at all. Bootstrap and turnaround stances ignore this signal.
+        #
+        #     `financing_availability_mult` (market_crash, recession) scales
+        #     the standing inflow — when credit dries up, capital nodes still
+        #     exist but their daily access shrinks. Clamped at zero so a
+        #     deeply negative shock can't invert the sign.
         capital_signal = abs(sum(bridge_agg.capital.values()))
+        financing_mult = max(0.0, float(env.get("financing_availability_mult", 1.0)))
         if (
             capital_signal > 0
             and self.stance.archetype in RAISE_ALLOWED_ARCHETYPES
         ):
-            self.cash += capital_signal * CAPITAL_BUCKET_DAILY_GAIN
+            self.cash += capital_signal * CAPITAL_BUCKET_DAILY_GAIN * financing_mult
 
         # 7. Update cash
         self.cash += self.daily_revenue - self.daily_costs
@@ -830,7 +836,14 @@ class CompanyAgentV2:
                         self.tick, value, self.stance.archetype,
                     )
                     continue
-                self.cash += value
+                # Active credit-tightening shock haircuts the actual inflow.
+                # `financing_availability_mult < 1.0` during market_crash /
+                # recession means investors close their wallets — the CEO
+                # may still try to raise, but receives less.
+                financing_mult = max(
+                    0.0, float(self._last_env.get("financing_availability_mult", 1.0))
+                )
+                self.cash += value * financing_mult
 
             elif key == "replenish_supplier":
                 if value <= 0:

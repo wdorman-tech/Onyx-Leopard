@@ -694,6 +694,23 @@ def test_ceo_negative_raise_amount_rejected(library, small_team_seed_and_stance)
     assert agent.cash == cash_before
 
 
+def test_financing_shock_haircuts_raise_amount(library, small_team_seed_and_stance):
+    """When financing_availability_mult < 1.0, the actual cash inflow from a
+    raise is scaled down — investors pull back during a credit crunch."""
+    seed, stance = small_team_seed_and_stance
+    rng = random.Random(7)
+    stance_vc = sample_stance("venture_growth", rng=rng)
+    agent = _make_agent(seed, stance_vc, library)
+    # Simulate an active market_crash by populating _last_env directly.
+    agent._last_env = {"financing_availability_mult": 0.4}
+    cash_before = agent.cash
+    agent._apply_decision(
+        _force_decision(agent, adjust_params={"raise_amount": 1_000_000.0})
+    )
+    # Should receive 40% of the requested raise.
+    assert agent.cash == pytest.approx(cash_before + 400_000.0)
+
+
 def test_seed_starting_price_remains_immutable_after_decision(
     library, small_team_seed_and_stance
 ):

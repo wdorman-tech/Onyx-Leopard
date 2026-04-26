@@ -72,7 +72,7 @@ commissary_kitchen:
   employees_count: 12
   capacity_contribution: 0
   modifier_keys:
-    labor: -0.15
+    labor_cost: -0.15
   prerequisites:
     - restaurant_location
   category_caps:
@@ -89,7 +89,7 @@ distribution_center:
   employees_count: 20
   capacity_contribution: 0
   modifier_keys:
-    food_delivery: -0.10
+    food_delivery_cost: -0.10
   prerequisites:
     - commissary_kitchen
   category_caps:
@@ -351,7 +351,7 @@ managed_db_vendor:
   employees_count: 0
   capacity_contribution: 0
   modifier_keys:
-    db_reliability_boost: -0.08
+    db_reliability_cost: -0.08
   prerequisites:
     - cloud_provider
   category_caps:
@@ -626,7 +626,7 @@ it_support:
   employees_count: 1
   capacity_contribution: 0
   modifier_keys:
-    operating: -0.02
+    operating_cost: -0.02
   prerequisites: []
   category_caps:
     soft_cap: 1
@@ -677,7 +677,7 @@ rnd_menu:
   employees_count: 2
   capacity_contribution: 0
   modifier_keys:
-    menu_innovation: 0.05
+    menu_innovation_quality: 0.05
   prerequisites:
     - general_manager
   category_caps:
@@ -780,7 +780,7 @@ engineering_lead:
   capacity_contribution: 0
   modifier_keys:
     baseline_satisfaction: 0.05
-    product_velocity: 0.08
+    product_velocity_throughput: 0.08
   prerequisites:
     - first_engineer
   category_caps:
@@ -798,7 +798,7 @@ senior_engineer:
   employees_count: 1
   capacity_contribution: 0
   modifier_keys:
-    product_velocity: 0.06
+    product_velocity_throughput: 0.06
   prerequisites:
     - engineering_lead
   category_caps:
@@ -834,7 +834,7 @@ product_manager:
   employees_count: 1
   capacity_contribution: 0
   modifier_keys:
-    product_innovation: 0.05
+    product_innovation_quality: 0.05
     customer_growth_marketing: 0.10
   prerequisites:
     - engineering_lead
@@ -873,8 +873,8 @@ data_team:
   employees_count: 3
   capacity_contribution: 0
   modifier_keys:
-    product_innovation: 0.05
-    analytics_depth: 0.09
+    product_innovation_quality: 0.05
+    analytics_depth_quality: 0.09
   prerequisites:
     - engineering_lead
   category_caps:
@@ -909,7 +909,7 @@ solutions_architect:
   employees_count: 1
   capacity_contribution: 0
   modifier_keys:
-    deal_size_uplift: 0.25
+    deal_size_revenue: 0.25
     delivery_cost: -0.12
   prerequisites:
     - engineering_lead
@@ -1270,7 +1270,7 @@ finance_fpa:
   employees_count: 2
   capacity_contribution: 0
   modifier_keys:
-    financial_controls: -0.02
+    financial_controls_cost: -0.02
   prerequisites:
     - bookkeeper
   category_caps:
@@ -1421,7 +1421,7 @@ vp_product:
   employees_count: 1
   capacity_contribution: 0
   modifier_keys:
-    product_market_fit: 0.11
+    product_market_fit_quality: 0.11
   prerequisites:
     - product_manager
   category_caps:
@@ -1495,7 +1495,7 @@ hr_department:
   employees_count: 1
   capacity_contribution: 0
   modifier_keys:
-    turnover: -0.15
+    turnover_cost: -0.15
   prerequisites: []
   category_caps:
     soft_cap: 1
@@ -2130,7 +2130,7 @@ custom_software_builds:
   employees_count: 0
   capacity_contribution: 0
   modifier_keys:
-    deal_size_uplift: 0.18
+    deal_size_revenue: 0.18
   prerequisites:
     - solutions_architect
   category_caps:

@@ -177,11 +177,17 @@ def _build_sim(req: StartRequestV2, library: NodeLibrary) -> MultiCompanySimV2:
         )
         companies.append(company)
 
+    # Seed `market_growth_rate` is annualized; convert to per-tick (1 tick = 1 day).
+    # All companies in a single-seed sim share the same market, so the seed's
+    # value is the authoritative source. `DAYS_PER_YEAR` is local — the engine's
+    # `DAYS_PER_MONTH` is a different concept.
+    daily_growth = req.seed.market_growth_rate / 365.0
     return MultiCompanySimV2(
         sim_id=sim_id,
         companies=companies,
         max_ticks=req.duration_ticks,
         tam_initial=req.tam_initial,
+        market_growth_rate=daily_growth,
     )
 
 

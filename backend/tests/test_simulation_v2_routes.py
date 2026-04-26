@@ -141,6 +141,28 @@ def test_start_creates_session(client, valid_seed_dict, valid_stance_dict):
     assert payload["max_ticks"] == 30
 
 
+def test_start_propagates_seed_market_growth_rate_to_sim(
+    client, valid_seed_dict, valid_stance_dict
+):
+    """The seed's annualized market_growth_rate must reach MultiCompanySimV2
+    as a per-tick rate (annual / 365). Regression for P-MAG-4 — previously the
+    field validated on the seed but never reached the runtime."""
+    from src.routes import simulation_v2
+
+    seed_with_known_growth = dict(valid_seed_dict)
+    seed_with_known_growth["market_growth_rate"] = 0.365  # → 0.001 per tick
+    body = {
+        "seed": seed_with_known_growth,
+        "stance": valid_stance_dict,
+        "duration_ticks": 30,
+    }
+    r = client.post("/api/v2/simulate/start", json=body)
+    assert r.status_code == 200, r.text
+    sid = r.json()["session_id"]
+    sim = simulation_v2._registry.get(sid).sim
+    assert sim.market_growth_rate == pytest.approx(0.001)
+
+
 def test_start_rejects_invalid_seed_refs(client, valid_stance_dict, library):
     rng = random.Random(7)
     seed = sample_seed_for_archetype("small_team", rng=rng)

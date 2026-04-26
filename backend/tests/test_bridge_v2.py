@@ -386,19 +386,16 @@ def _all_production_modifier_keys() -> set[str]:
     return out
 
 
-def test_production_library_other_bucket_is_small():
-    """The production node_library should leave at most a handful of keys
-    in `other`. Every cost/revenue/capital signal is meant to be consumed
-    by the engine; anything still in `other` is an unprincipled name and
-    a future-cleanup target.
+def test_production_library_other_bucket_is_empty():
+    """The production node_library must not leak any modifier_keys into
+    `other`. Every cost/revenue/capital/quality/marketing/infrastructure
+    signal is meant to be consumed by the engine; anything in `other`
+    is silently ignored (P-ENG-6).
     """
     keys = _all_production_modifier_keys()
-    # Aggregate all keys with magnitude 1.0 then bucket — purely classification.
     agg = bucket_modifiers({k: 1.0 for k in keys})
-    # Hard ceiling: at most 20 keys may live in `other` — empirical floor
-    # given today's library; lower this as the library is cleaned up.
-    assert len(agg.other) <= 20, (
-        f"too many modifier keys in `other` ({len(agg.other)}); "
-        f"either rename the keys to fit existing buckets or extend the "
-        f"taxonomy. Offenders: {sorted(agg.other.keys())}"
+    assert agg.other == {}, (
+        f"{len(agg.other)} modifier_keys land in `other` and are dead weight: "
+        f"{sorted(agg.other.keys())}. Rename them in node_library.yaml so the "
+        f"trailing token matches a bucket tag in bridge.py."
     )
