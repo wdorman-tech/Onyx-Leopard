@@ -29,24 +29,34 @@ ARCHETYPES: tuple[Archetype, ...] = (
     "enterprise",
 )
 
+#: Maximum margin spread sampled per archetype. Used by the seed sampler
+#: to add a small downward perturbation to `1 - cost_ratio` so two seeds
+#: with the same economics model don't always produce identical margins.
+#: Kept small (10%) to preserve the cost_ratio relationship.
+MARGIN_SPREAD_MAX: float = 0.10
+
 # Default node-library keys used by the archetype samplers. These are
 # placeholders; library_loader.py validates them against the real
-# node_library.yaml at runtime. Kept here as a contract: the seed knows
-# what kinds of slots it wants filled, even if the library hasn't loaded yet.
+# node_library.yaml at runtime via `validate_seed`. Kept here as a contract:
+# the seed knows what kinds of slots it wants filled, even if the library
+# hasn't loaded yet. Renaming a node in node_library.yaml without updating
+# these tables produces a hard failure at seed validation, not silent drift.
+# The `test_seed_defaults_match_production_library` test asserts the
+# alignment.
 _DEFAULT_SUPPLIERS: dict[EconomicsModel, list[str]] = {
-    "physical": ["primary_goods_supplier", "packaging_supplier"],
+    "physical": ["produce_supplier", "payment_processor"],
     "subscription": ["cloud_provider", "payment_processor"],
-    "service": ["ai_tooling_stack", "subcontractor_network"],
+    "service": ["ai_tooling_stack", "ai_platform_partner"],
 }
 _DEFAULT_REVENUE_STREAMS: dict[EconomicsModel, list[str]] = {
-    "physical": ["storefront_sales", "delivery_partnership"],
+    "physical": ["delivery_partnership", "loyalty_program"],
     "subscription": ["subscription_revenue", "usage_based_billing"],
-    "service": ["engagement_revenue", "retainer_revenue"],
+    "service": ["professional_services", "retainer_contracts"],
 }
 _DEFAULT_COST_CENTERS: dict[EconomicsModel, list[str]] = {
-    "physical": ["cogs", "labor", "facilities"],
-    "subscription": ["hosting_costs", "engineering_payroll", "sales_commissions"],
-    "service": ["delivery_payroll", "tooling_costs", "subcontractor_fees"],
+    "physical": ["owner_operator", "training_program"],
+    "subscription": ["it_support", "founder_engineer"],
+    "service": ["it_support", "training_program"],
 }
 
 _LOCATION_LABELS: dict[EconomicsModel, str] = {
@@ -275,7 +285,7 @@ def sample_seed_for_archetype(
     starting_price = round(_sample_uniform(rng, *econ_bands["starting_price"]), 2)
     cost_ratio = _sample_uniform(rng, *econ_bands["cost_ratio"])
     base_unit_cost = round(starting_price * cost_ratio, 2)
-    margin_target = round(1.0 - cost_ratio - rng.uniform(0.0, 0.10), 3)
+    margin_target = round(1.0 - cost_ratio - rng.uniform(0.0, MARGIN_SPREAD_MAX), 3)
     margin_target = max(0.05, min(0.85, margin_target))
 
     starting_cash = round(_sample_uniform(rng, *bands["starting_cash"]), 2)

@@ -2178,7 +2178,8 @@ licensed_frameworks:
 
 enterprise_implementations:
   category: revenue
-  label: "Enterprise Implementations ($25k–$85k)"
+  label: "Enterprise Implementations"
+  commentary: "Typical deal size $25k–$85k per implementation."
   hire_cost: 0.0
   daily_fixed_costs: 0.0
   employees_count: 0

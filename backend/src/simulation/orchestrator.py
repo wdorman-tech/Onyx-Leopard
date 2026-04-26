@@ -120,6 +120,11 @@ DAYS_PER_MONTH: float = 30.0
 #: this from spawn time; the LLM tiers can override with smarter logic.
 REPLENISH_CADENCE_TICKS: int = 30
 
+#: Sentinel for "no cap" when a node definition omits soft_cap or hard_cap.
+#: Conceptually unbounded; practically a value far above any realistic
+#: spawn count (10**9). Replaces the previous bare `10**9` literal.
+NO_CAP_SENTINEL: int = 10**9
+
 #: Cost-cut policy: never retire an exec under cash crisis (it would just
 #: trigger a leadership-vacuum cascade and is strategic-tier territory).
 COST_CUT_PROTECTED_CATEGORIES: tuple[str, ...] = ("exec",)
@@ -581,8 +586,8 @@ class HeuristicOrchestrator:
         if node_def is None:
             return False
         caps = node_def.get("category_caps", {}) or {}
-        soft = int(caps.get("soft_cap", 10**9))
-        hard = int(caps.get("hard_cap", 10**9))
+        soft = int(caps.get("soft_cap", NO_CAP_SENTINEL))
+        hard = int(caps.get("hard_cap", NO_CAP_SENTINEL))
         current = int(state.spawned_nodes.get(node_key, 0))
         if current >= hard:
             return False
@@ -1340,6 +1345,7 @@ __all__ = [
     "LAYOFF_MIN_RUNWAY_MONTHS",
     "LLM_MAX_RETRIES",
     "LOW_PERSIST_TICKS",
+    "NO_CAP_SENTINEL",
     "REPLENISH_CADENCE_TICKS",
     "SHOCK_LOOKBACK_TICKS",
     "STATE_WINDOW_LEN",

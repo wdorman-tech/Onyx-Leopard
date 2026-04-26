@@ -364,3 +364,45 @@ def test_reset_cache_forces_reload() -> None:
     assert a is not b
     # But the contents are still equivalent.
     assert len(a) == len(b)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1.5 P-MAG-6 — seed defaults must reference real library node_keys
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_seed_default_refs_all_exist_in_production_library() -> None:
+    """Renaming a node in node_library.yaml without updating
+    `_DEFAULT_SUPPLIERS / _DEFAULT_REVENUE_STREAMS / _DEFAULT_COST_CENTERS`
+    in seed.py used to fail silently at sample time. This test makes that
+    drift loud at CI time.
+    """
+    from src.simulation.seed import (
+        _DEFAULT_COST_CENTERS,
+        _DEFAULT_REVENUE_STREAMS,
+        _DEFAULT_SUPPLIERS,
+    )
+
+    _reset_library_cache()
+    lib = get_library()
+    library_keys = set(lib.nodes.keys())
+
+    missing: dict[str, list[str]] = {}
+    for econ, refs in _DEFAULT_SUPPLIERS.items():
+        for ref in refs:
+            if ref not in library_keys:
+                missing.setdefault(f"suppliers/{econ}", []).append(ref)
+    for econ, refs in _DEFAULT_REVENUE_STREAMS.items():
+        for ref in refs:
+            if ref not in library_keys:
+                missing.setdefault(f"revenue/{econ}", []).append(ref)
+    for econ, refs in _DEFAULT_COST_CENTERS.items():
+        for ref in refs:
+            if ref not in library_keys:
+                missing.setdefault(f"cost/{econ}", []).append(ref)
+
+    assert not missing, (
+        "seed.py default refs reference unknown node_keys: "
+        f"{missing}. Either rename the keys in node_library.yaml back, "
+        "or update the default tables in seed.py."
+    )

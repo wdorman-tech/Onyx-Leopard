@@ -34,6 +34,9 @@ Severity = Literal["minor", "moderate", "severe"]
 #: Scales the *intensity* of an impact by severity. Intensity is "how far the
 #: multiplier deviates from neutral (1.0)" or, for additive impacts, the raw
 #: magnitude. Tuned so severe > moderate > minor with meaningful spread.
+#: These values are empirically uncalibrated — Phase 4 should compare
+#: against historical event data (e.g. 2020 demand contraction = severe
+#: market_crash) and adjust. Treat as a relative ordering, not absolute.
 SEVERITY_INTENSITY: dict[Severity, float] = {
     "minor": 1.0,
     "moderate": 2.0,
@@ -47,6 +50,12 @@ SEVERITY_DURATION_DAYS: dict[Severity, tuple[int, int]] = {
     "moderate": (45, 90),
     "severe": (90, 180),
 }
+
+#: Recessions linger 50% longer than the base severity-keyed duration —
+#: matches the empirical "1-2 quarters longer than equivalent shocks"
+#: observation. Pulled out of `make_economic_recession` to make tuning
+#: explicit (P-MAG-11).
+RECESSION_DURATION_MULTIPLIER: float = 1.5
 
 #: Suffix convention for impact keys:
 #:   - `*_mult`  → multiplicative around 1.0; composed by product
@@ -250,12 +259,12 @@ def make_viral_growth_event(rng: random.Random, severity: str = "moderate") -> S
 def make_economic_recession(rng: random.Random, severity: str = "moderate") -> Shock:
     """Multi-quarter demand depression — longer than a market_crash, less acute."""
     sev = _validate_severity(severity)
-    # Recessions linger — bias duration upward by 50%.
+    # Recessions linger — bias duration upward via RECESSION_DURATION_MULTIPLIER.
     base_duration = _duration_for(rng, sev)
     return Shock(
         name="economic_recession",
         severity=sev,
-        duration_ticks=int(base_duration * 1.5),
+        duration_ticks=int(base_duration * RECESSION_DURATION_MULTIPLIER),
         impact={
             "market_demand_mult": _scaled_mult(rng, sev, -0.15, -0.07),
             "consumer_spending_mult": _scaled_mult(rng, sev, -0.12, -0.05),
@@ -469,6 +478,7 @@ def apply_active_shocks(active: list[Shock], base_state: dict[str, float]) -> di
 __all__ = [
     "DEFAULT_SEVERITY_WEIGHTS",
     "MULT_SUFFIX",
+    "RECESSION_DURATION_MULTIPLIER",
     "SEVERITY_DURATION_DAYS",
     "SEVERITY_INTENSITY",
     "SHOCK_FACTORIES",

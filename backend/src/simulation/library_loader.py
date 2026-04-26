@@ -98,6 +98,10 @@ class NodeDef(BaseModel):
     key: str = Field(..., min_length=1)
     category: str
     label: str = Field(..., min_length=1)
+    #: Optional human-readable note (typical deal sizes, sourcing rationale).
+    #: Industry-agnostic engine never reads this; surfaced in tooltips and
+    #: in the orchestrator prompt as supplementary context.
+    commentary: str = Field(default="")
     hire_cost: float = Field(..., ge=0.0)
     daily_fixed_costs: float = Field(..., ge=0.0)
     employees_count: int = Field(..., ge=0)
