@@ -969,10 +969,16 @@ def test_competitor_entry_pulls_share_in_multi_company(library):
     for i in range(2):
         seed = sample_seed_for_archetype("small_team", rng=rng)
         suppliers, revenues, costs = _valid_refs_for(library, seed.economics_model)
+        # Phase 3.3b: equalize starting_employees so the LV-driven
+        # market_strength weight starts identical for both companies.
+        # Otherwise the random employee-count differential between two
+        # `small_team` samples (e.g. 12 vs 6) dominates the share split
+        # and masks the shock-side effect we're asserting.
         seed = seed.model_copy(update={
             "initial_supplier_types": suppliers,
             "initial_revenue_streams": revenues,
             "initial_cost_centers": costs,
+            "starting_employees": 5,
         })
         stance = sample_stance("bootstrap", rng=rng)
         bundle = _make_silent_bundle(seed, stance, library)

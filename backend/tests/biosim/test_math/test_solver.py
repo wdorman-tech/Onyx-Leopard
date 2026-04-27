@@ -1,7 +1,7 @@
 import numpy as np
 
 from src.biosim.math.growth import step_growth
-from src.biosim.math.solver import euler_step, solve_tick
+from src.biosim.math.solver import euler_step, solve_satisfaction_step, solve_tick
 
 
 class TestSolveTick:
@@ -74,3 +74,25 @@ class TestEulerStep:
         """dy/dt = y with y0=1, dt=0.01 => y ~ e^0.01 ~ 1.01"""
         y1 = euler_step(_identity_rhs, np.array([1.0]), 0.01)
         np.testing.assert_allclose(y1, [1.01], rtol=1e-10)
+
+
+class TestSolveSatisfactionStep:
+    def test_solve_satisfaction_step_converges_to_target(self):
+        """current=0, target=1, rate=0.1, dt=1 => y ≈ 1 - exp(-0.1) ≈ 0.0952."""
+        y = solve_satisfaction_step(current=0.0, target=1.0, rate=0.1, dt=1.0)
+        expected = 1.0 - np.exp(-0.1)
+        np.testing.assert_allclose(y, expected, rtol=1e-5)
+
+    def test_solve_satisfaction_step_steady_state(self):
+        """current == target => result == target (no movement)."""
+        y = solve_satisfaction_step(current=0.7, target=0.7, rate=0.5, dt=1.0)
+        np.testing.assert_allclose(y, 0.7, atol=1e-6)
+
+    def test_solve_satisfaction_step_handles_overshoot_target(self):
+        """current > target => still converges down toward target."""
+        y = solve_satisfaction_step(current=0.9, target=0.5, rate=0.2, dt=1.0)
+        # Closed form: y = target + (current - target) * exp(-rate * dt)
+        expected = 0.5 + (0.9 - 0.5) * np.exp(-0.2)
+        np.testing.assert_allclose(y, expected, rtol=1e-5)
+        # Direction sanity: result is between target and current.
+        assert 0.5 < y < 0.9

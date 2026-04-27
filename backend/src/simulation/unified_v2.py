@@ -35,6 +35,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
+from src.biosim.math.competition import build_competition_matrix, step_competition
+from src.biosim.math.production import cobb_douglas
+from src.biosim.math.solver import solve_satisfaction_step
 from src.simulation.bridge import BridgeAggregate, derive_bridge_aggregate
 from src.simulation.critic import CriticAgent, CriticScore
 from src.simulation.library_loader import NodeLibrary
@@ -97,6 +102,19 @@ INFRA_TO_CAPACITY_GAIN: float = 0.20
 #: saturation curve is `1 + INFRA_TO_CAPACITY_GAIN * tanh(sum / K)` so
 #: the cap-out value is `1 + INFRA_TO_CAPACITY_GAIN`.
 INFRA_SATURATION_K: float = 5.0
+
+#: Cobb-Douglas TFP gain per unit of bridge.quality. The total factor
+#: productivity coefficient A in Y = A * K^α * L^β is bumped by quality
+#: investments — better processes/people make every K and L unit more
+#: productive. Calibrated so a moderate quality bucket sum (~5) lifts
+#: TFP by ~25%.
+COBB_DOUGLAS_QUALITY_GAIN: float = 0.05
+
+#: Multiplier on the bridge.capital signal when it feeds into K (capital
+#: stock). Capital-bucket bridge values are abstract magnitudes; this scales
+#: them into dollar-equivalent stock units that compose with starting_cash.
+#: Default 100k-per-unit-bucket-signal.
+COBB_DOUGLAS_CAPITAL_BUCKET_SCALE: float = 100_000.0
 
 #: Solo-mode demand fraction: in absence of multi-company allocation,
 #: a solo company captures this fraction of (TAM / competitor_density+1)
@@ -276,6 +294,11 @@ class CompanyAgentV2:
         self.capacity_utilization: float = 0.0
         self.allocated_demand: float = 0.0  # set by MultiCompanySimV2 each tick
         self.market_share: float = 0.0      # set by MultiCompanySimV2 each tick
+
+        # Market strength — Lotka-Volterra population proxy that evolves under
+        # cross-company competition (P-MATH-3). Initialized from starting_employees
+        # (a defensible "size" stat); updated by MultiCompanySimV2 each tick.
+        self.market_strength: float = float(seed.starting_employees)
 
         # Mutable runtime state — defaults from seed, mutated by CEO via
         # adjust_params (Decision 2A). The seed remains frozen=True; these
@@ -570,9 +593,12 @@ class CompanyAgentV2:
             SATISFACTION_MAX,
             max(SATISFACTION_MIN, 0.5 + quality_boost),
         )
-        self.satisfaction += (
-            target_satisfaction - self.satisfaction
-        ) * SATISFACTION_CONVERGENCE_RATE
+        self.satisfaction = solve_satisfaction_step(
+            current=self.satisfaction,
+            target=target_satisfaction,
+            rate=SATISFACTION_CONVERGENCE_RATE,
+            dt=1.0,
+        )
         self.satisfaction *= float(env.get("satisfaction_mult", 1.0))
         self.satisfaction = max(SATISFACTION_MIN, min(SATISFACTION_MAX, self.satisfaction))
 
@@ -612,13 +638,37 @@ class CompanyAgentV2:
         effective_demand *= throughput_mult
 
         # 5c. Apply capacity reductions (key-departure team_capacity, regulatory cap).
+        # Cobb-Douglas production cap (P-MATH-1). Y = A * K^α * L^β where:
+        #   A (TFP) = 1.0 + COBB_DOUGLAS_QUALITY_GAIN * sum(bridge_agg.quality.values())
+        #   K (capital stock) = max(seed.starting_cash + capital_signal * COBB_DOUGLAS_CAPITAL_BUCKET_SCALE, 1.0)
+        #   L (labor force)   = max(self._compute_employee_count(), 1.0)
+        # A capital-rich firm with many workers produces more units; a thin firm
+        # can't serve all the demand its marketing pulls. Bottleneck binds.
+        capital_signal = abs(sum(bridge_agg.capital.values()))
+        tfp = 1.0 + COBB_DOUGLAS_QUALITY_GAIN * sum(bridge_agg.quality.values())
+        capital_stock = max(
+            float(self.seed.starting_cash)
+            + capital_signal * COBB_DOUGLAS_CAPITAL_BUCKET_SCALE,
+            1.0,
+        )
+        labor_force = float(max(self._compute_employee_count(), 1))
+        production_cap = float(cobb_douglas(
+            np.array([tfp]),
+            np.array([capital_stock]),
+            np.array([labor_force]),
+            np.array([self.seed.cobb_douglas_alpha]),
+            np.array([self.seed.cobb_douglas_beta]),
+        )[0])
+
         capacity_after_shock = total_capacity * (
             float(env.get("team_capacity_mult", 1.0))
             * float(env.get("capacity_cap_mult", 1.0))
         )
 
-        # Served customers bounded by post-shock capacity
-        served = min(effective_demand, capacity_after_shock)
+        # Served customers bounded by demand AND post-shock physical capacity AND
+        # Cobb-Douglas production capacity. P-MATH-1: production is now a real
+        # binding constraint instead of being implicitly infinite.
+        served = min(effective_demand, capacity_after_shock, production_cap)
         self.capacity_utilization = (
             served / capacity_after_shock if capacity_after_shock > 0 else 0.0
         )
@@ -666,7 +716,7 @@ class CompanyAgentV2:
         #     the standing inflow — when credit dries up, capital nodes still
         #     exist but their daily access shrinks. Clamped at zero so a
         #     deeply negative shock can't invert the sign.
-        capital_signal = abs(sum(bridge_agg.capital.values()))
+        # `capital_signal` already computed above (Cobb-Douglas block) — DRY.
         financing_mult = max(0.0, float(env.get("financing_availability_mult", 1.0)))
         if (
             capital_signal > 0
@@ -1028,6 +1078,18 @@ DEFAULT_SHARE_BETA: float = 1.5   # quality exponent
 COMPETITOR_PRESSURE_NEUTRAL: float = 1.0
 MARKET_SHARE_NEUTRAL: float = 1.0
 
+#: Default Lotka-Volterra intrinsic growth rate for the per-company
+#: market_strength dynamic. CLAUDE.md mandates LV competition; this is
+#: the per-tick logistic growth rate applied uniformly across firms
+#: (cross-company suppression comes from the competition matrix).
+LV_DEFAULT_GROWTH_RATE: float = 0.05
+
+#: Per-employee carrying-capacity factor for market_strength. A firm
+#: that started with N employees has K_LV ≈ N * factor. Calibrated so
+#: a 5-employee small_team has K=50 and a 200-employee enterprise has
+#: K=2000 — leaves room to grow without runaway.
+LV_COMPETITION_K_PER_EMPLOYEE: float = 10.0
+
 
 class MultiCompanySimV2:
     """V2 multi-company simulation runner with shared market.
@@ -1068,6 +1130,14 @@ class MultiCompanySimV2:
         # `max_ticks`, the next call to `step` emits an `all_dead` payload
         # and `is_complete` flips True. Tracks whether we already emitted.
         self._all_dead_emitted: bool = False
+
+        # Lotka-Volterra carrying capacities derived from each company's
+        # starting_employees * COMPETITION_K_PER_EMPLOYEE — heuristic that says
+        # "this firm's room-to-grow is roughly proportional to its starting
+        # headcount." The competition matrix is built lazily on first tick when
+        # we know the company count, then cached.
+        self._lv_carrying_capacities: np.ndarray | None = None
+        self._lv_competition_matrix: np.ndarray | None = None
 
     @property
     def alive_companies(self) -> list[CompanyAgentV2]:
@@ -1140,6 +1210,7 @@ class MultiCompanySimV2:
                 * math.pow(marketing, self.share_alpha)
                 * share_mult
                 / comp_pressure
+                * max(c.market_strength, 1e-3)  # LV-evolved market presence (P-MATH-3)
             )
             attractions.append(attraction)
 
@@ -1167,6 +1238,48 @@ class MultiCompanySimV2:
             tr = await c.step()
             results.append(tr)
 
+        # Lotka-Volterra competition update on per-company market_strength
+        # (P-MATH-3, CLAUDE.md mandate). Each company's market_strength evolves
+        # with cross-company suppression: a firm in a crowded niche grows slower
+        # than the same firm in a sparse market. The updated strengths feed back
+        # into next tick's share allocation as an additional weight.
+        if len(alive) > 1:
+            populations = np.array(
+                [c.market_strength for c in alive], dtype=np.float64
+            )
+            growth_rates = np.array(
+                [LV_DEFAULT_GROWTH_RATE for _ in alive], dtype=np.float64
+            )
+            if (
+                self._lv_carrying_capacities is None
+                or len(self._lv_carrying_capacities) != len(alive)
+            ):
+                self._lv_carrying_capacities = np.array(
+                    [
+                        c.seed.starting_employees * LV_COMPETITION_K_PER_EMPLOYEE
+                        for c in alive
+                    ],
+                    dtype=np.float64,
+                )
+            if (
+                self._lv_competition_matrix is None
+                or self._lv_competition_matrix.shape[0] != len(alive)
+            ):
+                self._lv_competition_matrix = build_competition_matrix(
+                    len(alive),
+                    rng=np.random.default_rng(
+                        seed=hash(self.sim_id) & 0x7FFFFFFF
+                    ),
+                )
+            new_pops = step_competition(
+                populations,
+                growth_rates,
+                self._lv_carrying_capacities,
+                self._lv_competition_matrix,
+            )
+            for c, p in zip(alive, new_pops, strict=True):
+                c.market_strength = float(p)
+
         # If all companies died as a result of this tick, set the flag so
         # the next caller-visible payload emits `all_dead`. We avoid emitting
         # it on the same tick that already carries real `results`.
@@ -1189,6 +1302,8 @@ class MultiCompanySimV2:
 __all__ = [
     "ATTRITION_BASE_RATE",
     "CAPITAL_BUCKET_DAILY_GAIN",
+    "COBB_DOUGLAS_CAPITAL_BUCKET_SCALE",
+    "COBB_DOUGLAS_QUALITY_GAIN",
     "COST_BUCKET_GAIN",
     "COST_BUCKET_MULT_MAX",
     "COST_BUCKET_MULT_MIN",
@@ -1200,6 +1315,8 @@ __all__ = [
     "INFRA_SATURATION_K",
     "INFRA_TO_CAPACITY_GAIN",
     "INSOLVENT_TICKS_TO_DEATH",
+    "LV_COMPETITION_K_PER_EMPLOYEE",
+    "LV_DEFAULT_GROWTH_RATE",
     "MARKETING_INTENSITY_MAX",
     "MARKETING_INTENSITY_MIN",
     "MARKETING_TO_DEMAND_GAIN",

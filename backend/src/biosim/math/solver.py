@@ -89,3 +89,48 @@ def solve_tick(
         "cash": result[:, 1].copy(),
         "growth_rate": result[:, 2].copy(),
     }
+
+
+def solve_satisfaction_step(
+    current: float,
+    target: float,
+    rate: float,
+    dt: float = 1.0,
+) -> float:
+    """Integrate the linear-relaxation ODE `dy/dt = rate * (target - y)`
+    from `current` over `dt` using RK45 → BDF → Euler fallback chain.
+
+    The closed-form solution is `y(dt) = target + (current - target) * exp(-rate * dt)`,
+    so this could be solved analytically — but going through the same solver
+    chain as the firm-size growth ODE is the point: every continuous state
+    in the engine evolves through the same RK45 path with consistent
+    fallback semantics. P-MATH-2 fix.
+    """
+    def rhs(t, y):  # noqa: ARG001
+        return np.array([rate * (target - y[0])])
+
+    y0 = np.array([float(current)])
+    y_final: np.ndarray | None = None
+    try:
+        sol = solve_ivp(rhs, [0.0, dt], y0, method="RK45", rtol=1e-6, atol=1e-9)
+        if sol.success:
+            y_final = sol.y[:, -1]
+        else:
+            raise RuntimeError(sol.message)
+    except Exception:
+        logger.warning("RK45 failed for satisfaction; trying BDF")
+
+    if y_final is None:
+        try:
+            sol = solve_ivp(rhs, [0.0, dt], y0, method="BDF", rtol=1e-6, atol=1e-9)
+            if sol.success:
+                y_final = sol.y[:, -1]
+            else:
+                raise RuntimeError(sol.message)
+        except Exception:
+            logger.warning("BDF failed for satisfaction; falling back to Euler")
+
+    if y_final is None:
+        y_final = euler_step(rhs, y0, dt)
+
+    return float(y_final[0])
