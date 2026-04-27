@@ -22,13 +22,23 @@ class StateManager:
         color: str,
         industry: str = "generic",
         size: str = "medium",
+        alpha_prod: float | None = None,
+        beta_prod: float | None = None,
     ) -> int:
-        """Add a company with sensible defaults based on industry/size."""
+        """Add a company. alpha_prod/beta_prod override the defaults if given."""
         params = self._default_params(industry, size)
+        if alpha_prod is not None:
+            params["alpha_prod"] = alpha_prod
+        if beta_prod is not None:
+            params["beta_prod"] = beta_prod
         return self.state.add_company(name, color, params)
 
     def _default_params(self, industry: str, size: str) -> dict:
-        """Generate initial parameters based on industry and company size."""
+        """Generate initial parameters based on industry and company size.
+
+        Cobb-Douglas alpha_prod/beta_prod default to a textbook 0.3/0.7 split
+        but are overridable per-company via add_company(alpha_prod=..., beta_prod=...).
+        """
         size_map = {
             "small": {
                 "cash": 5e5,

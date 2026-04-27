@@ -132,3 +132,43 @@ class TestEmptyState:
         sm = StateManager(sim_config)
         snapshot = tick_engine.step(sm.state)
         assert snapshot["n_active"] == 0
+
+
+class TestMultinomialLogitShare:
+    def test_share_uses_multinomial_logit_with_quality_term(self) -> None:
+        """Two firms with equal firm_size but different tfp must get unequal shares.
+
+        Under the old size-proportional formula they'd be 50/50; under
+        multinomial logit (β > 0 on quality) the higher-tfp firm wins more share.
+        """
+        config = SimConfig()
+        bio = BioConfig(competition=False, share_alpha=1.0, share_beta=1.5)
+        sm = StateManager(config)
+        sm.add_company("HighQual", "#F00", size="medium")
+        sm.add_company("LowQual", "#0F0", size="medium")
+        state = sm.state
+        # Equal firm_size; differentiate quality via tfp
+        state.firm_size[0] = 50.0
+        state.firm_size[1] = 50.0
+        state.tfp[0] = 2.0
+        state.tfp[1] = 1.0
+
+        engine = TickEngine(bio, config)
+        engine.step(state)
+
+        assert state.market_share[0] > state.market_share[1], (
+            "high-tfp firm must capture more share under multinomial logit"
+        )
+        # Sanity: shares still sum to 1
+        indices = state.active_indices()
+        assert abs(state.market_share[indices].sum() - 1.0) < 1e-9
+
+    def test_share_alpha_beta_default_match_unified_v2(self) -> None:
+        """BioConfig defaults must match MultiCompanySimV2 so the engine and
+        the math layer agree on share allocation."""
+        bio = BioConfig()
+        # Tighten this assertion to the actual unified_v2 defaults (see
+        # MultiCompanySimV2.__init__). If a future refactor changes one,
+        # update both at once.
+        assert bio.share_alpha == 1.0
+        assert bio.share_beta == 1.5

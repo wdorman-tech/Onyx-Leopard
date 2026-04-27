@@ -13,6 +13,12 @@ class BioConfig(BaseModel):
     fba: bool = False
     replicator: bool = False
 
+    # Multinomial-logit market-share exponents: s_i ∝ q_i^β * m_i^α.
+    # Defaults match unified_v2's `MultiCompanySimV2` constructor defaults so
+    # the engine and the math layer produce identical share allocations.
+    share_alpha: float = 1.0  # marketing/size exponent
+    share_beta: float = 1.5   # quality/tfp exponent
+
 
 class SimConfig(BaseModel):
     """Top-level simulation parameters."""

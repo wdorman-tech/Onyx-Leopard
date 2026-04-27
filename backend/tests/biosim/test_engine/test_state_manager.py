@@ -34,6 +34,25 @@ class TestAddCompany:
         with pytest.raises(RuntimeError, match="No free slots"):
             sm.add_company("C", "#CCC")
 
+    def test_alpha_beta_override_applied(self, state_manager: StateManager) -> None:
+        """Caller can pin Cobb-Douglas exponents per company."""
+        idx = state_manager.add_company(
+            "CapitalHeavy", "#000", size="medium",
+            alpha_prod=0.6, beta_prod=0.4,
+        )
+        state = state_manager.state
+        assert state.alpha_prod[idx] == 0.6
+        assert state.beta_prod[idx] == 0.4
+
+    def test_alpha_beta_default_when_not_overridden(
+        self, state_manager: StateManager
+    ) -> None:
+        """Default 0.3/0.7 still applies when caller doesn't override."""
+        idx = state_manager.add_company("Default", "#000", size="medium")
+        state = state_manager.state
+        assert state.alpha_prod[idx] == 0.3
+        assert state.beta_prod[idx] == 0.7
+
 
 class TestDefaultParams:
     @pytest.mark.parametrize(

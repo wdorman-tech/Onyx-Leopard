@@ -26,10 +26,19 @@ class TickEngine:
         if n == 0:
             return state.to_snapshot_dict()
 
-        # Phase 1: Sense -- update market share
-        total_size = state.firm_size[indices].sum()
-        if total_size > 0:
-            state.market_share[indices] = state.firm_size[indices] / total_size
+        # Phase 1: Sense -- multinomial-logit market share.
+        # CLAUDE.md mandates s_i ∝ q_i^β * m_i^α. tfp serves as the quality
+        # proxy (it's the productivity coefficient A in Cobb-Douglas Y = A·K^α·L^β),
+        # firm_size as the marketing/footprint proxy.
+        quality = np.maximum(state.tfp[indices], 1e-10)
+        size = np.maximum(state.firm_size[indices], 1e-10)
+        share_numerators = (
+            np.power(quality, self.bio_config.share_beta)
+            * np.power(size, self.bio_config.share_alpha)
+        )
+        total_share = share_numerators.sum()
+        if total_share > 0:
+            state.market_share[indices] = share_numerators / total_share
 
         # Phase 2: Solve ODEs -- compute revenue via Cobb-Douglas, then step growth
         state.revenue[indices] = cobb_douglas(
