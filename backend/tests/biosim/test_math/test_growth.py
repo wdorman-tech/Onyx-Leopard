@@ -1,6 +1,13 @@
 import numpy as np
 
-from src.biosim.math.growth import growth_rhs, step_growth
+from src.biosim.math.growth import (
+    GROWTH_RATE_FEEDBACK_K,
+    GROWTH_RATE_MAX,
+    GROWTH_RATE_MIN,
+    GROWTH_RATE_TARGET_UTILIZATION,
+    growth_rhs,
+    step_growth,
+)
 
 
 class TestGrowthRHS:
@@ -123,3 +130,73 @@ class TestStepGrowth:
 
         assert np.all(result[:, 0] > firm_size)
         assert not np.allclose(result[:, 1], cash)
+
+
+class TestGrowthRateEvolution:
+    """P-MATH-6: dr/dt is no longer pinned to zero — it evolves with utilization."""
+
+    def _rhs_dr(self, firm_size_arr, k_arr, growth_rate_arr) -> np.ndarray:
+        """Helper: extract d_growth_rate from growth_rhs for one or more agents."""
+        n = len(firm_size_arr)
+        cash = np.full(n, 1e6)
+        revenue = np.full(n, 1e5)
+        fixed_costs = np.full(n, 5e4)
+        vcr = np.full(n, 1000.0)
+        y0 = np.column_stack([firm_size_arr, cash, growth_rate_arr]).ravel()
+        dy = growth_rhs(0.0, y0, n, k_arr, revenue, fixed_costs, vcr)
+        return dy.reshape(n, 3)[:, 2]
+
+    def test_dr_positive_when_above_target_utilization(self):
+        """utilization > 0.7 (target) → r drifts up (positive momentum)."""
+        # firm_size = 90, K = 100 → utilization = 0.9, above target 0.7
+        dr = self._rhs_dr(np.array([90.0]), np.array([100.0]), np.array([0.05]))
+        assert dr[0] > 0
+        assert dr[0] == GROWTH_RATE_FEEDBACK_K * (0.9 - GROWTH_RATE_TARGET_UTILIZATION)
+
+    def test_dr_negative_when_below_target_utilization(self):
+        """utilization < 0.7 → r decays (sluggish firm loses momentum)."""
+        # firm_size = 30, K = 100 → utilization = 0.3, below target 0.7
+        dr = self._rhs_dr(np.array([30.0]), np.array([100.0]), np.array([0.05]))
+        assert dr[0] < 0
+
+    def test_dr_zero_at_target_utilization(self):
+        """At utilization = target the feedback is exactly zero — equilibrium point."""
+        # firm_size = 70, K = 100 → utilization = 0.7 = target
+        dr = self._rhs_dr(np.array([70.0]), np.array([100.0]), np.array([0.05]))
+        assert dr[0] == 0.0
+
+    def test_dr_clamped_when_r_at_max(self):
+        """Once r ≥ GROWTH_RATE_MAX, positive feedback is suppressed (one-sided clamp)."""
+        # Saturated firm at carrying capacity, but r already capped.
+        dr = self._rhs_dr(
+            np.array([100.0]), np.array([100.0]), np.array([GROWTH_RATE_MAX])
+        )
+        assert dr[0] == 0.0
+
+    def test_dr_clamped_when_r_at_min(self):
+        """Once r ≤ GROWTH_RATE_MIN, negative feedback is suppressed."""
+        # Underutilized firm, but r already at floor.
+        dr = self._rhs_dr(
+            np.array([10.0]), np.array([100.0]), np.array([GROWTH_RATE_MIN])
+        )
+        assert dr[0] == 0.0
+
+    def test_growth_rate_actually_changes_through_step_growth(self):
+        """End-to-end: solve_tick must propagate the dr/dt signal into the solution."""
+        firm_size = np.array([90.0])  # well above 0.7 K
+        cash = np.array([1e6])
+        growth_rate = np.array([0.05])
+        k = np.array([100.0])
+        rev = np.array([1e5])
+        fc = np.array([5e4])
+        vcr = np.array([100.0])
+
+        # 50 ticks at high utilization → r drifts up measurably
+        for _ in range(50):
+            firm_size, cash, growth_rate = step_growth(
+                firm_size, cash, growth_rate, k, rev, fc, vcr
+            )
+        assert growth_rate[0] > 0.05, (
+            f"r should drift up under sustained high utilization; got {growth_rate[0]}"
+        )
+        assert growth_rate[0] <= GROWTH_RATE_MAX
