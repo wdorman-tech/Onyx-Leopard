@@ -108,6 +108,18 @@ class MissingTranscriptEntryError(LookupError):
     """Raised in replay mode when no entry matches `(tick, company_id)`."""
 
 
+class CriticReplayDivergenceError(RuntimeError):
+    """Raised in replay mode when the critic's recorded decision/state hash
+    differs from the live values being scored.
+
+    Mirrors ``PromptHashMismatchError`` for the LLM tier path: the critic's
+    score is a function of ``(decision, stance, state)``, so a hash mismatch
+    means the recording does not apply to this replay's inputs and silently
+    returning the recorded score would produce a wrong-by-construction
+    answer. Halt and either re-record the transcript or fix the divergence.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Decision model
 # ---------------------------------------------------------------------------
@@ -176,20 +188,23 @@ class TranscriptEntry(BaseModel):
 class CriticEntry(BaseModel):
     """One recorded critic score. Keyed by `(tick, company_id)` only.
 
-    Separate model from `TranscriptEntry` — the critic doesn't have a
-    prompt-SHA invariant (it's deterministic given decision+stance+state),
-    doesn't carry a tier, and isn't billed against `MODEL_PRICING` checks
-    in the orchestrator's hot path. Sharing the schema would force a sea
-    of nullable fields on either side; keeping them separate keeps both
-    shapes auditable.
+    Separate model from `TranscriptEntry` — the critic isn't billed against
+    `MODEL_PRICING` checks in the orchestrator's hot path and doesn't carry a
+    tier. Sharing the schema would force a sea of nullable fields on either
+    side; keeping them separate keeps both shapes auditable.
 
     `kind` discriminator: literal `"critic"`. `_load_index` dispatches on
     this field so a single JSONL file can interleave decisions and critic
     scores without ambiguity.
 
-    `parsed_score` carries the actual `CriticScore`. The schema is defined
-    here as a forward-compatible dict (we import `CriticScore` lazily in
-    the agent — `replay.py` is foundational and must not import upward).
+    `decision_sha256` / `state_sha256`: divergence-detection hashes the
+    critic agent computes over the canonicalized decision payload and the
+    canonicalized (state, stance) pair. Replay verifies these against
+    freshly-computed hashes and raises ``CriticReplayDivergenceError`` on
+    mismatch — same posture as the LLM tier's ``prompt_sha256`` check.
+    Empty strings are accepted for backward compatibility with transcripts
+    written before the hashes were added; the agent treats empty as "skip
+    the check" so old transcripts remain replayable.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -200,6 +215,8 @@ class CriticEntry(BaseModel):
     score: float = Field(..., ge=0.0, le=1.0)
     violations: list[str] = Field(default_factory=list)
     reasoning: str = Field(..., min_length=1)
+    decision_sha256: str = Field(default="", max_length=64)
+    state_sha256: str = Field(default="", max_length=64)
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +360,13 @@ class Transcript:
     # ── Critic API ────────────────────────────────────────────────────────
 
     def record_critic(
-        self, tick: int, company_id: str, score: Any
+        self,
+        tick: int,
+        company_id: str,
+        score: Any,
+        *,
+        decision_sha256: str = "",
+        state_sha256: str = "",
     ) -> None:
         """Append a critic score to the JSONL file. Mirrors `record(...)`.
 
@@ -352,6 +375,11 @@ class Transcript:
         (duck-typed: needs `.score`, `.violations`, `.reasoning`). Passing
         anything else raises ValidationError when the `CriticEntry` is
         constructed.
+
+        ``decision_sha256`` / ``state_sha256`` are the divergence-detection
+        hashes computed by ``CriticAgent``. Default empty strings are
+        accepted for callers that don't need replay verification (and for
+        backward-compat with transcripts predating the hashes).
 
         Duplicate-detection on `(tick, company_id)` mirrors the decision
         path so a buggy bundle that calls the critic twice for the same
@@ -371,6 +399,8 @@ class Transcript:
             score=float(score.score),
             violations=list(score.violations),
             reasoning=str(score.reasoning),
+            decision_sha256=decision_sha256,
+            state_sha256=state_sha256,
         )
         line = entry.model_dump_json()
         with self._lock, self._path.open("a", encoding="utf-8") as f:
@@ -380,12 +410,17 @@ class Transcript:
             with contextlib.suppress(OSError, AttributeError):
                 os.fsync(f.fileno())
 
-    def lookup_critic(self, tick: int, company_id: str) -> Any | None:
-        """Return the recorded `CriticScore` for `(tick, company_id)`, or `None`.
+    def lookup_critic(
+        self, tick: int, company_id: str
+    ) -> tuple[Any, str, str] | None:
+        """Return ``(score, decision_sha256, state_sha256)`` or ``None``.
 
-        Returns `critic.CriticScore` in practice — typed `Any` here to keep
-        `replay.py` foundational (no upward import). The critic module
-        adapts the on-disk `CriticEntry` back to `CriticScore` itself.
+        ``score`` is a freshly-constructed ``critic.CriticScore``. The two
+        hashes are the on-disk divergence-detection values — empty strings
+        for transcripts predating the hashes. The agent compares them to
+        live-computed hashes and raises ``CriticReplayDivergenceError`` on
+        mismatch (the agent owns the comparison so this module stays
+        foundational — no upward import).
         """
         if self._mode != "replay":
             return None
@@ -395,11 +430,12 @@ class Transcript:
         # Lazy import — keeps `replay.py` foundational and import-cycle-free.
         from src.simulation.critic import CriticScore
 
-        return CriticScore(
+        score = CriticScore(
             score=entry.score,
             violations=list(entry.violations),
             reasoning=entry.reasoning,
         )
+        return (score, entry.decision_sha256, entry.state_sha256)
 
     def iter_entries(self) -> Iterator[TranscriptEntry | CriticEntry]:
         """Yield every entry in the on-disk file in write order.
@@ -658,6 +694,7 @@ __all__ = [
     "CostCeilingExceededError",
     "CostTracker",
     "CriticEntry",
+    "CriticReplayDivergenceError",
     "MissingTranscriptEntryError",
     "PromptHashMismatchError",
     "Tier",

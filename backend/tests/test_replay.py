@@ -511,12 +511,17 @@ def test_replay_cost_for_runs_before_record(tmp_path: Path) -> None:
     """Ordering invariant (P-AI-4): `cost_for` (pure) must be invoked BEFORE
     `record` (mutating) in `replay_or_call`.
 
-    The pure read-then-mutate ordering means `cost_usd` is attributed to this
-    call's tokens against the tracker's PRE-record state. We verify by
-    monkey-patching both methods with side effects that append to a shared
-    call log. (Note: `record` internally calls `cost_for` to compute its own
-    delta — so the call log will contain a third entry from inside `record`.
-    The invariant we care about is the ORDER of the FIRST two calls.)
+    Verified two ways:
+      1. Call order — spy on both methods, the FIRST two calls in
+         ``replay_or_call`` must be ``cost_for`` then ``record`` (a third
+         ``cost_for`` from inside ``record`` is fine and ignored).
+      2. Load-bearing — the recorded ``cost_usd`` must equal the value
+         returned by the pre-record ``cost_for`` call. We make the
+         assertion failure mode VISIBLE by injecting a ``cost_for`` whose
+         return value DIFFERS from what ``record`` would compute
+         internally; if the implementation ever uses the post-record
+         result by mistake, the recorded ``cost_usd`` no longer matches
+         the pre-record return value.
     """
     path = tmp_path / "sim.jsonl"
     transcript = Transcript(path, mode="record")
@@ -526,16 +531,25 @@ def test_replay_cost_for_runs_before_record(tmp_path: Path) -> None:
     real_cost_for = tracker.cost_for
     real_record = tracker.record
 
+    # Sentinel value: returned by the FIRST `cost_for` invocation only.
+    # If `replay_or_call` reads `cost_usd` from a later `cost_for` call
+    # (e.g. swapping back to the OLD record-then-cost_for order, where
+    # the second `cost_for` returns the real per-call cost), this
+    # sentinel won't make it into the transcript and the assertion fails.
+    sentinel_cost = 0.42424242
+    invocation_count = {"n": 0}
+
     def spy_cost_for(input_tokens: int, output_tokens: int, model: str) -> float:
         call_order.append("cost_for")
+        invocation_count["n"] += 1
+        if invocation_count["n"] == 1:
+            return sentinel_cost
         return real_cost_for(input_tokens, output_tokens, model)
 
     def spy_record(input_tokens: int, output_tokens: int, model: str) -> None:
         call_order.append("record")
         real_record(input_tokens, output_tokens, model)
 
-    # `cost_for` is a staticmethod accessed on the instance — overriding via
-    # `tracker.cost_for = spy_cost_for` masks it on the instance only.
     tracker.cost_for = spy_cost_for  # type: ignore[method-assign]
     tracker.record = spy_record  # type: ignore[method-assign]
 
@@ -554,6 +568,18 @@ def test_replay_cost_for_runs_before_record(tmp_path: Path) -> None:
     # Pure cost computation must come first; mutation second. (Internal
     # `cost_for` from inside `record` shows up as a third entry — fine.)
     assert call_order[:2] == ["cost_for", "record"]
+
+    # Load-bearing: the FIRST `cost_for` return value (our sentinel) is
+    # what ended up in the transcript. Reorder the implementation and
+    # this fails — the post-record `cost_for` call would return the real
+    # per-call cost (~0.0035), not the sentinel.
+    rep = Transcript(path, mode="replay")
+    entry = rep.lookup(0, "c1")
+    assert entry is not None
+    assert entry.cost_usd == pytest.approx(sentinel_cost, abs=1e-12), (
+        "implementation must use the FIRST `cost_for` return value — the one "
+        "computed BEFORE `record` mutates the tracker"
+    )
 
 
 def test_replay_cost_usd_attributed_against_pre_record_state(tmp_path: Path) -> None:

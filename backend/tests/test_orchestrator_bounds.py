@@ -294,16 +294,36 @@ def test_orchestrator_drops_unknown_key(
     assert any("hire_cmo_at_salary" in rec.message for rec in caplog.records)
 
 
-def test_orchestrator_drops_non_finite_values(tmp_path: Path) -> None:
-    """NaN and ±Inf can't be clamped meaningfully — drop them on every key."""
-    orch = _make_orch(tmp_path)
-    bogus = {
-        "price": float("nan"),
-        "marketing_intensity": float("inf"),
-        "replenish_supplier": float("-inf"),
-    }
-    result = orch._validate_adjust_params(bogus, orch.seed, orch.stance)
-    assert result == {}
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("price", float("nan")),
+        ("price", float("inf")),
+        ("price", float("-inf")),
+        ("marketing_intensity", float("nan")),
+        ("marketing_intensity", float("inf")),
+        ("marketing_intensity", float("-inf")),
+        ("replenish_supplier", float("nan")),
+        ("replenish_supplier", float("inf")),
+        ("replenish_supplier", float("-inf")),
+        ("raise_amount", float("nan")),
+        ("raise_amount", float("inf")),
+        ("raise_amount", float("-inf")),
+    ],
+)
+def test_orchestrator_drops_non_finite_values(
+    tmp_path: Path, key: str, value: float
+) -> None:
+    """NaN and ±Inf must be dropped on every recognised key independently.
+
+    Parametrized so a single regression — e.g. NaN passing through on
+    `marketing_intensity` because clamping happened to silently coerce —
+    points at the exact (key, value) pair instead of hiding inside a
+    multi-key dict assertion.
+    """
+    orch = _make_orch(tmp_path, stance=_make_stance("venture_growth"))
+    result = orch._validate_adjust_params({key: value}, orch.seed, orch.stance)
+    assert result == {}, f"non-finite {key}={value!r} leaked through validator"
 
 
 def test_orchestrator_validate_returns_new_dict(tmp_path: Path) -> None:
@@ -321,6 +341,35 @@ def test_orchestrator_validate_returns_new_dict(tmp_path: Path) -> None:
     # Input untouched even though the value got clamped on output.
     assert incoming == {"marketing_intensity": 5.0}
     assert result == {"marketing_intensity": MARKETING_INTENSITY_UPPER}
+
+
+def test_orchestrator_bounds_match_engine_bounds() -> None:
+    """Orchestrator-side bounds must equal `unified_v2.py` engine-side bounds.
+
+    The two layers carry duplicate constants by design (orchestrator can't
+    import from `unified_v2.py` without creating a cycle). This test pins
+    the equality so a future change to one without the other fails loudly
+    instead of silently drifting — the orchestrator passing a value the
+    engine rejects (or vice versa) would mask CEO bugs as engine bugs.
+
+    When the cycle is broken in a follow-up phase (canonical bounds move
+    to `orchestrator.py`, `unified_v2.py` imports them), this test stays
+    valid: the imports collapse to identity comparisons and still pass.
+    """
+    from src.simulation import unified_v2
+
+    # Price band — orchestrator drops; engine drops as last-line defence.
+    assert PRICE_LOWER_BOUND_MULT == unified_v2.PRICE_ADJUST_MIN_FACTOR
+    assert PRICE_UPPER_BOUND_MULT == unified_v2.PRICE_ADJUST_MAX_FACTOR
+
+    # Marketing intensity — both layers clamp into the same band.
+    assert MARKETING_INTENSITY_LOWER == unified_v2.MARKETING_INTENSITY_MIN
+    assert MARKETING_INTENSITY_UPPER == unified_v2.MARKETING_INTENSITY_MAX
+
+    # Raise-amount stance gate — same set on both sides.
+    from src.simulation.orchestrator import RAISE_ALLOWED_STANCE_ARCHETYPES
+
+    assert RAISE_ALLOWED_STANCE_ARCHETYPES == unified_v2.RAISE_ALLOWED_ARCHETYPES
 
 
 def test_orchestrator_validate_preserves_in_band_values(tmp_path: Path) -> None:

@@ -25,6 +25,7 @@ from src.simulation.critic import (
     CRITIC_MODEL_ID,
     CRITIC_VIOLATION_THRESHOLD,
     CriticAgent,
+    CriticReplayDivergenceError,
     CriticScore,
 )
 from src.simulation.library_loader import (
@@ -655,3 +656,426 @@ async def test_critic_only_runs_for_strategic_tier(tmp_path: Path) -> None:
     assert critic_client.messages.create.await_count == 0
     # No critic scores recorded.
     assert critic_scores == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Crash-safety tests (Issue #2 — best-effort telemetry contract)
+#
+# The critic must NEVER abort the sim. SDK transport errors, malformed JSON,
+# and schema-validation failures all degrade to "log + return None" — the
+# strategic decision still applies, the next tick still runs.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_critic_returns_none_on_sdk_transport_error(tmp_path: Path) -> None:
+    """Anthropic SDK raising mid-call → critic logs + returns None."""
+    transport_error_client = MagicMock()
+    transport_error_client.messages = MagicMock()
+    transport_error_client.messages.create = AsyncMock(
+        side_effect=RuntimeError("simulated transport failure")
+    )
+    transcript = Transcript(tmp_path / "sim.jsonl", mode="off")
+    critic = CriticAgent(
+        transcript=transcript,
+        cost_tracker=CostTracker(),
+        client=transport_error_client,
+    )
+    state = _make_state(tick=STRATEGIC_CADENCE_TICKS)
+
+    score = await critic.score(
+        _aggressive_decision(), _make_venture_stance(), state
+    )
+
+    assert score is None
+    # Cost tracker MUST NOT have been charged — no successful tokens.
+    assert critic.cost_tracker is not None
+    assert critic.cost_tracker.total_cost() == 0.0
+
+
+@pytest.mark.asyncio
+async def test_critic_returns_none_on_malformed_json(tmp_path: Path) -> None:
+    """Haiku returning prose-only response → critic logs + returns None."""
+    bad_json_client = _make_mock_client(
+        ["Sorry, I cannot score this decision because of vibes."]
+    )
+    transcript = Transcript(tmp_path / "sim.jsonl", mode="off")
+    critic = CriticAgent(
+        transcript=transcript,
+        cost_tracker=CostTracker(),
+        client=bad_json_client,
+    )
+    state = _make_state(tick=STRATEGIC_CADENCE_TICKS)
+
+    score = await critic.score(
+        _aggressive_decision(), _make_venture_stance(), state
+    )
+
+    assert score is None
+
+
+@pytest.mark.asyncio
+async def test_critic_returns_none_on_schema_violation(tmp_path: Path) -> None:
+    """JSON parses but score outside [0, 1] → schema rejects → return None."""
+    out_of_range_client = _make_mock_client(
+        [json.dumps({"score": 2.5, "violations": [], "reasoning": "Bad."})]
+    )
+    transcript = Transcript(tmp_path / "sim.jsonl", mode="off")
+    critic = CriticAgent(
+        transcript=transcript,
+        cost_tracker=CostTracker(),
+        client=out_of_range_client,
+    )
+    state = _make_state(tick=STRATEGIC_CADENCE_TICKS)
+
+    score = await critic.score(
+        _aggressive_decision(), _make_venture_stance(), state
+    )
+
+    assert score is None
+
+
+@pytest.mark.asyncio
+async def test_bundle_tick_survives_critic_failure(tmp_path: Path) -> None:
+    """Bundle MUST return the strategic decision even if the critic raises.
+
+    This is the load-bearing assertion behind the "never aborts a sim"
+    contract. We force the critic's underlying SDK to raise and verify
+    the strategic decision still appears in `decisions` — without the
+    crash-safety wrapping in `score()`, the exception would propagate
+    out of `bundle.tick()` and the strategic decision would be lost.
+    """
+    strategic_reply = _decision_json(
+        spawn_nodes=["exec_cfo"],
+        reasoning="Hire CFO.",
+        references_stance=["growth_obsession"],
+    )
+
+    transcript = Transcript(tmp_path / "sim.jsonl", mode="off")
+    tracker = CostTracker(ceiling_usd=50.0)
+    seed = _make_seed()
+    stance = _make_venture_stance()
+    library = _make_library()
+
+    library_dict: dict[str, dict] = {
+        k: {
+            "category": n.category,
+            "label": n.label,
+            "hire_cost": n.hire_cost,
+            "daily_fixed_costs": n.daily_fixed_costs,
+            "employees_count": n.employees_count,
+            "capacity_contribution": n.capacity_contribution,
+            "modifier_keys": dict(n.modifier_keys),
+            "prerequisites": list(n.prerequisites),
+            "category_caps": {
+                "soft_cap": n.category_caps.soft_cap,
+                "hard_cap": n.category_caps.hard_cap,
+            },
+            "applicable_economics": list(n.applicable_economics),
+        }
+        for k, n in library.nodes.items()
+    }
+
+    heuristic = HeuristicOrchestrator(seed=seed, stance=stance, library=library_dict)
+    tactical = TacticalOrchestrator(
+        seed=seed, stance=stance, library=library,
+        transcript=transcript, cost_tracker=tracker,
+        client=_make_mock_client([]),
+    )
+    strategic = StrategicOrchestrator(
+        seed=seed, stance=stance, library=library,
+        transcript=transcript, cost_tracker=tracker,
+        client=_make_mock_client([strategic_reply]),
+    )
+
+    # Critic's SDK raises on every call.
+    failing_client = MagicMock()
+    failing_client.messages = MagicMock()
+    failing_client.messages.create = AsyncMock(
+        side_effect=RuntimeError("simulated transport failure")
+    )
+    critic = CriticAgent(
+        transcript=transcript, cost_tracker=tracker, client=failing_client
+    )
+
+    bundle = OrchestratorBundle(
+        heuristic=heuristic, tactical=tactical, strategic=strategic,
+        critic=critic, stance=stance, company_id="test-co",
+    )
+
+    severe = Shock(
+        name="market_crash", severity="severe", duration_ticks=120,
+        impact={"market_demand_mult": 0.5},
+        description="Crash", tick_started=15,
+    )
+    state = _make_state(tick=15, active_shocks=[severe])
+
+    decisions, critic_scores = await bundle.tick(state)
+
+    # Strategic decision MUST be present despite the critic blowing up.
+    strategic_decisions = [d for d in decisions if d.tier == "strategic"]
+    assert len(strategic_decisions) == 1
+    # No critic score recorded — the call failed.
+    assert critic_scores == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Engine-wiring test (Issue #1 — critic must fire in default sims)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_default_engine_bundle_constructs_critic_agent(tmp_path: Path) -> None:
+    """A default-constructed `CompanyAgentV2` must wire a `CriticAgent` into
+    its orchestrator bundle — not the `critic=None` no-op of pre-fix code.
+
+    This is the load-bearing assertion behind Issue #1: in production, every
+    strategic-tier decision must be scored. Without explicit wiring in
+    `CompanyAgentV2.__init__`, the bundle defaulted to `critic=None` and the
+    critic never fired in real sims.
+
+    Uses the production library + sample_seed_for_archetype so the seed's
+    initial refs round-trip through library validation, mirroring
+    `test_unified_v2.py`'s setup.
+    """
+    import random
+
+    from src.simulation.library_loader import _reset_library_cache, get_library
+    from src.simulation.seed import sample_seed_for_archetype
+    from src.simulation.stance import sample_stance
+    from src.simulation.unified_v2 import CompanyAgentV2
+
+    _reset_library_cache()
+    library = get_library()
+    rng = random.Random(42)
+    seed = sample_seed_for_archetype("small_team", rng=rng)
+    # Patch seed refs to live nodes in the production library — same trick
+    # `test_unified_v2.small_team_seed_and_stance` uses.
+    suppliers: list[str] = []
+    revenues: list[str] = []
+    costs: list[str] = []
+    for key, node in sorted(library.nodes.items()):
+        if seed.economics_model not in node.applicable_economics:
+            continue
+        if node.category == "supplier" and not suppliers:
+            suppliers.append(key)
+        elif node.category == "revenue" and not revenues:
+            revenues.append(key)
+        elif node.category == "ops" and not costs:
+            costs.append(key)
+    seed = seed.model_copy(update={
+        "initial_supplier_types": suppliers or ["primary_goods_supplier"],
+        "initial_revenue_streams": revenues,
+        "initial_cost_centers": costs or ["bookkeeper"],
+    })
+    stance = sample_stance("venture_growth", rng=rng)
+    transcript = Transcript(tmp_path / "wire-test.jsonl", mode="off")
+
+    company = CompanyAgentV2(
+        seed=seed,
+        stance=stance,
+        library=library,
+        sim_id="wire-test",
+        company_id="wire-co",
+        rng=rng,
+        transcript=transcript,
+    )
+
+    bundle = company.orchestrator
+    assert bundle.critic is not None, (
+        "default-constructed engine bundle must wire a CriticAgent — "
+        "without it the strategic-tier never gets stance-aligned"
+    )
+    assert isinstance(bundle.critic, CriticAgent)
+    assert bundle.stance is stance, "bundle stance must be the locked stance"
+    assert bundle.company_id == "wire-co"
+    # Critic shares the company's transcript + cost tracker so persistence
+    # and budgeting flow through the same per-sim state.
+    assert bundle.critic.transcript is transcript
+    assert bundle.critic.cost_tracker is company.cost_tracker
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Replay divergence detection (Issue #5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_critic_replay_raises_on_decision_hash_mismatch(tmp_path: Path) -> None:
+    """Replay with a DIFFERENT decision than recorded → divergence error.
+
+    Without divergence detection, the critic would silently return the OLD
+    score for the NEW decision — wrong-by-construction. The agent re-computes
+    `decision_sha256` on every replay call and compares it to the one
+    persisted at record time.
+    """
+    transcript_path = tmp_path / "diverge.jsonl"
+    record_transcript = Transcript(transcript_path, mode="record")
+    record_client = _make_mock_client(
+        [_critic_json(score=0.9, violations=[], reasoning="Aligned.")]
+    )
+    rec_critic = CriticAgent(
+        transcript=record_transcript,
+        cost_tracker=CostTracker(),
+        client=record_client,
+    )
+    state = _make_state(tick=STRATEGIC_CADENCE_TICKS)
+    original = _aggressive_decision()
+    stance = _make_venture_stance()
+
+    await rec_critic.score(original, stance, state, company_id="test-co")
+
+    # Replay with a DIFFERENT decision — same tick, same company, but the
+    # spawn list is changed. The recorded score does not apply to this input.
+    replay_transcript = Transcript(transcript_path, mode="replay")
+    rep_critic = CriticAgent(
+        transcript=replay_transcript,
+        cost_tracker=CostTracker(),
+        client=_make_mock_client([]),
+    )
+    divergent = CeoDecision(
+        spawn_nodes=["bd_rep"],  # was ["bd_rep", "bd_rep", "bd_rep", "exec_cfo"]
+        retire_nodes=[],
+        adjust_params={},
+        open_locations=0,
+        reasoning="Different decision.",
+        references_stance=["growth_obsession"],
+        tier="strategic",
+        tick=STRATEGIC_CADENCE_TICKS,
+    )
+
+    with pytest.raises(CriticReplayDivergenceError, match="decision hash"):
+        await rep_critic.score(divergent, stance, state, company_id="test-co")
+
+
+@pytest.mark.asyncio
+async def test_critic_replay_raises_on_state_hash_mismatch(tmp_path: Path) -> None:
+    """Replay with the SAME decision but DIFFERENT state → divergence error."""
+    transcript_path = tmp_path / "diverge-state.jsonl"
+    record_transcript = Transcript(transcript_path, mode="record")
+    rec_critic = CriticAgent(
+        transcript=record_transcript,
+        cost_tracker=CostTracker(),
+        client=_make_mock_client(
+            [_critic_json(score=0.9, violations=[], reasoning="Aligned.")]
+        ),
+    )
+    decision = _aggressive_decision()
+    stance = _make_venture_stance()
+    original_state = _make_state(tick=STRATEGIC_CADENCE_TICKS, cash=1_000_000.0)
+
+    await rec_critic.score(decision, stance, original_state, company_id="test-co")
+
+    replay_transcript = Transcript(transcript_path, mode="replay")
+    rep_critic = CriticAgent(
+        transcript=replay_transcript,
+        cost_tracker=CostTracker(),
+        client=_make_mock_client([]),
+    )
+    # Same tick, same decision, but cash differs → state diverged.
+    divergent_state = _make_state(tick=STRATEGIC_CADENCE_TICKS, cash=42.0)
+
+    with pytest.raises(CriticReplayDivergenceError, match="state hash"):
+        await rep_critic.score(decision, stance, divergent_state, company_id="test-co")
+
+
+@pytest.mark.asyncio
+async def test_critic_replay_raises_on_stance_hash_mismatch(tmp_path: Path) -> None:
+    """Replay with the SAME decision and state but DIFFERENT stance → divergence.
+
+    Stance is folded into the state hash (the critic's score is a function of
+    decision + stance + state). A copy-paste seed/stance swap that produced
+    the same decision text would otherwise silently return the wrong score.
+    """
+    transcript_path = tmp_path / "diverge-stance.jsonl"
+    record_transcript = Transcript(transcript_path, mode="record")
+    rec_critic = CriticAgent(
+        transcript=record_transcript,
+        cost_tracker=CostTracker(),
+        client=_make_mock_client(
+            [_critic_json(score=0.9, violations=[], reasoning="Aligned.")]
+        ),
+    )
+    decision = _aggressive_decision()
+    state = _make_state(tick=STRATEGIC_CADENCE_TICKS)
+    venture = _make_venture_stance()
+
+    await rec_critic.score(decision, venture, state, company_id="test-co")
+
+    replay_transcript = Transcript(transcript_path, mode="replay")
+    rep_critic = CriticAgent(
+        transcript=replay_transcript,
+        cost_tracker=CostTracker(),
+        client=_make_mock_client([]),
+    )
+    bootstrap = _make_bootstrap_stance()  # Different archetype + sliders.
+
+    with pytest.raises(CriticReplayDivergenceError, match="state hash"):
+        await rep_critic.score(decision, bootstrap, state, company_id="test-co")
+
+
+@pytest.mark.asyncio
+async def test_critic_replay_passes_when_inputs_match(tmp_path: Path) -> None:
+    """Identical inputs → replay returns the recorded score, no divergence."""
+    transcript_path = tmp_path / "match.jsonl"
+    record_transcript = Transcript(transcript_path, mode="record")
+    rec_critic = CriticAgent(
+        transcript=record_transcript,
+        cost_tracker=CostTracker(),
+        client=_make_mock_client(
+            [_critic_json(score=0.81, violations=["quality_floor"], reasoning="OK.")]
+        ),
+    )
+    decision = _aggressive_decision()
+    stance = _make_venture_stance()
+    state = _make_state(tick=STRATEGIC_CADENCE_TICKS)
+
+    recorded = await rec_critic.score(decision, stance, state, company_id="test-co")
+    assert recorded is not None
+
+    replay_transcript = Transcript(transcript_path, mode="replay")
+    rep_critic = CriticAgent(
+        transcript=replay_transcript,
+        cost_tracker=CostTracker(),
+        client=_make_mock_client([]),
+    )
+    replayed = await rep_critic.score(decision, stance, state, company_id="test-co")
+    assert replayed is not None
+    assert replayed.score == recorded.score
+    assert replayed.violations == recorded.violations
+    assert replayed.reasoning == recorded.reasoning
+
+
+def test_critic_decision_hash_is_deterministic() -> None:
+    """Same decision payload → same hash, regardless of dict-insertion order."""
+    a = CeoDecision(
+        spawn_nodes=["bd_rep"], retire_nodes=[],
+        adjust_params={"price": 100.0, "marketing_intensity": 1.2},
+        open_locations=0, reasoning="A.",
+        references_stance=["risk_tolerance", "growth_obsession"],
+        tier="strategic", tick=90,
+    )
+    # Different insertion order on adjust_params + references_stance.
+    b = CeoDecision(
+        spawn_nodes=["bd_rep"], retire_nodes=[],
+        adjust_params={"marketing_intensity": 1.2, "price": 100.0},
+        open_locations=0, reasoning="A.",
+        references_stance=["risk_tolerance", "growth_obsession"],
+        tier="strategic", tick=90,
+    )
+    assert CriticAgent._decision_sha256(a) == CriticAgent._decision_sha256(b)
+
+
+def test_critic_decision_hash_differs_for_different_payloads() -> None:
+    """Distinct payloads → distinct hashes (no collision masking divergence)."""
+    base = _aggressive_decision()
+    other = CeoDecision(
+        spawn_nodes=["bd_rep"],  # different spawn list
+        retire_nodes=[],
+        adjust_params=dict(base.adjust_params),
+        open_locations=base.open_locations,
+        reasoning=base.reasoning,
+        references_stance=list(base.references_stance),
+        tier=base.tier,
+        tick=base.tick,
+    )
+    assert CriticAgent._decision_sha256(base) != CriticAgent._decision_sha256(other)

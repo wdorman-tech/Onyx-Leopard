@@ -173,8 +173,14 @@ PRICE_UPPER_BOUND_MULT: float = 10.0
 MARKETING_INTENSITY_LOWER: float = 0.0
 MARKETING_INTENSITY_UPPER: float = 2.0
 
-#: Bounds on `replenish_supplier` signal. Conceptually a dosage in [0, 1]
-#: where 0 = no restock, 1 = full inventory cycle. Out-of-range CLAMPED.
+#: Bounds on `replenish_supplier` signal. The engine treats this key as a
+#: trigger flag: any positive value invokes a one-shot supplier-burn debit
+#: of fixed magnitude (see ``unified_v2._apply_param_adjustments``); the
+#: numeric value carries no further information. We still clamp into
+#: ``[0, 1]`` to make the semantics legible to operators reading
+#: transcripts (0 = "do nothing", >0 = "trigger replenish") and to keep
+#: the LLM from emitting absurd magnitudes that downstream tooling might
+#: misread.
 REPLENISH_SUPPLIER_LOWER: float = 0.0
 REPLENISH_SUPPLIER_UPPER: float = 1.0
 

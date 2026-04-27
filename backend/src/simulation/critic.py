@@ -42,8 +42,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from src.simulation.replay import (
     CeoDecision,
     CostTracker,
+    CriticReplayDivergenceError,
     MissingTranscriptEntryError,
     Transcript,
+    prompt_sha256,
 )
 from src.simulation.stance import CeoStance, to_system_prompt
 
@@ -158,16 +160,21 @@ class CriticAgent:
     ) -> CriticScore | None:
         """Score a strategic decision against the stance.
 
-        Returns `None` when:
-          * `cost_tracker.would_exceed(...)` is true (silent skip — never
-            blocks the decision the critic is judging).
+        Failure-mode contract (the critic is best-effort telemetry — it
+        MUST NOT abort the sim):
 
-        Returns the parsed `CriticScore` otherwise. In replay mode the
-        score comes from the transcript verbatim (raises
-        `MissingTranscriptEntryError` if absent — the recording run was
-        incomplete, which is a bug we want loud, not silent).
+          * Budget exhausted (cost-tracker would-exceed) → return None.
+          * SDK / transport / parse failure → log warning, return None.
+          * Cost-record failure (CostCeilingExceededError on actual
+            usage > predicted) → log, return parsed score anyway. The
+            next call will preflight-skip naturally.
+          * Replay mode + no recorded entry → raise
+            ``MissingTranscriptEntryError`` (loud — recording bug).
+          * Replay mode + decision/state hash mismatch → raise
+            ``CriticReplayDivergenceError`` (loud — state has diverged
+            between record and replay).
 
-        `company_id` is needed to key the transcript entry. Pass the same
+        ``company_id`` is needed to key the transcript entry. Pass the same
         value the bundle / engine uses for this company; defaults to empty
         string for tests that aren't exercising the persistence path.
         """
@@ -184,7 +191,12 @@ class CriticAgent:
             )
             return None
 
-        # 2. Replay-mode short-circuit.
+        # 2. Build the divergence-detection hashes once — used by both
+        #    replay validation and record persistence.
+        decision_hash = self._decision_sha256(decision)
+        state_hash = self._state_sha256(state, stance)
+
+        # 3. Replay-mode short-circuit.
         if self.transcript is not None and self.transcript.mode == "replay":
             recorded = self.transcript.lookup_critic(state.tick, company_id)
             if recorded is None:
@@ -195,36 +207,60 @@ class CriticAgent:
                     "is being invoked at a tick where the recording run did "
                     "not run it."
                 )
-            return recorded
+            recorded_score, recorded_decision_sha, recorded_state_sha = recorded
+            if recorded_decision_sha and recorded_decision_sha != decision_hash:
+                raise CriticReplayDivergenceError(
+                    f"critic decision hash mismatch at tick={state.tick} "
+                    f"company_id={company_id!r}: "
+                    f"observed={decision_hash} recorded={recorded_decision_sha}. "
+                    "The CEO decision being scored differs from the recording. "
+                    "Re-record the transcript or fix the divergence."
+                )
+            if recorded_state_sha and recorded_state_sha != state_hash:
+                raise CriticReplayDivergenceError(
+                    f"critic state hash mismatch at tick={state.tick} "
+                    f"company_id={company_id!r}: "
+                    f"observed={state_hash} recorded={recorded_state_sha}. "
+                    "Company state being scored differs from the recording."
+                )
+            return recorded_score
 
-        # 3. Real Haiku call.
+        # 4. Real Haiku call. Wrap the SDK call + parse in a single try
+        #    so transport, schema, and parse failures all degrade to
+        #    "log + return None" — the critic never aborts the sim.
         client = self._client if self._client is not None else _get_client()
         system_prompt = self._build_system_prompt(stance)
         user_prompt = self._build_user_prompt(decision, state)
 
-        response = await client.messages.create(
-            model=CRITIC_MODEL_ID,
-            max_tokens=CRITIC_MAX_TOKENS,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        raw = response.content[0].text
-        parsed = self._parse_score(raw)
+        try:
+            response = await client.messages.create(
+                model=CRITIC_MODEL_ID,
+                max_tokens=CRITIC_MAX_TOKENS,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            raw = response.content[0].text
+            parsed = self._parse_score(raw)
+        except Exception as exc:  # best-effort telemetry — never abort the sim
+            log.warning(
+                "Critic LLM call failed at tick=%d (company=%s): %s",
+                state.tick,
+                company_id,
+                exc,
+            )
+            return None
 
-        # 4. Charge the cost tracker (mirrors the orchestrator pattern —
-        #    we pay full price even on parse failure since the tokens were
-        #    consumed).
+        # 5. Charge the cost tracker (mirrors the orchestrator pattern —
+        #    we pay full price for the consumed tokens). Failure here is
+        #    swallowed: the parsed score is still valid, and the next
+        #    call's preflight will naturally skip if the ceiling broke.
         if self.cost_tracker is not None:
             usage = getattr(response, "usage", None)
             input_tokens = int(getattr(usage, "input_tokens", 0)) if usage else 0
             output_tokens = int(getattr(usage, "output_tokens", 0)) if usage else 0
-            # `record` may raise `CostCeilingExceededError` if the actual
-            # usage was much larger than predicted. Same contract as the
-            # orchestrator: we don't swallow it — the next critic call
-            # will preflight-skip naturally.
             try:
                 self.cost_tracker.record(input_tokens, output_tokens, CRITIC_MODEL_ID)
-            except Exception as exc:  # noqa: BLE001 — log+continue; critic is best-effort
+            except Exception as exc:  # log+continue; critic is best-effort
                 log.warning(
                     "Critic cost-record failed at tick=%d (company=%s): %s",
                     state.tick,
@@ -232,11 +268,97 @@ class CriticAgent:
                     exc,
                 )
 
-        # 5. Persist to transcript so replay reproduces.
+        # 6. Persist to transcript so replay reproduces. Persistence
+        #    failure must not corrupt the score we return — log+swallow.
         if self.transcript is not None and self.transcript.mode == "record":
-            self.transcript.record_critic(state.tick, company_id, parsed)
+            try:
+                self.transcript.record_critic(
+                    state.tick,
+                    company_id,
+                    parsed,
+                    decision_sha256=decision_hash,
+                    state_sha256=state_hash,
+                )
+            except Exception as exc:  # best-effort persistence
+                log.warning(
+                    "Critic transcript persistence failed at tick=%d "
+                    "(company=%s): %s",
+                    state.tick,
+                    company_id,
+                    exc,
+                )
 
         return parsed
+
+    # ── Divergence-detection hashes ──────────────────────────────────────
+
+    @staticmethod
+    def _decision_sha256(decision: CeoDecision) -> str:
+        """SHA-256 of the canonical decision payload.
+
+        Same canonicalization rule as ``replay.canonicalize_prompt`` (sorted
+        keys, compact separators) so the hash is stable across dict-insertion
+        order. ``tier`` and ``tick`` are part of the payload — a tactical
+        decision and a strategic decision with otherwise identical fields
+        produce different hashes.
+        """
+        payload = json.dumps(
+            {
+                "tier": decision.tier,
+                "tick": decision.tick,
+                "spawn_nodes": list(decision.spawn_nodes),
+                "retire_nodes": list(decision.retire_nodes),
+                "adjust_params": dict(decision.adjust_params),
+                "open_locations": decision.open_locations,
+                "reasoning": decision.reasoning,
+                "references_stance": list(decision.references_stance),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return prompt_sha256(payload)
+
+    @staticmethod
+    def _state_sha256(state: CompanyState, stance: CeoStance) -> str:
+        """SHA-256 of the (state, stance) pair the critic was asked to score.
+
+        The critic's score is a function of (decision, stance, state). Stance
+        is part of the hash so a re-run with a different stance — e.g. a
+        copy-paste seed swap — fails loudly rather than silently returning
+        the wrong-by-construction recorded score.
+        """
+        payload = json.dumps(
+            {
+                "tick": state.tick,
+                "cash": state.cash,
+                "daily_burn": state.daily_burn,
+                "monthly_revenue": state.monthly_revenue,
+                "capacity_utilization": state.capacity_utilization,
+                "avg_satisfaction": state.avg_satisfaction,
+                "employee_count": state.employee_count,
+                "spawned_nodes": dict(state.spawned_nodes),
+                "active_shocks": [
+                    {
+                        "name": s.name,
+                        "severity": s.severity,
+                        "duration_ticks": s.duration_ticks,
+                    }
+                    for s in state.active_shocks
+                ],
+                "stance": {
+                    "archetype": stance.archetype,
+                    "risk_tolerance": stance.risk_tolerance,
+                    "growth_obsession": stance.growth_obsession,
+                    "quality_floor": stance.quality_floor,
+                    "hiring_bias": stance.hiring_bias,
+                    "time_horizon": stance.time_horizon,
+                    "cash_comfort": stance.cash_comfort,
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return prompt_sha256(payload)
 
     # ── Prompt builders ──────────────────────────────────────────────────
 
@@ -344,5 +466,6 @@ __all__ = [
     "CRITIC_PREDICTED_OUTPUT_TOKENS",
     "CRITIC_VIOLATION_THRESHOLD",
     "CriticAgent",
+    "CriticReplayDivergenceError",
     "CriticScore",
 ]

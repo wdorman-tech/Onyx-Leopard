@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.simulation.bridge import BridgeAggregate, derive_bridge_aggregate
+from src.simulation.critic import CriticAgent, CriticScore
 from src.simulation.library_loader import NodeLibrary
 from src.simulation.orchestrator import (
     CeoDecision,
@@ -195,7 +196,7 @@ class TickResult:
     arriving_shocks: list[Shock]
     active_shocks: list[Shock]
     bankrupt: bool
-    critic_scores: list[Any] = field(default_factory=list)
+    critic_scores: list[CriticScore] = field(default_factory=list)
 
 
 @dataclass
@@ -316,6 +317,10 @@ class CompanyAgentV2:
         self.active_shocks: list[Shock] = []
 
         # Orchestrator — build the bundle if caller didn't pass one.
+        # The critic agent (Phase 2.3, Decision 3A) is wired into the
+        # default bundle so production sims surface stance drift on every
+        # strategic-tier decision. Tests that need a critic-free bundle
+        # construct one explicitly and pass it via the `orchestrator` kwarg.
         if orchestrator is None:
             library_dict = self._library_as_dict()
             heuristic = HeuristicOrchestrator(
@@ -327,6 +332,8 @@ class CompanyAgentV2:
                 library=library,
                 transcript=self.transcript,
                 cost_tracker=self.cost_tracker,
+                sim_id=sim_id,
+                company_id=company_id,
             )
             strategic = StrategicOrchestrator(
                 seed=seed,
@@ -334,11 +341,20 @@ class CompanyAgentV2:
                 library=library,
                 transcript=self.transcript,
                 cost_tracker=self.cost_tracker,
+                sim_id=sim_id,
+                company_id=company_id,
+            )
+            critic = CriticAgent(
+                transcript=self.transcript,
+                cost_tracker=self.cost_tracker,
             )
             orchestrator = OrchestratorBundle(
                 heuristic=heuristic,
                 tactical=tactical,
                 strategic=strategic,
+                critic=critic,
+                stance=stance,
+                company_id=company_id,
             )
         self.orchestrator = orchestrator
 
