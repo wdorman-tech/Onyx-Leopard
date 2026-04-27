@@ -1134,10 +1134,29 @@ class MultiCompanySimV2:
         # Lotka-Volterra carrying capacities derived from each company's
         # starting_employees * COMPETITION_K_PER_EMPLOYEE — heuristic that says
         # "this firm's room-to-grow is roughly proportional to its starting
-        # headcount." The competition matrix is built lazily on first tick when
-        # we know the company count, then cached.
-        self._lv_carrying_capacities: np.ndarray | None = None
-        self._lv_competition_matrix: np.ndarray | None = None
+        # headcount." Both the carrying-capacity vector and the competition
+        # matrix are built ONCE at the FULL company-list size and indexed by
+        # company position. When a company dies, we extract the surviving
+        # sub-matrix/sub-vector by index — the competitive relationships
+        # between surviving firms must NOT discontinuously change when a
+        # third firm exits, which would happen if we rebuilt with an RNG
+        # at a smaller n_species.
+        self._lv_carrying_capacities_full: np.ndarray = np.array(
+            [
+                c.seed.starting_employees * LV_COMPETITION_K_PER_EMPLOYEE
+                for c in self.companies
+            ],
+            dtype=np.float64,
+        )
+        # Map company id() → its fixed position in the full LV vectors so the
+        # alive sub-indexing is stable across ticks.
+        self._lv_index: dict[int, int] = {
+            id(c): i for i, c in enumerate(self.companies)
+        }
+        self._lv_competition_matrix_full: np.ndarray = build_competition_matrix(
+            max(1, len(self.companies)),
+            rng=np.random.default_rng(seed=hash(self.sim_id) & 0x7FFFFFFF),
+        )
 
     @property
     def alive_companies(self) -> list[CompanyAgentV2]:
@@ -1243,39 +1262,26 @@ class MultiCompanySimV2:
         # with cross-company suppression: a firm in a crowded niche grows slower
         # than the same firm in a sparse market. The updated strengths feed back
         # into next tick's share allocation as an additional weight.
+        # The competition matrix and carrying-capacity vector are FIXED at
+        # construction (one row/col per company in the full list); when a
+        # firm dies, we slice both by surviving-company index. This keeps the
+        # pairwise α_ij weights stable across deaths — see __init__ comment.
         if len(alive) > 1:
+            alive_idx = np.array(
+                [self._lv_index[id(c)] for c in alive], dtype=np.intp
+            )
             populations = np.array(
                 [c.market_strength for c in alive], dtype=np.float64
             )
-            growth_rates = np.array(
-                [LV_DEFAULT_GROWTH_RATE for _ in alive], dtype=np.float64
+            growth_rates = np.full(
+                len(alive), LV_DEFAULT_GROWTH_RATE, dtype=np.float64
             )
-            if (
-                self._lv_carrying_capacities is None
-                or len(self._lv_carrying_capacities) != len(alive)
-            ):
-                self._lv_carrying_capacities = np.array(
-                    [
-                        c.seed.starting_employees * LV_COMPETITION_K_PER_EMPLOYEE
-                        for c in alive
-                    ],
-                    dtype=np.float64,
-                )
-            if (
-                self._lv_competition_matrix is None
-                or self._lv_competition_matrix.shape[0] != len(alive)
-            ):
-                self._lv_competition_matrix = build_competition_matrix(
-                    len(alive),
-                    rng=np.random.default_rng(
-                        seed=hash(self.sim_id) & 0x7FFFFFFF
-                    ),
-                )
+            sub_capacities = self._lv_carrying_capacities_full[alive_idx]
+            sub_matrix = self._lv_competition_matrix_full[
+                np.ix_(alive_idx, alive_idx)
+            ]
             new_pops = step_competition(
-                populations,
-                growth_rates,
-                self._lv_carrying_capacities,
-                self._lv_competition_matrix,
+                populations, growth_rates, sub_capacities, sub_matrix,
             )
             for c, p in zip(alive, new_pops, strict=True):
                 c.market_strength = float(p)

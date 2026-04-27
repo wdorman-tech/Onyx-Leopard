@@ -26,7 +26,8 @@ class TestSimConfig:
         assert sim_config.max_companies == 50
         assert sim_config.tick_interval_ms == 1000
         assert sim_config.max_speed == 20
-        assert sim_config.insolvent_ticks_to_death == 3
+        # Aligned with unified_v2.INSOLVENT_TICKS_TO_DEATH (Phase 3.6 review).
+        assert sim_config.insolvent_ticks_to_death == 30
 
     def test_override(self) -> None:
         cfg = SimConfig(max_companies=100, tick_interval_ms=500)

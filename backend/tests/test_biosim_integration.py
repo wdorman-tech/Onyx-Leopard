@@ -93,11 +93,22 @@ def test_cobb_douglas_output_scales_with_capital_and_labor(library, rng):
         agent = _make_agent(seed, stance, library, rng=random.Random(0))
         # Tick once — production_cap is computed inside step().
         await agent.step()
-        return agent.daily_revenue
+        return agent.daily_revenue, agent.capacity_utilization
 
-    base_rev = asyncio.run(_run(base_seed))
-    rich_rev = asyncio.run(_run(rich_seed))
-    big_team_rev = asyncio.run(_run(big_team_seed))
+    base_rev, base_util = asyncio.run(_run(base_seed))
+    rich_rev, _ = asyncio.run(_run(rich_seed))
+    big_team_rev, _ = asyncio.run(_run(big_team_seed))
+
+    # Confirm the regime: physical capacity is NOT the binding constraint.
+    # capacity_utilization is served/physical_capacity; if it's well below
+    # 1.0, then either Cobb-Douglas or demand is binding. We set physical
+    # capacity to 5*100k = 500k units and demand much higher than CD output,
+    # so CD should bind. capacity_utilization < 0.5 confirms that.
+    assert base_util < 0.5, (
+        f"physical capacity is unexpectedly binding "
+        f"(capacity_utilization={base_util:.2f}); "
+        f"Cobb-Douglas scaling assertions below would be vacuous"
+    )
 
     assert rich_rev > base_rev, (
         f"4x capital must lift revenue under Cobb-Douglas; got "
@@ -152,6 +163,54 @@ def test_lotka_volterra_competition_suppresses_growth(library, rng):
     assert not np.allclose(cohort_arr, seed.starting_employees), (
         f"LV step did not modify any market_strength; got {cohort_strengths}"
     )
+
+
+def test_lv_competition_matrix_stable_across_company_deaths(library, rng):
+    """When a company dies mid-sim, the surviving firms' pairwise LV weights
+    must NOT discontinuously change. Regression test for a Phase 3.6 review
+    finding: rebuilding the competition matrix at the new shrunk size with
+    the same RNG seed produced a different matrix because n_species changed
+    the perturbation draw count. Fix uses a fixed full-size matrix sliced
+    by surviving-company indices.
+    """
+    seed = _build_seed(library, rng, archetype="small_team", starting_employees=10)
+    stance = sample_stance("bootstrap", rng=rng)
+    agents = [
+        _make_agent(seed, stance, library, rng=random.Random(i))
+        for i in range(4)
+    ]
+    sim = MultiCompanySimV2(
+        sim_id="lv-stability",
+        companies=agents,
+        max_ticks=10,
+        tam_initial=seed.tam,
+    )
+    # Snapshot the cached full matrix; it must be built once at __init__.
+    full_matrix_at_init = sim._lv_competition_matrix_full.copy()
+    assert full_matrix_at_init.shape == (4, 4)
+
+    # Kill company index 1 directly to simulate mid-sim death without
+    # waiting for organic insolvency.
+    agents[1].alive = False
+
+    async def _run():
+        for _ in range(3):
+            await sim.step()
+
+    asyncio.run(_run())
+
+    # The full matrix must be UNCHANGED — death does not rebuild.
+    np.testing.assert_array_equal(
+        sim._lv_competition_matrix_full,
+        full_matrix_at_init,
+        err_msg="LV competition matrix was rebuilt after a death",
+    )
+    # And the surviving-firm pairwise weights should be exactly the
+    # original sub-block, not a fresh draw at n=3.
+    survivors = [0, 2, 3]
+    expected_sub = full_matrix_at_init[np.ix_(survivors, survivors)]
+    actual_sub = sim._lv_competition_matrix_full[np.ix_(survivors, survivors)]
+    np.testing.assert_array_equal(actual_sub, expected_sub)
 
 
 # --- P-MATH-2: Satisfaction ODE --------------------------------------------

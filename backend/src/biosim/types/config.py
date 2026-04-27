@@ -26,6 +26,11 @@ class SimConfig(BaseModel):
     max_companies: int = 50
     tick_interval_ms: int = 1000
     max_speed: int = 20
-    insolvent_ticks_to_death: int = 3
+    #: Multi-tick insolvency window. Must match
+    #: `unified_v2.INSOLVENT_TICKS_TO_DEATH` so any code path through
+    #: `TickEngine` kills companies on the same schedule the business
+    #: engine does. Both default to 30 — a company can stay cash-negative
+    #: for 30 consecutive ticks (~1 simulated month) before insolvency death.
+    insolvent_ticks_to_death: int = 30
     default_carrying_capacity: float = 100.0
     growth_division_threshold: float = 0.8
