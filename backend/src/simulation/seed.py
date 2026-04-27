@@ -133,6 +133,15 @@ class CompanySeed(BaseModel):
         "word_of_mouth", "outbound_sales", "paid_ads", "content", "partnerships"
     ] = "word_of_mouth"
 
+    # ── Production function (2) ──
+    # Cobb-Douglas exponents Y = A * K^α * L^β. Vary per archetype so a
+    # capital-intensive bootstrap and a labor-intensive consultancy have
+    # different production curves. Constraint α + β ∈ (0, 1.5] allows
+    # decreasing/constant returns to scale with up to 1.5× increasing
+    # returns ceiling. P-MATH-5 fix.
+    cobb_douglas_alpha: float = Field(..., gt=0.0, le=1.0)
+    cobb_douglas_beta: float = Field(..., gt=0.0, le=1.0)
+
     # ── Validators ──
     @field_validator(
         "initial_supplier_types",
@@ -158,6 +167,24 @@ class CompanySeed(BaseModel):
             raise ValueError(
                 f"base_unit_cost ({v}) cannot exceed starting_price ({price}) — "
                 "negative gross margin is not a valid starting position"
+            )
+        return v
+
+    @field_validator("cobb_douglas_beta")
+    @classmethod
+    def _alpha_plus_beta_in_range(cls, v: float, info) -> float:  # type: ignore[no-untyped-def]
+        # CLAUDE.md mandates Cobb-Douglas Y = A * K^α * L^β. Allow returns to
+        # scale up to 1.5× (increasing returns) but reject sub-zero or extreme
+        # values. α is validated by Field(gt=0, le=1); this validator catches
+        # the joint constraint that requires both fields.
+        alpha = info.data.get("cobb_douglas_alpha")
+        if alpha is None:
+            return v  # alpha validation already failed; skip joint check
+        total = alpha + v
+        if not (0.0 < total <= 1.5):
+            raise ValueError(
+                f"cobb_douglas_alpha + cobb_douglas_beta must be in (0, 1.5], "
+                f"got {total:.3f} (alpha={alpha}, beta={v})"
             )
         return v
 
@@ -228,6 +255,21 @@ _ECONOMICS_BANDS: dict[EconomicsModel, dict[str, tuple[float, float]]] = {
         "cost_ratio": (0.15, 0.45),
         "base_capacity_per_location_int": (3, 30),
     },
+}
+
+# Cobb-Douglas exponent bands per archetype. Y = A * K^α * L^β, where K is
+# capital and L is labor. Different archetypes have meaningfully different
+# production curves:
+#   solo_founder    — pure labor (consultancy): tiny α, large β
+#   small_team      — mixed (restaurant/local biz): balanced
+#   venture_funded  — capital-light SaaS: software scales but humans build it
+#   enterprise      — mature, capital-intensive: heavier α
+# Worst-case sums (α_max + β_max) all stay ≤ 1.5, satisfying the joint validator.
+_COBB_DOUGLAS_BANDS: dict[Archetype, dict[str, tuple[float, float]]] = {
+    "solo_founder":   {"alpha": (0.10, 0.25), "beta": (0.55, 0.80)},
+    "small_team":     {"alpha": (0.25, 0.45), "beta": (0.45, 0.65)},
+    "venture_funded": {"alpha": (0.20, 0.40), "beta": (0.50, 0.75)},
+    "enterprise":     {"alpha": (0.35, 0.55), "beta": (0.40, 0.60)},
 }
 
 # Probability weights for economics_model per archetype. Solo founders skew
@@ -310,6 +352,10 @@ def sample_seed_for_archetype(
     revenue_concentration = round(rng.uniform(0.10, 0.90), 3)
     acquisition_channel = _acquisition_channel_for(chosen_economics, rng)
 
+    cd_bands = _COBB_DOUGLAS_BANDS[archetype]
+    cobb_douglas_alpha = round(_sample_uniform(rng, *cd_bands["alpha"]), 3)
+    cobb_douglas_beta = round(_sample_uniform(rng, *cd_bands["beta"]), 3)
+
     fallback_name = name or _default_name_for(archetype, chosen_economics, rng)
     fallback_niche = niche or _default_niche_for(chosen_economics)
     fallback_keywords = industry_keywords or _default_keywords_for(chosen_economics)
@@ -346,6 +392,8 @@ def sample_seed_for_archetype(
         initial_geographic_scope=geographic_scope,
         initial_revenue_concentration=revenue_concentration,
         initial_customer_acquisition_channel=acquisition_channel,
+        cobb_douglas_alpha=cobb_douglas_alpha,
+        cobb_douglas_beta=cobb_douglas_beta,
     )
 
 

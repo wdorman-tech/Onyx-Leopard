@@ -84,6 +84,8 @@ def _make_seed(starting_price: float = 100.0) -> CompanySeed:
         initial_geographic_scope="national",
         initial_revenue_concentration=0.40,
         initial_customer_acquisition_channel="content",
+        cobb_douglas_alpha=0.3,
+        cobb_douglas_beta=0.7,
     )
 
 

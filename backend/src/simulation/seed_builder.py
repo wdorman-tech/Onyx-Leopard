@@ -133,7 +133,9 @@ FINAL_JSON: {
     "initial_hiring_pace": "steady",
     "initial_geographic_scope": "local",
     "initial_revenue_concentration": 0.4,
-    "initial_customer_acquisition_channel": "word_of_mouth"
+    "initial_customer_acquisition_channel": "word_of_mouth",
+    "cobb_douglas_alpha": 0.3,
+    "cobb_douglas_beta": 0.7
   },
   "stance": {
     "archetype": "founder_operator",

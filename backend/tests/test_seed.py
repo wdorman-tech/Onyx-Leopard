@@ -54,6 +54,8 @@ def _valid_seed_kwargs() -> dict:
         "initial_geographic_scope": "local",
         "initial_revenue_concentration": 0.4,
         "initial_customer_acquisition_channel": "word_of_mouth",
+        "cobb_douglas_alpha": 0.3,
+        "cobb_douglas_beta": 0.7,
     }
 
 
@@ -63,11 +65,12 @@ def _valid_seed_kwargs() -> dict:
 
 
 def test_field_count_matches_spec():
-    """Spec §2 calls for 5 + 8 + 5 + 12 = 30 fields."""
+    """Spec §2 calls for 5 + 8 + 5 + 12 = 30 fields, plus 2 Cobb-Douglas exponents (Phase 3.2)."""
     fields = CompanySeed.model_fields
-    # Allow ±2 for the spec's slight ambiguity (8 economics fields enumerates 7)
-    assert 28 <= len(fields) <= 32, (
-        f"expected ~30 fields per v2 spec §2, got {len(fields)}: {sorted(fields.keys())}"
+    # Allow ±2 for the spec's slight ambiguity (8 economics fields enumerates 7).
+    # Upper bound widened to 34 after adding cobb_douglas_alpha/beta in P-MATH-5.
+    assert 28 <= len(fields) <= 34, (
+        f"expected ~30 fields per v2 spec §2 (+2 for Cobb-Douglas), got {len(fields)}: {sorted(fields.keys())}"
     )
 
 
@@ -423,3 +426,64 @@ def test_all_archetypes_round_trip():
     for archetype in ARCHETYPES:
         for s in _sample_n(archetype, 20):
             assert CompanySeed.model_validate_json(s.model_dump_json()) == s
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cobb-Douglas exponents (Phase 3.2, P-MATH-5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_seed_has_cobb_douglas_alpha_and_beta():
+    """CompanySeed must expose the Cobb-Douglas production exponents."""
+    fields = set(CompanySeed.model_fields.keys())
+    assert "cobb_douglas_alpha" in fields
+    assert "cobb_douglas_beta" in fields
+
+
+def test_seed_rejects_alpha_plus_beta_above_1_5():
+    """alpha + beta in (0, 1.5] — explicit rejection above the ceiling."""
+    bad = _valid_seed_kwargs() | {"cobb_douglas_alpha": 0.9, "cobb_douglas_beta": 0.9}
+    with pytest.raises(ValidationError, match=r"alpha \+ cobb_douglas_beta"):
+        CompanySeed(**bad)
+
+
+def test_seed_rejects_alpha_at_zero():
+    """alpha must be > 0 (gt=0); a zero exponent collapses production to A * L^β."""
+    bad = _valid_seed_kwargs() | {"cobb_douglas_alpha": 0.0}
+    with pytest.raises(ValidationError):
+        CompanySeed(**bad)
+
+
+def test_seed_accepts_increasing_returns_up_to_1_5():
+    """alpha + beta = 1.5 is the upper boundary; should be accepted (le=1.5)."""
+    ok = _valid_seed_kwargs() | {"cobb_douglas_alpha": 0.6, "cobb_douglas_beta": 0.9}
+    seed = CompanySeed(**ok)
+    assert seed.cobb_douglas_alpha + seed.cobb_douglas_beta == pytest.approx(1.5)
+
+
+def test_archetype_samplers_produce_valid_cobb_douglas_pairs():
+    """Sample many seeds per archetype; every (α, β) must satisfy the joint bound."""
+    rng = random.Random(42)
+    for archetype in ARCHETYPES:
+        for _ in range(50):
+            seed = sample_seed_for_archetype(archetype, rng=rng)
+            assert 0.0 < seed.cobb_douglas_alpha <= 1.0
+            assert 0.0 < seed.cobb_douglas_beta <= 1.0
+            assert 0.0 < seed.cobb_douglas_alpha + seed.cobb_douglas_beta <= 1.5
+
+
+def test_archetype_samplers_differentiate_alpha_distributions():
+    """Solo founders should average lower α (labor-intensive) than enterprises (capital-intensive)."""
+    rng = random.Random(42)
+    solo_alphas = [
+        sample_seed_for_archetype("solo_founder", rng=rng).cobb_douglas_alpha
+        for _ in range(60)
+    ]
+    enterprise_alphas = [
+        sample_seed_for_archetype("enterprise", rng=rng).cobb_douglas_alpha
+        for _ in range(60)
+    ]
+    assert statistics.mean(solo_alphas) < statistics.mean(enterprise_alphas), (
+        f"solo founder mean α ({statistics.mean(solo_alphas):.3f}) should be < "
+        f"enterprise mean α ({statistics.mean(enterprise_alphas):.3f})"
+    )
