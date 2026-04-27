@@ -32,6 +32,11 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: long-running test (e.g. multi-year sim); deselect with `-m \"not slow\"`",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
