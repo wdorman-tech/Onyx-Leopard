@@ -46,7 +46,7 @@ def step_growth(
     dt: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Steps growth ODE by dt via solve_tick. Returns (new_firm_size, new_cash, new_growth_rate)."""
-    from biosim.math.solver import solve_tick
+    from src.biosim.math.solver import solve_tick
 
     result = solve_tick(
         firm_size, cash, growth_rate,

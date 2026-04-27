@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import mesa
 
-from biosim.agents.firm_agent import BioFirmAgent
-from biosim.engine.state_manager import StateManager
-from biosim.engine.tick import TickEngine
-from biosim.types.config import BioConfig, SimConfig
+from src.biosim.agents.firm_agent import BioFirmAgent
+from src.biosim.engine.state_manager import StateManager
+from src.biosim.engine.tick import TickEngine
+from src.biosim.types.config import BioConfig, SimConfig
 
 
 class BioSimModel(mesa.Model):

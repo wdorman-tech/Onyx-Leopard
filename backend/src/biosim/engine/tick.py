@@ -2,11 +2,11 @@ import logging
 
 import numpy as np
 
-from biosim.math.competition import build_competition_matrix, step_competition
-from biosim.math.growth import step_growth
-from biosim.math.production import cobb_douglas
-from biosim.types.config import BioConfig, SimConfig
-from biosim.types.state import StateArrays
+from src.biosim.math.competition import build_competition_matrix, step_competition
+from src.biosim.math.growth import step_growth
+from src.biosim.math.production import cobb_douglas
+from src.biosim.types.config import BioConfig, SimConfig
+from src.biosim.types.state import StateArrays
 
 logger = logging.getLogger(__name__)
 

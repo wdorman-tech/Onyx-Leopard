@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from biosim.math.growth import VARS_PER_AGENT, growth_rhs
+from src.biosim.math.growth import VARS_PER_AGENT, growth_rhs
 
 logger = logging.getLogger(__name__)
 

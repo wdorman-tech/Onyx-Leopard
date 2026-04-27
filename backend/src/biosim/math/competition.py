@@ -5,7 +5,7 @@ import logging
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from biosim.math.solver import euler_step
+from src.biosim.math.solver import euler_step
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 import numpy as np
 
-from biosim.math.competition import (
+from src.biosim.math.competition import (
     build_competition_matrix,
     coexistence_check,
     lotka_volterra_rhs,

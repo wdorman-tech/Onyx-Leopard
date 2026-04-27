@@ -1,5 +1,5 @@
-from biosim.agents.mesa_model import BioSimModel
-from biosim.types.config import BioConfig, SimConfig
+from src.biosim.agents.mesa_model import BioSimModel
+from src.biosim.types.config import BioConfig, SimConfig
 
 
 class TestBioSimModelCreation:

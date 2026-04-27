@@ -1,7 +1,7 @@
 import numpy as np
 
-from biosim.math.growth import step_growth
-from biosim.math.solver import euler_step, solve_tick
+from src.biosim.math.growth import step_growth
+from src.biosim.math.solver import euler_step, solve_tick
 
 
 class TestSolveTick:

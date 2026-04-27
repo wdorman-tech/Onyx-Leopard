@@ -1,6 +1,6 @@
 import numpy as np
 
-from biosim.math.production import (
+from src.biosim.math.production import (
     cobb_douglas,
     marginal_product_capital,
     marginal_product_labor,

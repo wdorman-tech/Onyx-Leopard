@@ -1,6 +1,6 @@
 import re
 
-from biosim.types.enums import (
+from src.biosim.types.enums import (
     CompanyStage,
     Department,
     Outlook,

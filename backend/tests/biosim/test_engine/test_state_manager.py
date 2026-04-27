@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from biosim.engine.state_manager import StateManager
-from biosim.types.config import SimConfig
+from src.biosim.engine.state_manager import StateManager
+from src.biosim.types.config import SimConfig
 
 
 class TestAddCompany:

@@ -1,6 +1,6 @@
 import numpy as np
 
-from biosim.math.growth import growth_rhs, step_growth
+from src.biosim.math.growth import growth_rhs, step_growth
 
 
 class TestGrowthRHS:
@@ -105,8 +105,8 @@ class TestStepGrowth:
 
     def test_euler_fallback_reasonable(self):
         """Euler fallback should still produce directionally correct results."""
-        from biosim.math.growth import growth_rhs
-        from biosim.math.solver import euler_step
+        from src.biosim.math.growth import growth_rhs
+        from src.biosim.math.solver import euler_step
 
         n_agents = 2
         firm_size = np.array([10.0, 20.0])

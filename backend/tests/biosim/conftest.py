@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from biosim.types.config import BioConfig, SimConfig
-from biosim.types.state import StateArrays
+from src.biosim.types.config import BioConfig, SimConfig
+from src.biosim.types.state import StateArrays
 
 SEED_COMPANIES = [
     ("Alpha Corp", "#E74C3C", {"cash": 1_000_000, "firm_size": 100, "growth_rate": 0.05}),
@@ -31,21 +31,21 @@ def sim_config() -> SimConfig:
 
 @pytest.fixture()
 def tick_engine(bio_config, sim_config):
-    from biosim.engine.tick import TickEngine
+    from src.biosim.engine.tick import TickEngine
 
     return TickEngine(bio_config, sim_config)
 
 
 @pytest.fixture()
 def state_manager(sim_config):
-    from biosim.engine.state_manager import StateManager
+    from src.biosim.engine.state_manager import StateManager
 
     return StateManager(sim_config)
 
 
 @pytest.fixture()
 def populated_state_manager(sim_config):
-    from biosim.engine.state_manager import StateManager
+    from src.biosim.engine.state_manager import StateManager
 
     sm = StateManager(sim_config)
     sm.add_company("Alpha Corp", "#E74C3C", size="large")

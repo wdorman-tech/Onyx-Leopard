@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from biosim.types.state import ODE_VARS_PER_AGENT, StateArrays
+from src.biosim.types.state import ODE_VARS_PER_AGENT, StateArrays
 
 
 class TestAddRemoveCompany:

@@ -1,4 +1,4 @@
-from biosim.types.config import BioConfig, SimConfig
+from src.biosim.types.config import BioConfig, SimConfig
 
 
 class TestBioConfig:

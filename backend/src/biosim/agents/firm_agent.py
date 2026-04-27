@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import mesa
 
 if TYPE_CHECKING:
-    from biosim.agents.mesa_model import BioSimModel
+    from src.biosim.agents.mesa_model import BioSimModel
 
 
 class BioFirmAgent(mesa.Agent):

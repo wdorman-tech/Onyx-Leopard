@@ -1,8 +1,8 @@
 import numpy as np
 
-from biosim.engine.state_manager import StateManager
-from biosim.engine.tick import TickEngine
-from biosim.types.config import BioConfig, SimConfig
+from src.biosim.engine.state_manager import StateManager
+from src.biosim.engine.tick import TickEngine
+from src.biosim.types.config import BioConfig, SimConfig
 
 
 class TestSingleTick:

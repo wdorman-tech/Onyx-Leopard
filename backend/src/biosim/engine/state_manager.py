@@ -2,8 +2,8 @@ from collections import deque
 
 import numpy as np
 
-from biosim.types.config import SimConfig
-from biosim.types.state import StateArrays
+from src.biosim.types.config import SimConfig
+from src.biosim.types.state import StateArrays
 
 
 class StateManager:
