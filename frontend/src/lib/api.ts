@@ -70,10 +70,11 @@ export const saveOpenRouterKey = (key: string) =>
   });
 export const getModels = () => request<ModelCatalog>("/api/models");
 
-// Measured averages per AI CEO call (prompt ≈ 1.2–1.7k tokens; output includes
-// low-effort reasoning). Used only for the cost estimate on the setup screens.
-const TOKENS_IN_PER_CALL = 1600;
-const TOKENS_OUT_PER_CALL = 900;
+// Average tokens per AI CEO call over a full run: prompts grow with history,
+// and reasoning output varies by model (≈1.7k on GLM-5.3 Flash, ≈6k on
+// MiMo-V2.6-Pro in real 5-year runs). Used only for the setup-screen estimate.
+const TOKENS_IN_PER_CALL = 3000;
+const TOKENS_OUT_PER_CALL = 4000;
 const AI_CADENCE_DAYS = 30;
 
 export function estimateRunCost(model: ModelOption, companies: number, days: number): number {

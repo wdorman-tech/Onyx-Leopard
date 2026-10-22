@@ -197,3 +197,29 @@ def test_reasoning_that_eats_the_budget_is_retried_once(router: FakeRouter) -> N
     with pytest.raises(LlmError, match="finish_reason=length"):
         call(client)
     assert len(router.requests) == 4
+
+
+def test_budget_holds_back_a_reserve_for_ceo_reports(router: FakeRouter) -> None:
+    from src.simulation.llm import MAX_REPORT_RESERVE_SHARE, REPORT_COST_MULTIPLE, Budget
+
+    budget = Budget(ceiling_usd=1.0, report_calls=2)
+    assert budget.reserve_usd == 0.0  # nothing to average yet
+    budget.record(0.05)
+    assert budget.reserve_usd == pytest.approx(2 * 0.05 * REPORT_COST_MULTIPLE)
+    assert Budget(1.0, report_calls=50, spent_usd=0.1, calls=1).reserve_usd == pytest.approx(
+        MAX_REPORT_RESERVE_SHARE
+    )
+
+    router.respond = lambda _body: completion({"answer": "x"}, cost=0.2)
+    client = make_llm(router, budget=1.0)
+    client.budget.report_calls = 1
+    while client.available:
+        call(client)
+    # Decisions stopped short of the ceiling, leaving room for the report.
+    assert client.budget.spent_usd < 1.0 and client.can_report
+    with pytest.raises(LlmError, match="budget"):
+        call(client)
+    report = asyncio.run(
+        client.complete_json(system="s", user="u", schema_name="t", schema=SCHEMA, use_reserve=True)
+    )
+    assert report == {"answer": "x"}

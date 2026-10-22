@@ -251,7 +251,7 @@ async def build_sim(req: StartRequest) -> MarketSim:
         llm = OpenRouterClient(
             api_key=key,
             model=catalog.info(req.model or catalog.default_model),
-            budget=Budget(ceiling_usd=req.budget_usd),
+            budget=Budget(ceiling_usd=req.budget_usd, report_calls=len(req.ceo_archetypes)),
             reasoning_effort=catalog.reasoning_effort,
         )
 

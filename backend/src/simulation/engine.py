@@ -646,8 +646,10 @@ class MarketSim:
 
         if self.llm is not None and not self.llm.available and not self._ai_stop_reported:
             self._ai_stop_reported = True
+            budget = self.llm.budget
             reason = self.llm.disabled_reason or (
-                f"AI budget of ${self.llm.budget.ceiling_usd:.2f} spent"
+                f"AI budget of ${budget.ceiling_usd:.2f} reached "
+                f"(${budget.ceiling_usd - budget.spent_usd:.2f} kept for the CEO post-mortems)"
             )
             self.events.append(f"Day {tick}: {reason}. CEOs continue on heuristics.")
 

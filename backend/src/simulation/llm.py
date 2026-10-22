@@ -44,6 +44,11 @@ MAX_OUTPUT_TOKENS: Final[int] = 12_000
 #: finish_reason="length"). A retry usually routes to another provider.
 LENGTH_RETRIES: Final[int] = 1
 CATALOG_TTL_S: Final[float] = 3600.0
+#: A post-mortem prompt carries the decision log, so it costs about this many
+#: average decision calls (measured: ~2-3x on GLM-5.3 Flash and MiMo-V2.6-Pro).
+REPORT_COST_MULTIPLE: Final[float] = 3.0
+#: Never hold back more than this share of the budget for reports.
+MAX_REPORT_RESERVE_SHARE: Final[float] = 0.5
 #: HTTP statuses that mean retrying this run is pointless (bad key, no credit).
 FATAL_STATUSES: Final[frozenset[int]] = frozenset({401, 402, 403})
 #: Reasoning efforts from cheapest to most expensive.
@@ -227,14 +232,34 @@ async def load_catalog(http: httpx.AsyncClient | None = None) -> Catalog:
 
 @dataclass
 class Budget:
-    """Dollar ceiling shared by every LLM call in one simulation run."""
+    """Dollar ceiling shared by every LLM call in one simulation run.
+
+    The estimated cost of the end-of-run CEO reports is held back from the
+    decision calls, so post-mortems stay AI-written even when the decisions
+    would otherwise spend the whole budget.
+    """
 
     ceiling_usd: float
+    #: End-of-run reports to reserve for (one per company).
+    report_calls: int = 0
     spent_usd: float = 0.0
     calls: int = 0
 
     @property
+    def reserve_usd(self) -> float:
+        if not self.report_calls or not self.calls:
+            return 0.0
+        per_report = self.spent_usd / self.calls * REPORT_COST_MULTIPLE
+        return min(self.report_calls * per_report, self.ceiling_usd * MAX_REPORT_RESERVE_SHARE)
+
+    @property
     def exhausted(self) -> bool:
+        """No more decision calls; whatever is left is kept for the reports."""
+        return self.spent_usd >= self.ceiling_usd - self.reserve_usd
+
+    @property
+    def spent(self) -> bool:
+        """The hard ceiling: not even reports may call past this."""
         return self.spent_usd >= self.ceiling_usd
 
     def record(self, cost_usd: float) -> None:
@@ -280,12 +305,23 @@ class OpenRouterClient:
     def available(self) -> bool:
         return self.disabled_reason is None and not self.budget.exhausted
 
+    @property
+    def can_report(self) -> bool:
+        """End-of-run reports may use the reserve the decisions left behind."""
+        return self.disabled_reason is None and not self.budget.spent
+
     async def complete_json(
-        self, *, system: str, user: str, schema_name: str, schema: dict[str, Any]
+        self,
+        *,
+        system: str,
+        user: str,
+        schema_name: str,
+        schema: dict[str, Any],
+        use_reserve: bool = False,
     ) -> dict[str, Any]:
         if self.disabled_reason is not None:
             raise LlmError(self.disabled_reason, fatal=True)
-        if self.budget.exhausted:
+        if self.budget.spent if use_reserve else self.budget.exhausted:
             raise LlmError(f"budget of ${self.budget.ceiling_usd:.2f} exhausted")
 
         for attempt in range(LENGTH_RETRIES + 1):
@@ -296,7 +332,8 @@ class OpenRouterClient:
             if content:
                 return parse_json_object(content)
             finish = choice.get("finish_reason")
-            if finish != "length" or attempt == LENGTH_RETRIES or self.budget.exhausted:
+            out_of_budget = self.budget.spent if use_reserve else self.budget.exhausted
+            if finish != "length" or attempt == LENGTH_RETRIES or out_of_budget:
                 raise LlmError(f"empty completion (finish_reason={finish})")
             log.info("%s spent its output on reasoning; retrying once", self.model.id)
         raise AssertionError("unreachable")
