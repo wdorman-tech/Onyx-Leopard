@@ -89,7 +89,7 @@ def setup_key() -> None:
         except EOFError:  # non-interactive launch
             key = ""
         if not key:
-            print("    Skipped. Heuristic CEOs only until you add the key to backend/.env.")
+            print("    Skipped. Paste it on the app's first screen, or add it to backend/.env.")
             return
         save_env_key(key)
         print(f"    Saved to {ENV_FILE.relative_to(ROOT)}")

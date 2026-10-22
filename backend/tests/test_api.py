@@ -193,3 +193,86 @@ def test_config_reports_jev_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert client.get("/api/config").json()["jev_available"] is False
     monkeypatch.setenv("TYPESAFE_API_KEY", "ts-test")
     assert client.get("/api/config").json()["jev_available"] is True
+
+
+def _fake_verify(status: str, credit: float | None = None):  # type: ignore[no-untyped-def]
+    from src.simulation.llm import KeyCheck
+
+    async def verify(_key: str) -> KeyCheck:
+        return KeyCheck(status, credit)
+
+    return verify
+
+
+GOOD_KEY = "sk-or-v1-" + "a1b2c3d4" * 8
+
+
+def test_onboarding_saves_key_once_and_keeps_other_env_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.simulation import llm
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(main, "verify_key", _fake_verify("ok", 2.5))
+    llm.ENV_FILE.write_text("TYPESAFE_API_KEY=ts-keep-me\n", encoding="utf-8")
+
+    resp = client.post("/api/config/openrouter-key", json={"key": f"  {GOOD_KEY}\n"})
+    assert resp.status_code == 200
+    assert resp.json() == {"ai_available": True, "verified": True, "credit_remaining": 2.5}
+    assert GOOD_KEY not in resp.text
+    env = llm.ENV_FILE.read_text(encoding="utf-8").splitlines()
+    assert env == ["TYPESAFE_API_KEY=ts-keep-me", f"OPENROUTER_API_KEY={GOOD_KEY}"]
+    assert client.get("/api/config").json()["ai_available"] is True
+
+    again = client.post("/api/config/openrouter-key", json={"key": GOOD_KEY.replace("a", "b")})
+    assert again.status_code == 409
+    assert llm.ENV_FILE.read_text(encoding="utf-8").count("OPENROUTER_API_KEY=") == 1
+
+
+@pytest.mark.parametrize(
+    "key", ["short", "sk-or-v1-abc\nEVIL=1" + "x" * 20, "has spaces in it at all ok"]
+)
+def test_onboarding_rejects_malformed_keys(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
+    from src.simulation import llm
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(main, "verify_key", _fake_verify("ok"))
+    assert client.post("/api/config/openrouter-key", json={"key": key}).status_code == 400
+    assert not llm.ENV_FILE.exists()
+
+
+def test_onboarding_refuses_key_openrouter_rejects(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.simulation import llm
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(main, "verify_key", _fake_verify("rejected"))
+    resp = client.post("/api/config/openrouter-key", json={"key": GOOD_KEY})
+    assert resp.status_code == 400
+    assert "rejected" in resp.json()["detail"]
+    assert not llm.ENV_FILE.exists()
+
+
+def test_verify_key_against_openrouter_shapes() -> None:
+    import asyncio
+
+    import httpx
+
+    from src.simulation.llm import verify_key
+
+    def reply(status: int, body: dict):  # type: ignore[no-untyped-def]
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(status, json=body))
+        )
+
+    ok = asyncio.run(verify_key(GOOD_KEY, reply(200, {"data": {"limit_remaining": 3.5}})))
+    assert (ok.status, ok.credit_remaining) == ("ok", 3.5)
+    bad = asyncio.run(verify_key(GOOD_KEY, reply(401, {"error": {"message": "User not found."}})))
+    assert bad.status == "rejected"
+
+    def offline(_r: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline")
+
+    down = asyncio.run(
+        verify_key(GOOD_KEY, httpx.AsyncClient(transport=httpx.MockTransport(offline)))
+    )
+    assert down.status == "unverified"

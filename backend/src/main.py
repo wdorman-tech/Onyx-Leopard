@@ -23,7 +23,16 @@ from src.simulation.ceo import AiCeo, HeuristicCeo
 from src.simulation.engine import Company, MarketSim
 from src.simulation.jev import JevJudge, jev_key
 from src.simulation.library import LibraryValidationError, get_library
-from src.simulation.llm import API_KEY_ENV, Budget, OpenRouterClient, api_key, load_catalog
+from src.simulation.llm import (
+    API_KEY_ENV,
+    KEY_PATTERN,
+    Budget,
+    OpenRouterClient,
+    api_key,
+    load_catalog,
+    save_api_key,
+    verify_key,
+)
 from src.simulation.report import CeoReport, write_report
 from src.simulation.seed import (
     ARCHETYPES as COMPANY_ARCHETYPES,
@@ -132,6 +141,32 @@ async def config() -> dict[str, Any]:
         "ai_available": api_key() is not None,
         "key_env": API_KEY_ENV,
         "jev_available": jev_key() is not None,
+    }
+
+
+class KeyRequest(BaseModel):
+    key: str = Field(..., max_length=300)
+
+
+@app.post("/api/config/openrouter-key")
+async def set_openrouter_key(req: KeyRequest) -> dict[str, Any]:
+    """Onboarding: save an OpenRouter key to backend/.env when none is set yet.
+
+    Never overwrites an existing key and never echoes the key back.
+    """
+    if api_key() is not None:
+        raise HTTPException(409, f"{API_KEY_ENV} is already set in backend/.env.")
+    key = req.key.strip()
+    if not KEY_PATTERN.fullmatch(key):
+        raise HTTPException(400, "That doesn't look like an OpenRouter key (sk-or-v1-...).")
+    check = await verify_key(key)
+    if check.status == "rejected":
+        raise HTTPException(400, "OpenRouter rejected this key. Check it at openrouter.ai/keys.")
+    save_api_key(key)
+    return {
+        "ai_available": True,
+        "verified": check.status == "ok",
+        "credit_remaining": check.credit_remaining,
     }
 
 

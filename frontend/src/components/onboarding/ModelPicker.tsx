@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, KeyRound, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, KeyRound, Loader2 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import {
   type AppConfig,
@@ -12,6 +12,7 @@ import {
   formatUsd,
   getConfig,
   getModels,
+  saveOpenRouterKey,
 } from "@/lib/api";
 
 const STORAGE_KEY = "onyx.model";
@@ -67,6 +68,79 @@ function Price({ model }: { model: ModelOption }) {
   );
 }
 
+function KeyForm({ keyEnv, onSaved }: { keyEnv: string; onSaved: () => void }) {
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await saveOpenRouterKey(key);
+      setKey("");
+      setSaved(
+        result.verified
+          ? `Key verified${result.credit_remaining != null ? ` · ${formatUsd(result.credit_remaining)} credit left` : ""}.`
+          : "Key saved (OpenRouter couldn't be reached to verify it).",
+      );
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (saved) {
+    return (
+      <div className="flex items-center gap-2 p-4 rounded-xl border border-positive/40 bg-positive/5 text-xs text-surface-700">
+        <Check size={16} className="text-positive" /> {saved} AI CEOs are on.
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="flex gap-3 p-4 rounded-xl border border-warning/40 bg-warning/5"
+    >
+      <KeyRound size={18} className="text-warning flex-shrink-0 mt-0.5" />
+      <div className="flex-1 space-y-2">
+        <div className="text-xs text-surface-700 leading-relaxed">
+          <div className="font-semibold text-surface-800 mb-0.5">Add your OpenRouter key</div>
+          Paste a key from openrouter.ai/keys to turn on AI CEOs. It&apos;s checked with
+          OpenRouter and saved to <code className="font-mono">backend/.env</code> as{" "}
+          <code className="font-mono">{keyEnv}</code>; it never comes back to the browser.
+          Skip it and CEOs run on free heuristics.
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder="sk-or-v1-..."
+            aria-label="OpenRouter API key"
+            className="flex-1 min-w-0 text-xs font-mono bg-surface-0 border border-surface-200 rounded-lg px-3 py-2 text-surface-800 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+          />
+          <button
+            type="submit"
+            disabled={saving || key.trim().length === 0}
+            className="btn-primary !px-4 !py-2 text-xs flex items-center gap-1.5"
+          >
+            {saving && <Loader2 size={12} className="animate-spin" />} Save key
+          </button>
+        </div>
+        {error && <p className="text-[11px] text-negative">{error}</p>}
+      </div>
+    </form>
+  );
+}
+
 interface ModelPickerProps {
   onContinue: (model: ModelOption, config: AppConfig) => void;
 }
@@ -76,6 +150,8 @@ export function ModelPicker({ onContinue }: ModelPickerProps) {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // Captured at load so the key form stays up to show its confirmation.
+  const [needsKey, setNeedsKey] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([getModels(), getConfig()])
@@ -83,6 +159,7 @@ export function ModelPicker({ onContinue }: ModelPickerProps) {
         setError(null);
         setCatalog(models);
         setConfig(cfg);
+        setNeedsKey(!cfg.ai_available);
         const all = [...models.tiers, ...models.anthropic].map((m) => m.id);
         const stored = readStored();
         setSelected(stored && all.includes(stored) ? stored : models.default);
@@ -125,16 +202,11 @@ export function ModelPicker({ onContinue }: ModelPickerProps) {
 
       {catalog && config && (
         <div className="max-w-4xl w-full space-y-6">
-          {!config.ai_available && (
-            <div className="flex gap-3 p-4 rounded-xl border border-warning/40 bg-warning/5">
-              <KeyRound size={18} className="text-warning flex-shrink-0 mt-0.5" />
-              <div className="text-xs text-surface-700 leading-relaxed">
-                <div className="font-semibold text-surface-800 mb-0.5">No OpenRouter key yet</div>
-                Add <code className="font-mono">{config.key_env}=sk-or-...</code> to{" "}
-                <code className="font-mono">backend/.env</code> (get one at openrouter.ai/keys)
-                and reload this page; no restart needed. Until then CEOs run on free heuristics.
-              </div>
-            </div>
+          {needsKey && (
+            <KeyForm
+              keyEnv={config.key_env}
+              onSaved={() => setConfig({ ...config, ai_available: true })}
+            />
           )}
           {!catalog.live && (
             <div className="flex items-center gap-2 text-[11px] text-surface-500">

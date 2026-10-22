@@ -43,7 +43,7 @@ pnpm lint         # eslint
 
 There is no frontend test runner configured. Type-check via `pnpm build` or `tsc --noEmit`.
 
-**Configuration:** `backend/.env` holds `OPENROUTER_API_KEY` (template at `.env.example`). Without it the sim runs with heuristic CEOs only (no LLM calls). `OPENROUTER_BASE_URL` optionally points the client at a proxy or local stand-in.
+**Configuration:** `backend/.env` holds `OPENROUTER_API_KEY` (template at `.env.example`). Without it the sim runs with heuristic CEOs only (no LLM calls); the onboarding screen can save one via `POST /api/config/openrouter-key` (verifies with OpenRouter, never overwrites an existing key, never echoes it back). `OPENROUTER_BASE_URL` optionally points the client at a proxy or local stand-in.
 
 ## Architecture Quick Reference
 

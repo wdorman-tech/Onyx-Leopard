@@ -67,6 +67,47 @@ def api_key() -> str | None:
     return key.strip() or None
 
 
+#: OpenRouter keys are `sk-or-v1-` + hex; accept any URL-safe token so a
+#: format change upstream doesn't lock users out, but nothing that could
+#: break the .env line.
+KEY_PATTERN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_\-]{20,200}")
+
+
+def save_api_key(key: str) -> None:
+    """Write `OPENROUTER_API_KEY=key` to backend/.env, keeping every other line."""
+    lines = ENV_FILE.read_text(encoding="utf-8").splitlines() if ENV_FILE.exists() else []
+    lines = [line for line in lines if line.partition("=")[0].strip() != API_KEY_ENV]
+    lines.append(f"{API_KEY_ENV}={key}")
+    ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+@dataclass(frozen=True)
+class KeyCheck:
+    status: str  # "ok" | "rejected" | "unverified"
+    credit_remaining: float | None = None
+
+
+async def verify_key(key: str, http: httpx.AsyncClient | None = None) -> KeyCheck:
+    """Ask OpenRouter about `key` without spending anything."""
+    client = http or httpx.AsyncClient()
+    try:
+        resp = await client.get(
+            f"{base_url()}/key", headers={"Authorization": f"Bearer {key}"}, timeout=15.0
+        )
+    except httpx.HTTPError as exc:
+        log.warning("could not verify OpenRouter key: %r", exc)
+        return KeyCheck("unverified")
+    finally:
+        if http is None:
+            await client.aclose()
+    if resp.status_code in FATAL_STATUSES:
+        return KeyCheck("rejected")
+    if resp.status_code != 200:
+        return KeyCheck("unverified")
+    remaining = (_safe_json(resp).get("data") or {}).get("limit_remaining")
+    return KeyCheck("ok", float(remaining) if isinstance(remaining, int | float) else None)
+
+
 # ─── Model catalog ──────────────────────────────────────────────────────────
 
 
