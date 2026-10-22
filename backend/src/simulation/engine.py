@@ -254,7 +254,7 @@ class Company:
     def receive_shocks(self, tick: int) -> None:
         for shock in self.shock_scheduler.arrivals(tick):
             self.shocks.append(shock)
-            self.events.append(f"{self.name}: {shock.description}")
+            self.events.append(f"Day {tick}: {self.name}: {shock.description}")
             self._apply_one_shot(shock)
         self.shocks = [s for s in self.shocks if s.active_at(tick)]
 
@@ -325,7 +325,7 @@ class Company:
         self.insolvent_days = self.insolvent_days + 1 if self.cash < 0 else 0
         if self.insolvent_days >= INSOLVENT_DAYS_TO_DEATH:
             self.alive = False
-            self.events.append(f"{self.name} went bankrupt on day {tick}.")
+            self.events.append(f"Day {tick}: {self.name} went bankrupt.")
 
         if tick % HISTORY_EVERY_DAYS == 0:
             self.history.append(
@@ -500,7 +500,7 @@ class MarketSim:
 
         for shock in self.market_shocks.arrivals(tick):
             self.active_market_shocks.append(shock)
-            self.events.append(f"Market: {shock.description}")
+            self.events.append(f"Day {tick}: Market: {shock.description}")
         self.active_market_shocks = [s for s in self.active_market_shocks if s.active_at(tick)]
         market_env = environment(self.active_market_shocks)
 
@@ -547,14 +547,6 @@ class MarketSim:
             if decision is not None:
                 company.apply(decision)
 
-        if self.llm is not None and not self.llm.available and not self._ai_stop_reported:
-            self._ai_stop_reported = True
-            self.events.append(
-                self.llm.disabled_reason
-                or f"AI budget of ${self.llm.budget.ceiling_usd:.2f} spent; "
-                "CEOs continue on heuristics."
-            )
-
         # AI CEOs wake monthly, and early on the first tick of a severe shock
         # that hits them (market-wide or their own).
         market_severe = self._new_severe("market", self.active_market_shocks)
@@ -565,14 +557,20 @@ class MarketSim:
                 tick % AI_CADENCE_DAYS == 0 or market_severe or own_severe
             ):
                 due.append(company)
-        if not due:
-            return
-        results = await asyncio.gather(
-            *(self.ai[c.company_id].decide(c, tick, self.companies, self.tam) for c in due)
-        )
-        for company, decision in zip(due, results, strict=True):
-            if decision is not None:
-                company.apply(decision)
+        if due:
+            results = await asyncio.gather(
+                *(self.ai[c.company_id].decide(c, tick, self.companies, self.tam) for c in due)
+            )
+            for company, decision in zip(due, results, strict=True):
+                if decision is not None:
+                    company.apply(decision)
+
+        if self.llm is not None and not self.llm.available and not self._ai_stop_reported:
+            self._ai_stop_reported = True
+            reason = self.llm.disabled_reason or (
+                f"AI budget of ${self.llm.budget.ceiling_usd:.2f} spent"
+            )
+            self.events.append(f"Day {tick}: {reason}. CEOs continue on heuristics.")
 
     def _new_severe(self, scope: str, shocks: list[Shock]) -> bool:
         keys = {(scope, s.name, s.tick_started) for s in shocks if s.severity == "severe"}

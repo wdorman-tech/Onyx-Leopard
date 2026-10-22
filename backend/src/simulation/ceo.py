@@ -364,7 +364,9 @@ class AiCeo:
             out = _AiOutput.model_validate(raw)
         except (LlmError, ValidationError) as exc:
             log.warning("AI CEO %s failed on day %d: %s", company.name, day, exc)
-            company.events.append(f"{company.name}: AI CEO call failed ({exc})")
+            # Fatal errors (bad key, no credit) are reported once for the whole run.
+            if not (isinstance(exc, LlmError) and exc.fatal):
+                company.events.append(f"Day {day}: {company.name}: AI CEO call failed ({exc})")
             return None
         return sanitize(company, day=day, source="ai", **out.model_dump())
 

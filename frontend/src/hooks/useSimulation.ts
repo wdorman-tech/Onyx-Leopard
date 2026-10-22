@@ -118,9 +118,7 @@ export function useSimulation() {
         );
         if (fresh.length) setFeed((prev) => [...prev, ...fresh].slice(-FEED_LIMIT));
         if (data.events.length) {
-          setEvents((prev) =>
-            [...prev, ...data.events.map((e) => `Day ${data.tick}: ${e}`)].slice(-FEED_LIMIT),
-          );
+          setEvents((prev) => [...prev, ...data.events].slice(-FEED_LIMIT));
         }
         return;
       }

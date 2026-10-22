@@ -121,9 +121,21 @@ def test_ai_ceo_prompt_schema_and_applied_decision(
 
 def test_ai_ceo_failure_is_reported_not_raised(library: NodeLibrary, router: FakeRouter) -> None:
     company = make_company(library)
+    router.push(400, {"error": {"code": 400, "message": "context too long"}})
+    ceo = AiCeo(make_llm(router), company)
+
+    assert asyncio.run(ceo.decide(company, 30, [company], 1e7)) is None
+    assert any("Day 30" in e and "AI CEO call failed" in e for e in company.events)
+    assert ceo.available
+
+
+def test_bad_key_disables_ai_without_per_company_noise(
+    library: NodeLibrary, router: FakeRouter
+) -> None:
+    company = make_company(library)
     router.push(401, {"error": {"code": 401, "message": "User not found."}})
     ceo = AiCeo(make_llm(router), company)
 
     assert asyncio.run(ceo.decide(company, 30, [company], 1e7)) is None
-    assert any("AI CEO call failed" in e for e in company.events)
+    assert company.events == []
     assert not ceo.available

@@ -25,7 +25,7 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-OPENROUTER_BASE_URL: Final[str] = "https://openrouter.ai/api/v1"
+DEFAULT_BASE_URL: Final[str] = "https://openrouter.ai/api/v1"
 API_KEY_ENV: Final[str] = "OPENROUTER_API_KEY"
 APP_TITLE: Final[str] = "Onyx Leopard"
 MODELS_PATH: Final[Path] = Path(__file__).resolve().parent / "models.yaml"
@@ -48,6 +48,11 @@ class LlmError(RuntimeError):
     def __init__(self, message: str, *, fatal: bool = False) -> None:
         super().__init__(message)
         self.fatal = fatal
+
+
+def base_url() -> str:
+    """OpenRouter endpoint; `OPENROUTER_BASE_URL` overrides it (proxies, local fakes)."""
+    return os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
 
 
 def api_key() -> str | None:
@@ -137,7 +142,7 @@ async def load_catalog(http: httpx.AsyncClient | None = None) -> Catalog:
     live = False
     client = http or httpx.AsyncClient()
     try:
-        resp = await client.get(f"{OPENROUTER_BASE_URL}/models", timeout=20.0)
+        resp = await client.get(f"{base_url()}/models", timeout=20.0)
         resp.raise_for_status()
         for m in resp.json()["data"]:
             models[m["id"]] = ModelInfo.from_openrouter(m)
@@ -301,7 +306,7 @@ class OpenRouterClient:
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 resp = await self.http.post(
-                    f"{OPENROUTER_BASE_URL}/chat/completions", json=body, headers=headers
+                    f"{base_url()}/chat/completions", json=body, headers=headers
                 )
             except httpx.TransportError as exc:
                 last_error = f"network error: {exc!r}"
