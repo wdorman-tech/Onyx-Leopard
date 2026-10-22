@@ -1,134 +1,92 @@
 # Onyx Leopard
 
-**Open-source, local-run business simulation framework.** Spin up N competing companies seeded from a `CompanySeed` + `CeoStance` archetype, watch them spawn org nodes, accrue cash, take shocks, and battle for market share through real Cobb-Douglas production, Lotka-Volterra competition, and multinomial-logit share allocation. AI agents at three tiers (heuristic / Haiku / Sonnet) make CEO decisions inside the tick loop.
-
-## What It Does
-
-1. **Pick a seed and stance archetype** — `solo_founder`, `small_team`, `venture_funded`, `enterprise` for the company shape; `bootstrap`, `founder_operator`, `venture_growth`, `consolidator`, `turnaround` for the CEO persona. Sample one via API, or load a preloaded `.oleo` profile.
-2. **Run the simulation** — Hit play. Each tick (= 1 simulated day) runs production economics, derives bridge modifiers from spawned nodes, allocates demand via multinomial logit, updates Lotka-Volterra market_strength, and asks the orchestrator triad whether any nodes should spawn or retire.
-3. **Watch the graph** — Companies render as force-directed canvas clusters in the browser, with nodes spawning live as the orchestrator hires roles, opens locations, and adds revenue streams.
-4. **Toggle AI CEO** — With the toggle on, Haiku-tactical and Sonnet-strategic tiers fire on cadence (every 30 / 90 ticks). With it off, only the free heuristic tier runs.
-5. **Shocks** — Poisson-arrival shocks (market crash, key employee departure, supplier failure, etc.) inject through the `ShockScheduler` and propagate into the math each tick.
-
-## Preloaded Companies
-
-Four real-world company profiles ship ready to simulate, each carrying a SHA256 checksum that the loader verifies on every read:
-
-| File | Company |
-|------|---------|
-| `amazon.oleo` | Amazon |
-| `apple.oleo` | Apple |
-| `microsoft.oleo` | Microsoft |
-| `spacex.oleo` | SpaceX |
+**Open-source, local-run business simulation.** Clone one company N times, hand each copy a different AI CEO persona, and watch them compete for a shared market, day by day. Company growth, competition and market share come from established models (Cobb-Douglas production, Lotka-Volterra competition, multinomial-logit share). The CEOs are LLMs on OpenRouter, defaulting to cheap Chinese open-weight models, with any Claude model one click away.
 
 ## Quick Start
 
-**Prerequisites:** [Python 3.12+](https://www.python.org/downloads/), [Node.js 18+](https://nodejs.org/), [pnpm](https://pnpm.io/installation)
+**Prerequisites:** [Python 3.12+](https://www.python.org/downloads/), [Node.js 18+](https://nodejs.org/), [pnpm](https://pnpm.io/installation). [uv](https://docs.astral.sh/uv/) is used when installed.
 
 ```bash
 git clone https://github.com/wdorman-tech/Onyx-Leopard.git
 cd Onyx-Leopard
-python start.py          # installs deps, prompts for API key, launches both servers
+python start.py          # installs deps, asks for your OpenRouter key, launches both servers
 ```
 
-Open [http://localhost:3000](http://localhost:3000) when it's ready. The script will prompt for your [Anthropic API key](https://console.anthropic.com/) on first run — you can also set it later in `backend/.env`.
+Open [http://localhost:3000](http://localhost:3000). On first run `start.py` asks for an [OpenRouter key](https://openrouter.ai/keys), saves it to `backend/.env`, and checks it with OpenRouter. Press Enter to skip: the simulation still runs, with free rule-based CEOs.
 
-Without an API key the simulation runs in pure-math mode (the heuristic tier handles every decision, no LLM calls). With a key, Claude Haiku powers the tactical tier and Claude Sonnet powers the strategic tier + critic.
+## Using It
 
-## Tech Stack
+1. **Pick the CEO model.** Four curated Chinese tiers (prices and benchmark scores fetched live from OpenRouter), or any Claude model:
 
-| Layer | Stack |
-|-------|-------|
-| Frontend | Next.js 16, React 19, d3-force (canvas-rendered), Recharts, TailwindCSS 4 |
-| Backend API | FastAPI, Python 3.12+, Pydantic 2, SSE streaming |
-| Math layer | NumPy 2, SciPy (RK45 → BDF → Euler), Mesa 3 |
-| AI Agents | Anthropic SDK direct (Haiku tactical, Sonnet strategic + critic) |
-| Math Models | Cobb-Douglas production, Lotka-Volterra competition, logistic growth ODEs, multinomial-logit share |
-| Data | `.oleo` profile format (JSON + SHA256 checksum verification) |
+   | Tier | Model | Why |
+   |------|-------|-----|
+   | Bad | `qwen/qwen3.5-9b` | Tiny and nearly free. Fun to watch go bankrupt. |
+   | Mediocre | `deepseek/deepseek-v4-flash` | Fast, cheap, misses second-order effects. |
+   | **Good (default)** | `z-ai/glm-5.3-flash` | Near-frontier reasoning; a 5-year, 4-CEO run costs about $0.03. |
+   | Super good | `xiaomi/mimo-v2.6-pro` | Strongest open-weight model available. |
+
+   Edit `backend/src/simulation/models.yaml` to change the tiers; any OpenRouter model id works.
+2. **Set up the run.** Use a bundled company (Amazon, Apple, Microsoft, SpaceX) or sample one, give each competitor a CEO archetype (founder-operator, venture growth, bootstrapper, consolidator, turnaround), and pick a duration, a hard dollar budget, and whether market shocks fire.
+3. **Watch.** Each company is a cluster in the force graph; nodes appear as CEOs hire, open locations and add revenue streams. The dashboard shows share, cash, every CEO decision with its reasoning, and AI spend. Each CEO writes a post-mortem at the end.
+
+## How a Day Works
+
+`MarketSim.step` in `backend/src/simulation/engine.py`:
+
+1. TAM compounds at the seed's growth rate; market-wide shocks arrive (Poisson) or expire.
+2. Share of customer spend per company: multinomial logit over satisfaction, marketing reach, price (elasticity 1.5) and Lotka-Volterra market strength.
+3. Each company serves `min(demand, physical capacity, Cobb-Douglas production)`, books revenue and costs, and updates cash. A month of negative cash is bankruptcy.
+4. Market strength evolves under N-species Lotka-Volterra competition.
+5. CEOs decide. The heuristic CEO acts weekly: it cuts costs in a cash crisis, expands when capacity binds, and hires when production binds. The AI CEO acts monthly, and early on severe shocks: it spawns or retires nodes, opens locations, and moves price, marketing and capital. Every decision is sanitized against the node library and engine bounds.
+
+AI calls use strict JSON-schema output (node keys are enums, so weak models can't invent them), low reasoning effort, and a compact prompt of about 1.5k tokens. Spend is tracked from OpenRouter's reported cost; when the budget runs out, CEOs fall back to heuristics.
 
 ## Project Structure
 
 ```
-├── frontend/src/
-│   ├── app/                 # Next.js app router (page.tsx + /api/companies)
-│   ├── components/
-│   │   ├── graph/           # ForceGraph (canvas-rendered d3-force) + NodeTooltip
-│   │   ├── modes/           # ModeSelector, UnifiedSetup, UnifiedSimView
-│   │   ├── simulation/      # UnifiedDashboard, CompanyDashboard, MarketDashboard, TimeControls
-│   │   └── ui/              # Shared UI components
-│   ├── hooks/               # useUnifiedSimulation (v2 SSE client)
-│   ├── lib/                 # apiV2.ts (v2 fetch client)
-│   └── types/               # TypeScript types for graph & v2 payloads
-├── frontend/public/
-│   └── companies/           # Preloaded .oleo profiles (Amazon, Apple, Microsoft, SpaceX)
-├── backend/src/
-│   ├── main.py              # FastAPI app, CORS, /health, mounts v2 router
-│   ├── routes/              # FastAPI endpoints (simulation_v2.py — SSE streaming)
-│   ├── simulation/          # Business logic
-│   │   ├── unified_v2.py        # MultiCompanySimV2 + CompanyAgentV2
-│   │   ├── orchestrator.py      # HeuristicOrchestrator + TacticalOrchestrator + StrategicOrchestrator + OrchestratorBundle
-│   │   ├── critic.py            # CriticAgent — stance-alignment scoring
-│   │   ├── seed.py              # CompanySeed + archetype samplers
-│   │   ├── stance.py            # CeoStance + archetype samplers
-│   │   ├── library_loader.py    # NodeLibrary loader
-│   │   ├── bridge.py            # Modifier derivation from spawned nodes
-│   │   ├── shocks.py            # ShockScheduler + apply_active_shocks
-│   │   ├── replay.py            # CostTracker + Transcript (record / replay / off modes)
-│   │   ├── monte_carlo_v2.py    # Parallel run sweep
-│   │   ├── market/              # Standalone MarketEngine + presets
-│   │   └── node_library.yaml    # Universal node taxonomy
-│   └── biosim/              # Pure math layer (no business logic)
-│       ├── math/                # production.py (Cobb-Douglas), competition.py (LV), solver.py (RK45→BDF→Euler), growth.py
-│       ├── engine/              # tick.py — vectorized Mesa-style step
-│       ├── agents/              # Mesa wrapper
-│       └── types/               # StateArrays (struct-of-arrays) + enums
-└── backend/tests/           # pytest suites (test_unified_v2, test_growth_invariants, test_orchestrator_*, test_market_*, test_biosim_integration, ...)
+backend/
+  companies/*.oleo            # bundled company profiles
+  src/main.py                 # FastAPI app: config, models, companies, start/stream/control
+  src/simulation/
+    engine.py                 # Company + MarketSim (the tick loop)
+    dynamics.py               # pure math: Cobb-Douglas, LV, logit share, relaxation ODE
+    ceo.py                    # HeuristicCeo, AiCeo, decision sanitizer
+    llm.py                    # OpenRouter client, model catalog, run budget
+    report.py                 # end-of-run CEO post-mortems
+    library.py                # node library loader + modifier buckets
+    seed.py / stance.py       # company seeds, CEO personas
+    shocks.py                 # shock types + Poisson scheduler
+    node_library.yaml         # universal node taxonomy (industry-agnostic)
+    models.yaml               # AI CEO model tiers
+  tests/                      # pytest (engine, CEOs, OpenRouter client, API)
+frontend/src/
+  app/page.tsx                # model picker → setup → run
+  components/onboarding/      # ModelPicker, SimSetup
+  components/sim/             # SimView, Dashboard, TimeControls
+  components/graph/           # ForceGraph (canvas d3-force) + NodeTooltip
+  hooks/useSimulation.ts      # SSE client state
+  lib/api.ts                  # API client + payload types
+start.py                      # one-command setup and launch
 ```
-
-## How the Simulation Works
-
-Each tick (= 1 simulated day) inside `MultiCompanySimV2.step` runs:
-
-1. **TAM growth** — TAM grows by `market_growth_rate` per tick.
-2. **Per-company attraction** — Compute quality / marketing from each company's spawned-node bridge aggregate, apply per-company shock modifiers (`market_share_mult`, `competitor_pressure_mult`), and multiply by Lotka-Volterra `market_strength`.
-3. **Share allocation** — Multinomial logit `s_i ∝ q_i^β * m_i^α`.
-4. **Per-company tick** — Each `CompanyAgentV2` runs its own step: shocks → bridge aggregation → Cobb-Douglas production cap → satisfaction ODE → revenue / cost / cash → orchestrator triad (heuristic → tactical → strategic + critic) → apply decisions.
-5. **Lotka-Volterra update** — Cross-company `market_strength` evolves with the N-species LV system (`build_competition_matrix` + `step_competition`).
-6. **Death check** — Companies insolvent for `INSOLVENT_TICKS_TO_DEATH` consecutive ticks die; the last death emits an `all_dead` payload.
-
-The orchestrator triad runs at different cadences: heuristic every 7 ticks (free), tactical every 30 ticks (Haiku), strategic every 90 ticks (Sonnet) or on any severe-shock interrupt. The critic agent scores every strategic decision against the locked `CeoStance`. The `CostTracker` enforces a per-run dollar ceiling; the `Transcript` records every LLM call so runs can be deterministically replayed.
-
-## The .oleo Format
-
-`.oleo` is a JSON-based company profile format with SHA256 checksum verification — the loader in `frontend/src/app/api/companies/route.ts` re-computes the SHA256 over the canonicalized (sorted-key, separator-free) JSON and rejects any file whose recorded `checksum` does not match. Each file contains company identity, organization structure, financials, market profile, operations, strategy, and simulation parameters; the loader projects those into a `CompanySeed` for the v2 engine.
 
 ## Configuration
 
-| Variable | Location | Purpose |
-|----------|----------|---------|
-| `ANTHROPIC_API_KEY` | `backend/.env` | Required for tactical (Haiku) + strategic (Sonnet) + critic (Sonnet) tiers. Without it, only the heuristic tier runs and the sim is pure-math. |
-| `ONYX_TRANSCRIPT_BASE` | env var (optional) | Override the sandbox directory under which `transcript_dir` paths resolve. Defaults to `backend/transcripts/`. |
-
-Per-request controls on `POST /api/v2/simulate/start`:
-
-- `ai_ceo_enabled` — Toggle the Haiku/Sonnet tiers on/off (default: on). When off, only the heuristic tier fires.
-- `cost_ceiling_usd` — Dollar ceiling per simulation run (default: $10.00, must be > 0).
-- `rng_seed` — Deterministic run seed. Identical `rng_seed` ⇒ identical `sim_id`, per-company RNG draws, and LV competition matrix.
-- `transcript_dir` — Sandboxed relative path under `ONYX_TRANSCRIPT_BASE` for recording the LLM transcript. Absolute paths and `..` traversal are rejected.
-- `seeds` / `stances` — Optional per-company arrays (length must equal `num_companies`) so each company can have a distinct seed and CEO persona. Otherwise the single `seed`/`stance` is cloned across all companies.
+| Variable | Where | Purpose |
+|----------|-------|---------|
+| `OPENROUTER_API_KEY` | `backend/.env` | Enables AI CEOs. `start.py` writes it. |
+| `OPENROUTER_BASE_URL` | env or `backend/.env` | Optional: point at a proxy or local stand-in. |
 
 ## Development
 
 ```bash
-# Backend
-cd backend && uv sync --group dev
-uv run pytest -m "not slow"     # full suite, skip multi-year tests
-uv run ruff check .              # lint gate (currently green)
+cd backend
+uv sync --group dev
+uv run pytest            # ~2s
+uv run ruff check src tests
 
-# Frontend
-cd frontend && pnpm install && pnpm dev
-pnpm build                       # production build doubles as type-check gate
-pnpm lint                        # eslint
+cd frontend
+pnpm install && pnpm dev
+pnpm lint && pnpm build  # build doubles as the type-check
 ```
 
 ## License

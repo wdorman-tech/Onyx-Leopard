@@ -16,8 +16,8 @@ Onyx Leopard is an open-source, local-run business simulation framework. It mode
 
 **One-shot setup + launch (the supported entry point):**
 ```bash
-python start.py    # checks Python 3.12+/Node/pnpm, installs deps, prompts for ANTHROPIC_API_KEY,
-                   # frees ports 8000/3000, then runs uvicorn + pnpm dev together
+python start.py    # checks Python 3.12+/Node/pnpm, prompts for + verifies OPENROUTER_API_KEY,
+                   # installs deps (uv if present), frees ports 8000/3000, runs uvicorn + pnpm dev
 ```
 
 **Backend (run from `backend/`):**
@@ -26,7 +26,7 @@ uv sync --group dev                                # install (or: pip install -e
 uv run uvicorn src.main:app --reload --port 8000   # run API alone
 uv run pytest -v                                   # full suite
 uv run pytest -v -m "not slow"                     # skip multi-year/long-running tests
-uv run pytest tests/test_unified_v2.py::test_name  # single test
+uv run pytest tests/test_engine.py::test_name     # single test
 uv run ruff check src/ tests/
 uv run ruff format src/ tests/
 ```
@@ -43,24 +43,22 @@ pnpm lint         # eslint
 
 There is no frontend test runner configured. Type-check via `pnpm build` or `tsc --noEmit`.
 
-**Configuration:** `backend/.env` holds `ANTHROPIC_API_KEY` (template at `.env.example`). Without it the sim runs in pure-math mode (no LLM orchestrator calls).
+**Configuration:** `backend/.env` holds `OPENROUTER_API_KEY` (template at `.env.example`). Without it the sim runs with heuristic CEOs only (no LLM calls). `OPENROUTER_BASE_URL` optionally points the client at a proxy or local stand-in.
 
 ## Architecture Quick Reference
 
 Concrete pointers so future instances don't have to crawl the tree to find the load-bearing files:
 
-- **API entry:** `backend/src/main.py` mounts `simulation_v2_router` at `/api/v2/simulate` with SSE streaming and CORS for `localhost:3000`. Routes live in `backend/src/routes/simulation_v2.py`.
-- **V2 simulation engine:** `backend/src/simulation/unified_v2.py` — `MultiCompanySimV2` runs N `CompanyAgentV2` instances per tick. This is the active engine. The legacy v1 `unified.py` / `IndustrySpec` path is being deleted (wave 5).
-- **Inputs to the v2 engine:** `seed.py` (`CompanySeed`, ~31 fields, archetype samplers), `stance.py` (`CeoStance`, locked CEO persona), `library_loader.py` (`NodeLibrary`, loads `node_library.yaml`), `shocks.py` (`ShockScheduler`).
-- **Orchestrator triad** (`backend/src/simulation/orchestrator.py`): `HeuristicOrchestrator` (Tier 1, free) → `TacticalOrchestrator` (Haiku) → `StrategicOrchestrator` (Sonnet). The `OrchestratorBundle` decides which nodes spawn/retire each tick. `critic.py` validates strategic decisions.
-- **Pure math layer** lives at **`backend/src/biosim/`** (NOT a separate top-level `src/biosim/` — older docs and the README still say that): `math/production.py` (Cobb-Douglas), `math/competition.py` (Lotka-Volterra), `math/solver.py` (RK45 → BDF → Euler), `math/growth.py`, `engine/tick.py`, `agents/mesa_model.py`. v2 imports these directly (`from src.biosim.math.competition import ...`).
-- **Standalone market engine:** `backend/src/simulation/market/engine.py` (`MarketEngine`) with presets in `presets.py` — the price-war / innovation-race / monopoly / commodity scenarios used by the market dashboard.
-- **Bridge derivation:** `bridge.py` derives modifier aggregates each tick from the live spawned-node set. There is no static modifier-key declaration in v2 (intentional — see the file header on the empty-modifier-key bug class it eliminates).
-- **Frontend:** Next.js App Router under `frontend/src/app/`, force-directed canvas graph at `frontend/src/components/graph/ForceGraph.tsx` (the visual reference — see "Visualization" below), v2 SSE client in `frontend/src/lib/apiV2.ts` and `frontend/src/hooks/useV2Simulation.ts`.
+- **API entry:** `backend/src/main.py` — FastAPI app with CORS for `localhost:3000`. Routes: `/api/config`, `/api/models`, `/api/archetypes`, `/api/companies`, `/api/seed/sample/{archetype}`, `/api/simulate/start|stream/{id}|control/{id}` (SSE stream).
+- **Engine:** `backend/src/simulation/engine.py` — `MarketSim` ticks N `Company` instances (one tick = one day) in a shared market. All companies in a run share one `CompanySeed`; they differ by CEO stance.
+- **Inputs:** `seed.py` (`CompanySeed`, archetype sampler that derives a coherent seed from the library, `.oleo` profile conversion), `stance.py` (`CeoStance`, locked persona + archetype profiles), `library.py` (`NodeLibrary` from `node_library.yaml`, plus the suffix-based modifier buckets), `shocks.py` (table-driven shock types; market-scope shocks hit every company, company-scope shocks one).
+- **CEOs** (`backend/src/simulation/ceo.py`): `HeuristicCeo` (free, weekly) and `AiCeo` (OpenRouter, monthly + on severe shocks). `sanitize()` enforces prerequisites, caps and engine bounds on every decision. `report.py` writes end-of-run post-mortems.
+- **OpenRouter client** (`backend/src/simulation/llm.py`): strict JSON-schema output routed to providers that support it (falls back to prompt-JSON), low reasoning effort, cost from `usage.cost`, a per-run `Budget`; fatal errors (bad key, no credit) disable AI for the run. Model tiers live in `models.yaml`; prices and benchmark scores are fetched live from `/models`.
+- **Pure math layer:** `backend/src/simulation/dynamics.py` — Cobb-Douglas, exact relaxation ODE, N-species Lotka-Volterra (RK45 → BDF → Euler), multinomial-logit share with price elasticity. No business logic.
+- **Company profiles:** `backend/companies/*.oleo`.
+- **Frontend:** Next.js App Router, single page `frontend/src/app/page.tsx` (model picker → setup → run). Canvas graph at `frontend/src/components/graph/ForceGraph.tsx` (the visual reference — see "Visualization" below). SSE client in `frontend/src/hooks/useSimulation.ts`, API types in `frontend/src/lib/api.ts`.
 
 **Frontend caveat:** `frontend/AGENTS.md` warns that Next.js 16 has breaking changes from prior versions — App Router conventions in your training data may be wrong. Read `node_modules/next/dist/docs/` before writing Next.js code, and heed deprecation notices.
-
-**Path drift to watch for:** The README's "Project Structure" and Development sections still describe `src/biosim/` and a top-level `tests/` — those are stale. Real locations are `backend/src/biosim/` and `backend/tests/`.
 
 ## Core Vision
 
@@ -103,8 +101,8 @@ Each node/agent carries its own running state history. Behavior in tick N+1 is s
 ### 6. Separation of Concerns
 
 Three distinct layers, never mixed:
-- **Pure math layer** (`backend/src/biosim/`): ODEs, growth models, competition models via Mesa/NumPy/SciPy. No business logic, no API calls, no UI concerns.
-- **Business logic layer** (`backend/src/simulation/` + `backend/src/routes/`): FastAPI routes, session management, seed/stance/library inputs, orchestrator triad, SSE streaming. Active engine is `MultiCompanySimV2` in `unified_v2.py`; `MarketEngine` is the standalone market-dashboard engine. The legacy v1 `UnifiedEngine` path is being retired. Shared math is consolidating into the pure math layer — v2 already imports `production`, `competition`, and `solver` directly from `src.biosim`.
+- **Pure math layer** (`backend/src/simulation/dynamics.py`): ODEs, production, competition and share models via NumPy/SciPy. No business logic, no API calls, no UI concerns.
+- **Business logic layer** (`backend/src/simulation/` + `backend/src/main.py`): engine, seed/stance/library inputs, CEOs, OpenRouter client, sessions, SSE streaming.
 - **Presentation layer** (`frontend/src/`): Visualization, controls, dashboards. Consumes SSE streams. No simulation logic.
 
 ### 7. Data-Driven Configuration
@@ -138,19 +136,18 @@ When adding new mechanics, find the established mathematical model for that phen
 ## AI Agent Architecture
 
 ### Current State
-- v2 uses an orchestrator triad (`backend/src/simulation/orchestrator.py`): `HeuristicOrchestrator` (rule-based, every tick, free) → `TacticalOrchestrator` (Haiku) → `StrategicOrchestrator` (Sonnet). The `CriticAgent` (`critic.py`) scores strategic proposals.
-- CEO persona is locked at start via `CeoStance` (`stance.py`); company shape comes from `CompanySeed` (`seed.py`) — both are inputs to `/api/v2/simulate/start`.
-- The orchestrator decides which nodes spawn/retire from a universal `NodeLibrary` (`node_library.yaml`); bridge modifiers are derived each tick from the live spawned set, not declared statically.
-- `CostTracker` (`replay.py`) enforces a per-run dollar ceiling; `Transcript` records the full decision stream for replay.
-- All simulation math runs without AI — AI is an overlay, not a dependency. With no `ANTHROPIC_API_KEY` the heuristic tier handles every decision.
+- Two CEO tiers per company: `HeuristicCeo` (rule-based, weekly, free) and `AiCeo` (one LLM via OpenRouter, monthly and on the first tick of a severe shock).
+- The user picks one model per run on the onboarding screen: four curated Chinese open-weight tiers (bad / mediocre / good / super good; default `z-ai/glm-5.3-flash`) or any live Claude model. Tiers are data in `models.yaml`.
+- CEO persona is locked via `CeoStance` and rendered into the system prompt (inception prompting); `references_stance` is constrained to real stance fields.
+- Prompts are compact (~1.5k tokens): current state, 6 months of history, rivals, active shocks, the CEO's last 3 decisions, and only the nodes that can be spawned right now.
+- `Budget` enforces a per-run dollar ceiling from OpenRouter's reported cost; once spent, CEOs continue on heuristics.
+- All simulation math runs without AI — AI is an overlay, not a dependency. With no `OPENROUTER_API_KEY` the heuristic CEO handles every decision.
 
 ### Target Architecture
-- Agents operate within the simulation tick loop, not called externally by routes
-- Tiered AI: pure math (most computation) → heuristic rules (quarterly) → Haiku (operational agents) → Sonnet (executive agents)
 - Per-agent persistent memory that shapes behavior across the full simulation run
 - Probabilistic activation — agents fire based on domain cadence, not fixed intervals
-- Role-locked via inception prompting so agent personas don't drift
-- Budget-tracked: every AI call has a cost ceiling per simulation run
+- Department-level agents under the CEO (workforce coordinator pattern)
+- Monte Carlo runner over seeds/stances with statistical comparison of outcomes
 
 ## Inspiration: MiroFish + CAMEL-AI Patterns
 
@@ -184,7 +181,7 @@ The force-directed node graph is the defining visual of Onyx Leopard. The curren
 ### Visual Spec (preserve exactly)
 
 - **Canvas-rendered d3-force simulation** — not SVG, not React Flow, not a library graph component. Raw canvas with `requestAnimationFrame` loop for performance at scale.
-- **Force layout:** d3-force with charge repulsion, link attraction, center gravity, collision detection, radial layout with fixed root node (single company), and custom clustering force with free-floating roots (multi-company).
+- **Force layout:** d3-force with charge repulsion, link attraction, center gravity, collision detection, radial layout with fixed root node (single company), and custom clustering force with roots held on screen by a gentle positioning force (multi-company).
 - **Node categories with distinct colors:**
   - Root: `#ec4899` (pink), radius 14
   - Location: `#22c55e` (green), radius 8
@@ -218,30 +215,37 @@ Any new feature that adds nodes, edges, or visual state must integrate into this
 
 ## Tech Stack
 
-- **Backend:** Python >=3.12, FastAPI, NumPy 2, SciPy, Pydantic 2, camel-ai (multi-agent framework), edgartools (SEC EDGAR)
-- **Pure math layer:** Mesa 3, NumPy, SciPy, NetworkX — at `backend/src/biosim/` (a sub-package of the backend, not a separate top-level project)
+- **Backend:** Python >=3.12, FastAPI, Pydantic 2, httpx (OpenRouter), NumPy 2, SciPy, PyYAML
 - **Frontend:** Next.js 16, React 19, d3-force (canvas-rendered), Recharts, TailwindCSS 4, TypeScript (strict). Note: Next.js 16 has breaking changes — see `frontend/AGENTS.md`.
-- **AI:** Anthropic Claude API — Sonnet for the strategic orchestrator + critic, Haiku for the tactical orchestrator. Heuristic tier needs no key.
-- **Configuration:** Universal `node_library.yaml` (no per-industry specs in v2), JSON company profiles (.oleo format), `CompanySeed` + `CeoStance` Pydantic models on the API.
+- **AI:** OpenRouter — cheap Chinese open-weight models by default, any Claude model optional. The heuristic tier needs no key.
+- **Configuration:** Universal `node_library.yaml`, `models.yaml` (CEO model tiers), JSON company profiles (`.oleo`), `CompanySeed` + `CeoStance` Pydantic models.
 - **Deployment:** Local only. No cloud services. `start.py` is the single entry point.
 
 ## Project Structure
 
 ```
-backend/src/main.py              # FastAPI app, CORS, /health, mounts simulation_v2_router
-backend/src/routes/              # FastAPI API routes (simulation_v2.py — SSE streaming)
-backend/src/simulation/          # Business logic: unified_v2, orchestrator, seed, stance,
-                                 #   library_loader, bridge, shocks, critic, replay, monte_carlo_v2
-backend/src/simulation/market/   # Standalone MarketEngine + presets (separate from v2 unified engine)
-backend/src/simulation/node_library.yaml  # Universal node taxonomy (replaces v1 industry specs)
-backend/src/biosim/              # Pure math engine (NumPy/SciPy/Mesa) — math/, engine/, agents/, types/
-backend/tests/                   # pytest suites (test_unified_v2, test_growth_invariants,
-                                 #   test_orchestrator_*, test_market_*, test_biosim_integration, ...)
-frontend/src/                    # Next.js frontend (App Router)
+backend/src/main.py                      # FastAPI app, routes, sessions, SSE
+backend/src/simulation/engine.py         # Company + MarketSim (tick loop)
+backend/src/simulation/dynamics.py       # Pure math layer
+backend/src/simulation/ceo.py            # HeuristicCeo, AiCeo, sanitize
+backend/src/simulation/llm.py            # OpenRouter client, catalog, budget
+backend/src/simulation/report.py         # End-of-run CEO post-mortems
+backend/src/simulation/library.py        # Node library + modifier buckets
+backend/src/simulation/seed.py           # CompanySeed, sampler, .oleo import
+backend/src/simulation/stance.py         # CeoStance + archetypes
+backend/src/simulation/shocks.py         # Shock types + Poisson scheduler
+backend/src/simulation/node_library.yaml # Universal node taxonomy
+backend/src/simulation/models.yaml       # AI CEO model tiers
+backend/companies/                       # Bundled .oleo profiles
+backend/tests/                           # pytest: engine, ceo, llm, api
+frontend/src/app/page.tsx                # Model picker → setup → run
+frontend/src/components/onboarding/      # ModelPicker, SimSetup
+frontend/src/components/sim/             # SimView, Dashboard, TimeControls
 frontend/src/components/graph/ForceGraph.tsx  # The canvas force graph — visual reference
-frontend/AGENTS.md               # READ FIRST when editing frontend — Next.js 16 caveats
-documentation/                   # Architecture docs (market_engine_*)
-research/industries/             # Industry research (sourced) — 15 industries
-start.py                         # Single entry point: deps + dual-server launch
-.env.example                     # Template; real key lives in backend/.env
+frontend/src/hooks/useSimulation.ts      # SSE client state
+frontend/src/lib/api.ts                  # API client + payload types
+frontend/AGENTS.md                       # READ FIRST when editing frontend — Next.js 16 caveats
+research/, references/, documentation/   # Industry research and design references (not used by code)
+start.py                                 # Single entry point: key prompt, deps, dual-server launch
+.env.example                             # Template; real key lives in backend/.env
 ```
