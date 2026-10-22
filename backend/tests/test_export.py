@@ -97,3 +97,12 @@ def test_save_run_writes_json_csv_and_pdf(tmp_path) -> None:  # type: ignore[no-
     assert export.run_file(run_dir.name, "report.pdf", tmp_path) == run_dir / "report.pdf"
     assert export.run_file("../etc", "report.pdf", tmp_path) is None
     assert export.run_file(run_dir.name, "secrets.env", tmp_path) is None
+
+
+def test_clip_cuts_at_a_word_boundary() -> None:
+    from src.simulation.report import clip
+
+    assert clip("short", 10) == "short"
+    assert clip("Held: rule proposed [Jev p=0.55 vs baseline 0.55: approved]", 40) == (
+        "Held: rule proposed [Jev p=0.55 vs…"
+    )

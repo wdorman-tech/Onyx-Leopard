@@ -145,6 +145,14 @@ def _user_prompt(company: Company) -> str:
     )
 
 
+def clip(text: str, limit: int) -> str:
+    """Shorten at a word boundary with an ellipsis."""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:([")
+    return f"{cut}…"
+
+
 def _money(n: float) -> str:
     for scale, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "k")):
         if abs(n) >= scale:
@@ -177,7 +185,7 @@ def heuristic_report(company: Company) -> CeoReport:
         performance_summary=summary,
         what_went_well=well,
         what_went_wrong=wrong,
-        key_decisions=[f"Day {d.day}: {d.reasoning[:140]}" for d in picks]
+        key_decisions=[f"Day {d.day}: {clip(d.reasoning, 140)}" for d in picks]
         or ["No CEO decisions were recorded."],
         final_assessment=verdict,
     )

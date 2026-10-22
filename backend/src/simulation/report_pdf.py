@@ -42,6 +42,8 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from src.simulation.report import clip
+
 # ─── Theme (mirrors frontend/src/app/globals.css) ──────────────────────────
 
 INK: Final = "#0f172a"
@@ -827,17 +829,15 @@ def _company_section(run: dict[str, Any], axis: _Axis, c: dict[str, Any], color:
             well_wrong,
         ]
         if report["key_decisions"]:
-            flow.append(_p("KEY DECISIONS", "h3"))
-            flow += [_p(f"&bull; {_t(k)}", "body") for k in report["key_decisions"]]
-        flow += [Spacer(1, 6), _p("FINAL ASSESSMENT", "h3"), verdict]
+            bullets = [_p(f"&bull; {_t(k)}", "body") for k in report["key_decisions"]]
+            flow.append(KeepTogether([_p("KEY DECISIONS", "h3"), *bullets]))
+        flow += [Spacer(1, 6), KeepTogether([_p("FINAL ASSESSMENT", "h3"), verdict])]
 
     sample = _sample_decisions(decisions)
     if sample:
         rows: list[list[Any]] = [[_p(h, "label") for h in ("DAY", "BY", "ACTION", "REASONING")]]
         for d in sample:
-            reasoning = d["reasoning"]
-            if len(reasoning) > 260:
-                reasoning = reasoning[:257].rstrip() + "…"
+            reasoning = clip(d["reasoning"], 260)
             rows.append(
                 [
                     _p(str(d["day"]), "cell"),
@@ -856,10 +856,9 @@ def _company_section(run: dict[str, Any], axis: _Axis, c: dict[str, Any], color:
             if i % 2 == 0:
                 style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor(PANEL)))
         table.setStyle(TableStyle(style))
-        flow += [
-            _p(f"DECISION LOG · {len(sample)} OF {len(decisions)}", "h3"),
-            table,
-        ]
+        flow.append(
+            KeepTogether([_p(f"DECISION LOG · {len(sample)} OF {len(decisions)}", "h3"), table])
+        )
     return flow
 
 
