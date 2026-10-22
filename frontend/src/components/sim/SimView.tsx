@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Bot } from "lucide-react";
+import { ArrowLeft, Bot, Scale } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { ForceGraph } from "@/components/graph/ForceGraph";
 import { Dashboard } from "@/components/sim/Dashboard";
@@ -38,7 +38,9 @@ export function SimView({ sim, modelName, onBack }: SimViewProps) {
             <Logo size={16} className="text-accent" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-sm font-bold text-surface-900 tracking-wide">ONYX LEOPARD</h1>
+            <h1 className="text-sm font-bold text-surface-900 tracking-wide whitespace-nowrap">
+              ONYX LEOPARD
+            </h1>
             <p className="text-[10px] text-surface-500 uppercase tracking-widest truncate">
               {subtitle}
             </p>
@@ -55,8 +57,8 @@ export function SimView({ sim, modelName, onBack }: SimViewProps) {
               title={sim.ai.error ?? `${sim.ai.calls} AI calls on ${sim.ai.model}`}
             >
               <Bot size={12} />
-              <span className="font-medium">{modelName ?? sim.ai.model}</span>
-              <span className="font-mono">
+              <span className="font-medium truncate max-w-[9rem]">{modelName ?? sim.ai.model}</span>
+              <span className="font-mono whitespace-nowrap">
                 {formatUsd(sim.ai.spent_usd)} / {formatUsd(sim.ai.budget_usd)}
               </span>
             </div>
@@ -64,6 +66,22 @@ export function SimView({ sim, modelName, onBack }: SimViewProps) {
             sim.latest && (
               <span className="text-[10px] text-surface-500 px-2">Heuristic CEOs</span>
             )
+          )}
+          {sim.jev && (
+            <div
+              className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border ${
+                sim.jev.error
+                  ? "border-negative/40 text-negative bg-negative/5"
+                  : "border-surface-200 text-surface-600"
+              }`}
+              title={sim.jev.error ?? `${sim.jev.calls} Jev calls · ${formatUsd(sim.jev.cost_usd)}`}
+            >
+              <Scale size={12} />
+              <span className="font-medium">Jev</span>
+              <span className="font-mono whitespace-nowrap">
+                {sim.jev.approved} ok · {sim.jev.vetoed} veto
+              </span>
+            </div>
           )}
           <TimeControls
             playing={sim.status === "running"}
@@ -102,6 +120,7 @@ export function SimView({ sim, modelName, onBack }: SimViewProps) {
             feed={sim.feed}
             events={sim.events}
             reports={sim.reports}
+            savedRun={sim.savedRun}
             focusedId={focusedId}
             onFocus={setFocusedId}
           />

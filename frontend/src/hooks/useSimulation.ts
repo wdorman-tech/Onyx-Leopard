@@ -7,6 +7,8 @@ import {
   type CeoDecision,
   type CeoReport,
   type CompanyState,
+  type JevStatus,
+  type SavedRun,
   type StartRequest,
   type StreamEvent,
   type TickEvent,
@@ -91,6 +93,8 @@ export function useSimulation() {
   const [reports, setReports] = useState<CeoReport[] | null>(null);
   const [thinking, setThinking] = useState(false);
   const [ai, setAi] = useState<AiStatus | null>(null);
+  const [jev, setJev] = useState<JevStatus | null>(null);
+  const [savedRun, setSavedRun] = useState<SavedRun | null>(null);
   const streamRef = useRef<EventSource | null>(null);
   const signatureRef = useRef("");
 
@@ -100,6 +104,7 @@ export function useSimulation() {
         setThinking(false);
         setLatest(data);
         setAi(data.ai);
+        setJev(data.jev);
         const signature = graphSignature(data.companies);
         if (signature !== signatureRef.current) {
           signatureRef.current = signature;
@@ -128,6 +133,9 @@ export function useSimulation() {
       case "reports":
         setReports(data.reports.length ? data.reports : null);
         return;
+      case "saved":
+        setSavedRun({ run_id: data.run_id, files: data.files, error: data.error });
+        return;
       case "complete":
         setThinking(false);
         setAi(data.ai);
@@ -153,6 +161,8 @@ export function useSimulation() {
       setReports(null);
       setThinking(false);
       setAi(null);
+      setJev(null);
+      setSavedRun(null);
       signatureRef.current = "";
       try {
         const resp = await startSimulation(req);
@@ -220,6 +230,8 @@ export function useSimulation() {
     reports,
     thinking,
     ai,
+    jev,
+    savedRun,
     start,
     play,
     pause,
