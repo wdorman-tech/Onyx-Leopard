@@ -276,3 +276,29 @@ def test_verify_key_against_openrouter_shapes() -> None:
         verify_key(GOOD_KEY, httpx.AsyncClient(transport=httpx.MockTransport(offline)))
     )
     assert down.status == "unverified"
+
+
+def test_post_mortems_stay_ai_written_when_decisions_hit_the_budget(
+    library, router: FakeRouter
+) -> None:  # type: ignore[no-untyped-def]
+    import asyncio
+
+    from src.simulation.report import write_report
+    from tests.conftest import make_company, make_llm
+
+    company = make_company(library)
+    llm = make_llm(router, budget=0.01)
+    llm.budget.report_calls = 1
+    llm.budget.record(0.009)  # decisions have used everything but the reserve
+    assert not llm.available and llm.can_report
+    router.respond = lambda _body: completion(
+        {
+            "performance_summary": "Held on.",
+            "what_went_well": "Margins.",
+            "what_went_wrong": "Late hires.",
+            "key_decisions": ["Day 30: held"],
+            "final_assessment": "Survived.",
+        }
+    )
+    report = asyncio.run(write_report(company, llm))
+    assert report.source == "ai"

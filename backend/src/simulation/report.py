@@ -61,13 +61,14 @@ REPORT_SCHEMA: dict[str, Any] = {
 
 
 async def write_report(company: Company, llm: OpenRouterClient | None) -> CeoReport:
-    if llm is not None and llm.available:
+    if llm is not None and llm.can_report:
         try:
             raw = await llm.complete_json(
                 system=_system_prompt(company),
                 user=_user_prompt(company),
                 schema_name="ceo_report",
                 schema=REPORT_SCHEMA,
+                use_reserve=True,
             )
             fields = {k: raw.get(k) for k in _REPORT_FIELDS}
             if isinstance(fields["key_decisions"], str):
