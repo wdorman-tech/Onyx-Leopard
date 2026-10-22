@@ -51,15 +51,32 @@ from src.simulation.seed import CompanySeed
 from src.simulation.shocks import Shock
 from src.simulation.stance import CeoStance
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Mock plumbing (mirrors test_orchestrator_llm.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def _content_block(text: str) -> Any:
+    """Build a mock content block.
+
+    Both the orchestrator and the critic now use forced tool_choice, so
+    any dict-shaped JSON (CeoDecision OR CriticScore) becomes a `tool_use`
+    block. Unparseable strings stay as text to exercise malformed-response
+    handling.
+    """
     block = MagicMock()
-    block.text = text
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        block.type = "tool_use"
+        block.input = parsed
+        block.text = None
+    else:
+        block.type = "text"
+        block.text = text
+        block.input = None
     return block
 
 

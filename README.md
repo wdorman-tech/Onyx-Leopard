@@ -1,18 +1,18 @@
 # Onyx Leopard
 
-**AI-powered business strategy simulator.** Build a company from scratch, import one from SEC EDGAR, or load a preloaded profile (.oleo). Watch it come to life as an interactive org graph, then run a multi-agent biological simulation where every department makes autonomous decisions — hiring, investing, cutting costs — driven by real production economics, ecological competition, and AI agents that handle the strategic edge cases.
+**Open-source, local-run business simulation framework.** Spin up N competing companies seeded from a `CompanySeed` + `CeoStance` archetype, watch them spawn org nodes, accrue cash, take shocks, and battle for market share through real Cobb-Douglas production, Lotka-Volterra competition, and multinomial-logit share allocation. AI agents at three tiers (heuristic / Haiku / Sonnet) make CEO decisions inside the tick loop.
 
 ## What It Does
 
-1. **Build your company** — Use the guided questionnaire, paste a description, upload documents, or pull real financials from SEC EDGAR. Claude turns it into a structured company profile with departments, revenue streams, and simulation parameters.
-2. **Visualize the org** — Departments, teams, roles, and their relationships render as an interactive flow graph you can explore and refine through chat.
-3. **Run the simulation** — Hit play. An 8-phase tick engine drives each simulated week: Cobb-Douglas production economics, logistic growth ODEs, Lotka-Volterra competition, and 12 AI agents per company making autonomous strategic decisions via a 4-tier hybrid engine.
-4. **Inject chaos** — Drop events mid-simulation ("supplier goes bankrupt", "competitor launches rival product") and watch how the AI agents across all companies respond and adapt.
-5. **Compare scenarios** — Fork simulations, change parameters, and compare outcomes side by side.
+1. **Pick a seed and stance archetype** — `solo_founder`, `small_team`, `venture_funded`, `enterprise` for the company shape; `bootstrap`, `founder_operator`, `venture_growth`, `consolidator`, `turnaround` for the CEO persona. Sample one via API, or load a preloaded `.oleo` profile.
+2. **Run the simulation** — Hit play. Each tick (= 1 simulated day) runs production economics, derives bridge modifiers from spawned nodes, allocates demand via multinomial logit, updates Lotka-Volterra market_strength, and asks the orchestrator triad whether any nodes should spawn or retire.
+3. **Watch the graph** — Companies render as force-directed canvas clusters in the browser, with nodes spawning live as the orchestrator hires roles, opens locations, and adds revenue streams.
+4. **Toggle AI CEO** — With the toggle on, Haiku-tactical and Sonnet-strategic tiers fire on cadence (every 30 / 90 ticks). With it off, only the free heuristic tier runs.
+5. **Shocks** — Poisson-arrival shocks (market crash, key employee departure, supplier failure, etc.) inject through the `ShockScheduler` and propagate into the math each tick.
 
 ## Preloaded Companies
 
-Four real-world company profiles ship ready to simulate:
+Four real-world company profiles ship ready to simulate, each carrying a SHA256 checksum that the loader verifies on every read:
 
 | File | Company |
 |------|---------|
@@ -21,8 +21,6 @@ Four real-world company profiles ship ready to simulate:
 | `microsoft.oleo` | Microsoft |
 | `spacex.oleo` | SpaceX |
 
-Import any `.oleo` file to load a complete company profile with org structure, financials, market data, operations, strategy, and simulation parameters. Export your own companies as `.oleo` to share or reload later.
-
 ## Quick Start
 
 **Prerequisites:** [Python 3.12+](https://www.python.org/downloads/), [Node.js 18+](https://nodejs.org/), [pnpm](https://pnpm.io/installation)
@@ -30,121 +28,107 @@ Import any `.oleo` file to load a complete company profile with org structure, f
 ```bash
 git clone https://github.com/wdorman-tech/Onyx-Leopard.git
 cd Onyx-Leopard
-python start.py          # installs deps, prompts for API key, launches servers
+python start.py          # installs deps, prompts for API key, launches both servers
 ```
 
 Open [http://localhost:3000](http://localhost:3000) when it's ready. The script will prompt for your [Anthropic API key](https://console.anthropic.com/) on first run — you can also set it later in `backend/.env`.
 
-Without an API key the simulation runs in pure-math mode (Tier 0/1 only — no LLM calls). With a key, Claude Sonnet powers the company builder and Claude Haiku/Sonnet drive department-level agent decisions.
+Without an API key the simulation runs in pure-math mode (the heuristic tier handles every decision, no LLM calls). With a key, Claude Haiku powers the tactical tier and Claude Sonnet powers the strategic tier + critic.
 
 ## Tech Stack
 
 | Layer | Stack |
 |-------|-------|
-| Frontend | Next.js 16, React 19, React Flow (xyflow), Recharts, TailwindCSS 4 |
-| Backend API | FastAPI, Python 3.12+, Pydantic 2 |
-| Simulation Engine | Mesa 3, NumPy (vectorized struct-of-arrays), SciPy (ODE solvers) |
-| AI Agents | CAMEL-AI framework, Claude Sonnet + Haiku via Anthropic API |
-| Math Models | Cobb-Douglas production, Lotka-Volterra competition, logistic growth ODEs |
-| Data | SEC EDGAR via edgartools, .oleo profile format (JSON + SHA256 checksum) |
+| Frontend | Next.js 16, React 19, d3-force (canvas-rendered), Recharts, TailwindCSS 4 |
+| Backend API | FastAPI, Python 3.12+, Pydantic 2, SSE streaming |
+| Math layer | NumPy 2, SciPy (RK45 → BDF → Euler), Mesa 3 |
+| AI Agents | Anthropic SDK direct (Haiku tactical, Sonnet strategic + critic) |
+| Math Models | Cobb-Douglas production, Lotka-Volterra competition, logistic growth ODEs, multinomial-logit share |
+| Data | `.oleo` profile format (JSON + SHA256 checksum verification) |
 
 ## Project Structure
 
 ```
 ├── frontend/src/
-│   ├── app/                 # Next.js app router
+│   ├── app/                 # Next.js app router (page.tsx + /api/companies)
 │   ├── components/
-│   │   ├── chat/            # Chat-based company building
-│   │   ├── flow/            # React Flow org graph canvas
-│   │   ├── simulation/      # Simulation controls & real-time dashboard
-│   │   ├── onboarding/      # Questionnaire, EDGAR lookup
-│   │   ├── toolbar/         # Import/Export .oleo buttons
+│   │   ├── graph/           # ForceGraph (canvas-rendered d3-force) + NodeTooltip
+│   │   ├── modes/           # ModeSelector, UnifiedSetup, UnifiedSimView
+│   │   ├── simulation/      # UnifiedDashboard, CompanyDashboard, MarketDashboard, TimeControls
 │   │   └── ui/              # Shared UI components
-│   ├── hooks/               # useSimulation, useOnboarding, useScenarios
-│   ├── lib/                 # API client, layout utilities
-│   └── types/               # TypeScript types for graph & profile
+│   ├── hooks/               # useUnifiedSimulation (v2 SSE client)
+│   ├── lib/                 # apiV2.ts (v2 fetch client)
+│   └── types/               # TypeScript types for graph & v2 payloads
 ├── frontend/public/
 │   └── companies/           # Preloaded .oleo profiles (Amazon, Apple, Microsoft, SpaceX)
 ├── backend/src/
-│   ├── agents/              # Claude parsers, questionnaire, graph generator, EDGAR client
-│   ├── simulation/          # Session manager, state, agent prompts
-│   ├── routes/              # FastAPI endpoints (company, import/export, documents)
-│   └── schemas.py           # Pydantic models (CompanyProfile, OleoExport, etc.)
-├── src/biosim/
-│   ├── agents/              # Mesa agents + CAMEL-AI department agents
-│   │   ├── mesa_model.py    # BioSimModel (Mesa wrapper)
-│   │   ├── department_agent.py  # CAMEL-AI ChatAgent wrappers (12 departments)
-│   │   ├── prompts.py       # System prompt templates
-│   │   ├── tools.py         # Simulation action tools (hire, fire, budget, etc.)
-│   │   └── llm_backend.py   # Agent pool manager
-│   ├── engine/              # 8-phase tick loop
-│   │   ├── tick.py          # TickEngine (sense → ODE → agents → compete → grow → emit)
-│   │   ├── state_manager.py # StateArrays lifecycle + history
-│   │   ├── decision_router.py  # 4-tier hybrid decision routing
-│   │   └── heuristics.py    # Tier 1 rule-based decisions (12 departments)
-│   ├── math/                # Vectorized computation
-│   │   ├── production.py    # Cobb-Douglas: Y = A * K^α * L^β
-│   │   ├── competition.py   # N-species Lotka-Volterra
-│   │   └── solver.py        # Batched ODE solver (RK45 → BDF → Euler)
-│   └── types/               # State arrays, config, enums, decision types
-└── references/              # PRD, research docs
+│   ├── main.py              # FastAPI app, CORS, /health, mounts v2 router
+│   ├── routes/              # FastAPI endpoints (simulation_v2.py — SSE streaming)
+│   ├── simulation/          # Business logic
+│   │   ├── unified_v2.py        # MultiCompanySimV2 + CompanyAgentV2
+│   │   ├── orchestrator.py      # HeuristicOrchestrator + TacticalOrchestrator + StrategicOrchestrator + OrchestratorBundle
+│   │   ├── critic.py            # CriticAgent — stance-alignment scoring
+│   │   ├── seed.py              # CompanySeed + archetype samplers
+│   │   ├── stance.py            # CeoStance + archetype samplers
+│   │   ├── library_loader.py    # NodeLibrary loader
+│   │   ├── bridge.py            # Modifier derivation from spawned nodes
+│   │   ├── shocks.py            # ShockScheduler + apply_active_shocks
+│   │   ├── replay.py            # CostTracker + Transcript (record / replay / off modes)
+│   │   ├── monte_carlo_v2.py    # Parallel run sweep
+│   │   ├── market/              # Standalone MarketEngine + presets
+│   │   └── node_library.yaml    # Universal node taxonomy
+│   └── biosim/              # Pure math layer (no business logic)
+│       ├── math/                # production.py (Cobb-Douglas), competition.py (LV), solver.py (RK45→BDF→Euler), growth.py
+│       ├── engine/              # tick.py — vectorized Mesa-style step
+│       ├── agents/              # Mesa wrapper
+│       └── types/               # StateArrays (struct-of-arrays) + enums
+└── backend/tests/           # pytest suites (test_unified_v2, test_growth_invariants, test_orchestrator_*, test_market_*, test_biosim_integration, ...)
 ```
 
 ## How the Simulation Works
 
-Each tick (= 1 simulated week) runs 8 phases:
+Each tick (= 1 simulated day) inside `MultiCompanySimV2.step` runs:
 
-1. **Sense** — Update market share signals
-2. **Solve ODEs** — Cobb-Douglas production → revenue; logistic growth ODE → firm size and cash
-3. **Agent Decisions** — 4-tier routing classifies each department's situation by novelty. Tier 0 (ODE, ~60%) and Tier 1 (heuristics, ~20%) run at zero cost. Tier 2 (Haiku, ~10%) and Tier 3 (Sonnet, ~10%) make LLM calls for genuinely novel situations.
-4. **Interactions** — Lotka-Volterra N-species competition between firms
-5. **Growth/Division** — Department expansion when growth threshold exceeded; agent decisions (hiring, budget changes, capacity investment) are applied
-6. **Environment Update** — Market condition updates
-7. **Selection** — Remove companies insolvent for 3+ consecutive ticks
-8. **Emit** — Update health scores, reinvest capital, push state to frontend via SSE
+1. **TAM growth** — TAM grows by `market_growth_rate` per tick.
+2. **Per-company attraction** — Compute quality / marketing from each company's spawned-node bridge aggregate, apply per-company shock modifiers (`market_share_mult`, `competitor_pressure_mult`), and multiply by Lotka-Volterra `market_strength`.
+3. **Share allocation** — Multinomial logit `s_i ∝ q_i^β * m_i^α`.
+4. **Per-company tick** — Each `CompanyAgentV2` runs its own step: shocks → bridge aggregation → Cobb-Douglas production cap → satisfaction ODE → revenue / cost / cash → orchestrator triad (heuristic → tactical → strategic + critic) → apply decisions.
+5. **Lotka-Volterra update** — Cross-company `market_strength` evolves with the N-species LV system (`build_competition_matrix` + `step_competition`).
+6. **Death check** — Companies insolvent for `INSOLVENT_TICKS_TO_DEATH` consecutive ticks die; the last death emits an `all_dead` payload.
 
-**Cost:** ~$0.30–0.80 for a 50-tick demo with 3 companies. Budget caps prevent runaway spend.
+The orchestrator triad runs at different cadences: heuristic every 7 ticks (free), tactical every 30 ticks (Haiku), strategic every 90 ticks (Sonnet) or on any severe-shock interrupt. The critic agent scores every strategic decision against the locked `CeoStance`. The `CostTracker` enforces a per-run dollar ceiling; the `Transcript` records every LLM call so runs can be deterministically replayed.
 
 ## The .oleo Format
 
-`.oleo` is a JSON-based company profile format with SHA256 checksum verification. Each file contains:
-
-- **Company identity** — Name, industry, NAICS code, business model, stage
-- **Organization structure** — Departments, teams, roles, headcount
-- **Financials** — Revenue, COGS, margins, assets, debt, ratios
-- **Market profile** — TAM/SAM/SOM, competitors, pricing
-- **Operations** — Production model, suppliers, inventory
-- **Strategy** — Objectives, initiatives, risks, moats
-- **Simulation parameters** — Cobb-Douglas coefficients, ODE initial conditions, seasonality
-
-Import via the toolbar or create from scratch through the chat questionnaire.
+`.oleo` is a JSON-based company profile format with SHA256 checksum verification — the loader in `frontend/src/app/api/companies/route.ts` re-computes the SHA256 over the canonicalized (sorted-key, separator-free) JSON and rejects any file whose recorded `checksum` does not match. Each file contains company identity, organization structure, financials, market profile, operations, strategy, and simulation parameters; the loader projects those into a `CompanySeed` for the v2 engine.
 
 ## Configuration
 
 | Variable | Location | Purpose |
 |----------|----------|---------|
-| `ANTHROPIC_API_KEY` | `backend/.env` | Required for company building (Sonnet) and simulation agents (Haiku/Sonnet) |
+| `ANTHROPIC_API_KEY` | `backend/.env` | Required for tactical (Haiku) + strategic (Sonnet) + critic (Sonnet) tiers. Without it, only the heuristic tier runs and the sim is pure-math. |
+| `ONYX_TRANSCRIPT_BASE` | env var (optional) | Override the sandbox directory under which `transcript_dir` paths resolve. Defaults to `backend/transcripts/`. |
 
-Agent behavior is configured in `SimConfig.agent_config`:
-- `enabled` — Toggle AI agents on/off (default: off)
-- `novelty_threshold` — L2 norm delta to escalate decision tier (default: 0.15)
-- `cost_budget_per_run` — Dollar cap for LLM calls (default: $5.00)
+Per-request controls on `POST /api/v2/simulate/start`:
+
+- `ai_ceo_enabled` — Toggle the Haiku/Sonnet tiers on/off (default: on). When off, only the heuristic tier fires.
+- `cost_ceiling_usd` — Dollar ceiling per simulation run (default: $10.00, must be > 0).
+- `rng_seed` — Deterministic run seed. Identical `rng_seed` ⇒ identical `sim_id`, per-company RNG draws, and LV competition matrix.
+- `transcript_dir` — Sandboxed relative path under `ONYX_TRANSCRIPT_BASE` for recording the LLM transcript. Absolute paths and `..` traversal are rejected.
+- `seeds` / `stances` — Optional per-company arrays (length must equal `num_companies`) so each company can have a distinct seed and CEO persona. Otherwise the single `seed`/`stance` is cloned across all companies.
 
 ## Development
 
 ```bash
 # Backend
 cd backend && uv sync --group dev
-uv run pytest -v
-uv run ruff check src/
-
-# Simulation engine
-cd .. && uv sync --extra dev
-uv run pytest tests/ -v
-uv run ruff check src/ tests/
+uv run pytest -m "not slow"     # full suite, skip multi-year tests
+uv run ruff check .              # lint gate (currently green)
 
 # Frontend
 cd frontend && pnpm install && pnpm dev
+pnpm build                       # production build doubles as type-check gate
+pnpm lint                        # eslint
 ```
 
 ## License

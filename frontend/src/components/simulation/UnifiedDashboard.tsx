@@ -75,6 +75,7 @@ export function UnifiedDashboard({
   // Auto-show reports when they arrive
   useEffect(() => {
     if (reports && reports.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowReports(true);
       setActiveReportIdx(0);
     }
@@ -302,7 +303,7 @@ export function UnifiedDashboard({
             Market Share
           </h3>
           <div className="h-32">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={shareChartData}>
                 <XAxis
                   dataKey="tick"
@@ -492,10 +493,13 @@ export function UnifiedDashboard({
             {/* Tabs */}
             <div className="flex border-b border-surface-200/50 px-3 gap-1 overflow-x-auto">
               {reports.map((r, i) => {
-                const agent = agents.find((a) => a.name === r.company_name);
+                // Match by company_id — `company_name` collides in
+                // identical-start mode (every report shares seed.name).
+                const agent = agents.find((a) => a.id === r.company_id);
+                const tabLabel = agent?.name ?? r.company_name;
                 return (
                   <button
-                    key={i}
+                    key={r.company_id || i}
                     onClick={() => setActiveReportIdx(i)}
                     className={`px-3 py-2 text-[11px] font-medium whitespace-nowrap border-b-2 transition-colors ${
                       activeReportIdx === i
@@ -507,7 +511,7 @@ export function UnifiedDashboard({
                       className="inline-block w-2 h-2 rounded-full mr-1.5"
                       style={{ backgroundColor: agent?.color ?? "#94a3b8" }}
                     />
-                    {r.company_name}
+                    {tabLabel}
                   </button>
                 );
               })}

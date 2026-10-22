@@ -57,7 +57,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
 from anthropic import AsyncAnthropic
@@ -71,6 +71,14 @@ def _get_client() -> AsyncAnthropic:
     return AsyncAnthropic()  # reads ANTHROPIC_API_KEY from env
 
 
+# Critic is imported eagerly at module bottom to keep the cycle one-directional:
+# `critic.py` only references orchestrator types behind `TYPE_CHECKING`, so this
+# direction is safe.
+from src.simulation.critic import (
+    CRITIC_VIOLATION_THRESHOLD,
+    CriticAgent,
+    CriticScore,
+)
 from src.simulation.replay import (
     CeoDecision as _BaseCeoDecision,
 )
@@ -84,15 +92,6 @@ from src.simulation.replay import (
 from src.simulation.seed import CompanySeed
 from src.simulation.shocks import Shock
 from src.simulation.stance import CeoStance, to_system_prompt
-
-# Critic is imported eagerly at module bottom to keep the cycle one-directional:
-# `critic.py` only references orchestrator types behind `TYPE_CHECKING`, so this
-# direction is safe.
-from src.simulation.critic import (
-    CRITIC_VIOLATION_THRESHOLD,
-    CriticAgent,
-    CriticScore,
-)
 
 log = logging.getLogger(__name__)
 
@@ -255,6 +254,71 @@ LLM_MAX_RETRIES: int = 1
 #: `CeoStance.model_fields` so it stays in sync if stance gains/loses fields
 #: without touching this module.
 _STANCE_FIELDS: frozenset[str] = frozenset(CeoStance.model_fields.keys())
+
+
+#: Anthropic tool-use schema for CeoDecision. Forcing the model to call this
+#: tool (via `tool_choice`) guarantees the response is a structured object
+#: matching the schema — the model cannot emit extra fields like
+#: `reasoning_short` or `budget`, which previously caused Pydantic's
+#: `extra="forbid"` to reject the response and trigger expensive retries.
+#: `additionalProperties: false` is the structural backstop; the Pydantic
+#: validation after parse is the belt-and-suspenders backstop.
+_CEO_DECISION_TOOL: dict[str, Any] = {
+    "name": "submit_ceo_decision",
+    "description": (
+        "Submit your CEO decision for this cadence. You MUST call this tool "
+        "exactly once. Every decision MUST cite at least one stance attribute "
+        "in `references_stance` and include non-empty `reasoning`."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["reasoning"],
+        "properties": {
+            "spawn_nodes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "node_library keys to add this period.",
+                "default": [],
+            },
+            "retire_nodes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "node_library keys to remove this period.",
+                "default": [],
+            },
+            "adjust_params": {
+                "type": "object",
+                "additionalProperties": {"type": "number"},
+                "description": "Parameter mutations (e.g. price, marketing_intensity).",
+                "default": {},
+            },
+            "open_locations": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Explicit count of new locations to open this period.",
+                "default": 0,
+            },
+            "reasoning": {
+                "type": "string",
+                "minLength": 1,
+                "description": (
+                    "Plain-language justification — becomes part of the "
+                    "rolling decision history the next call will see."
+                ),
+            },
+            "references_stance": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Non-empty list of CeoStance attribute names that drove "
+                    "this decision. Hallucinated names are filtered out."
+                ),
+                "default": [],
+            },
+        },
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -1128,18 +1192,35 @@ class _LlmOrchestratorBase:
         async def _make_call(
             prompt: str,
         ) -> tuple[_BaseCeoDecision, str, str, int, int]:
+            # Tool-use with forced `tool_choice` makes the schema structurally
+            # enforceable on the API side: the model cannot emit extra fields
+            # or skip required ones. Pydantic still runs after parse as a
+            # belt-and-suspenders backstop in case of SDK changes or partials.
             response = await client.messages.create(
                 model=self.MODEL_ID,
                 max_tokens=self.MAX_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": prompt}],
+                tools=[_CEO_DECISION_TOOL],
+                tool_choice={"type": "tool", "name": _CEO_DECISION_TOOL["name"]},
             )
-            raw = response.content[0].text
-            data = _parse_llm_json(raw)
+            tool_block = next(
+                (b for b in response.content if getattr(b, "type", None) == "tool_use"),
+                None,
+            )
+            if tool_block is None:
+                raise ValueError(
+                    "Expected tool_use block in response (tool_choice was forced); "
+                    f"got blocks: {[getattr(b, 'type', '?') for b in response.content]!r}"
+                )
+            data = dict(tool_block.input)
             try:
                 decision = _BaseCeoDecision(**data)
             except ValidationError as exc:
                 raise ValueError(f"CeoDecision schema mismatch: {exc.errors()}") from exc
+            # `raw` is what gets recorded to the transcript — serialize the
+            # tool input deterministically so replays diff cleanly.
+            raw = json.dumps(data, sort_keys=True, separators=(",", ":"))
             usage = getattr(response, "usage", None)
             input_tokens = int(getattr(usage, "input_tokens", 0)) if usage else 0
             output_tokens = int(getattr(usage, "output_tokens", 0)) if usage else 0
@@ -1573,6 +1654,14 @@ class OrchestratorBundle:
     critic: CriticAgent | None = None
     stance: CeoStance | None = None
     company_id: str = ""
+    ai_ceo_enabled: bool = True
+    #: Severe shocks already responded to via force_wake. Keyed by
+    #: `(shock.name, shock.tick_started)` so a re-arrival of the same shock
+    #: name on a later tick still wakes the strategic tier. Without this,
+    #: every tick a shock is active would burn one Sonnet call (the docstring
+    #: says "wakes immediately on any active severe shock" — that means once
+    #: when the shock first appears, not every tick while it persists).
+    _seen_severe_shocks: set[tuple[str, int]] = field(default_factory=set)
 
     async def tick(
         self, state: CompanyState
@@ -1586,14 +1675,34 @@ class OrchestratorBundle:
         if h is not None:
             decisions.append(h)
 
+        # When the operator disables the AI CEO, short-circuit before any LLM
+        # tier fires. The heuristic stays on because it is free and required
+        # for the engine to make operational decisions.
+        if not self.ai_ceo_enabled:
+            return decisions, critic_scores
+
         # 2. Tactical — async, may skip on cadence/budget/persistent failure.
         t = await self.tactical.tick(state)
         if t is not None:
             decisions.append(t)
 
-        # 3. Strategic — async; force_wake on any severe shock active right now.
-        force_wake = any(shock.severity == "severe" for shock in state.active_shocks)
+        # 3. Strategic — async; force_wake on the FIRST tick we see each
+        #    severe shock, then revert to the 90-tick cadence even while the
+        #    shock is still active. Without this debounce, a multi-tick
+        #    severe shock burned one Sonnet call per tick.
+        new_severe_shocks: list[tuple[str, int]] = []
+        for shock in state.active_shocks:
+            if shock.severity != "severe" or shock.tick_started is None:
+                continue
+            key = (shock.name, shock.tick_started)
+            if key not in self._seen_severe_shocks:
+                new_severe_shocks.append(key)
+        force_wake = bool(new_severe_shocks)
         s = await self.strategic.tick(state, force_wake=force_wake)
+        # Mark as seen only after the wake attempt — if the call was skipped
+        # (cost ceiling, etc.) we still record the shock so we don't loop
+        # forever trying to respond to a budget we cannot afford.
+        self._seen_severe_shocks.update(new_severe_shocks)
         if s is not None:
             decisions.append(s)
 

@@ -204,7 +204,7 @@ def test_categories_from_allowed_set(library: dict[str, dict[str, Any]]) -> None
 
 def test_keys_are_snake_case(library: dict[str, dict[str, Any]]) -> None:
     """All node_keys are snake_case for consistent referencing."""
-    bad = [k for k in library.keys() if not SNAKE_CASE_RE.match(k)]
+    bad = [k for k in library if not SNAKE_CASE_RE.match(k)]
     assert not bad, f"Non-snake_case keys: {bad}"
 
 

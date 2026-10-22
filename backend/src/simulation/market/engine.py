@@ -141,9 +141,7 @@ class MarketEngine:
     def is_complete(self) -> bool:
         if self._status == "collapsed":
             return True
-        if self.max_ticks > 0 and self.tick_num >= self.max_ticks:
-            return True
-        return False
+        return self.max_ticks > 0 and self.tick_num >= self.max_ticks
 
     def _spawn_agent(self) -> AgentState:
         """Create a new agent with randomized parameters."""
@@ -244,7 +242,7 @@ class MarketEngine:
 
         return events
 
-    def tick(self) -> dict:  # noqa: C901 — complex by spec design
+    def tick(self) -> dict:
         """Run one simulation step. Returns tick data dict for SSE."""
         self.tick_num += 1
         p = self.params
@@ -260,7 +258,7 @@ class MarketEngine:
 
         # ── Step 2: Compute share attraction ──
         shares = compute_share_attraction(self.agents, p.alpha, p.beta)
-        for agent, share in zip(self.agents, shares):
+        for agent, share in zip(self.agents, shares, strict=True):
             agent.share = share
 
         # ── Step 3: Effective ceiling per agent ──

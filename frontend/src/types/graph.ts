@@ -1,4 +1,16 @@
-export type NodeCategory = "location" | "corporate" | "external" | "revenue" | "root";
+export type NodeCategory =
+  | "location"
+  | "corporate"
+  | "external"
+  | "revenue"
+  | "root"
+  | "supplier"
+  | "ops"
+  | "sales"
+  | "marketing"
+  | "finance"
+  | "exec"
+  | "cost";
 
 export interface SimNode {
   id: string;

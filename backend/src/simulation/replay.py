@@ -314,6 +314,15 @@ class Transcript:
             # Ensure parent dir exists so the first append doesn't 404.
             self._path.parent.mkdir(parents=True, exist_ok=True)
 
+    @classmethod
+    def off(cls) -> Transcript:
+        """Construct a no-op transcript for runs that skip persistence.
+
+        The path is never touched in off mode, so any sentinel value works.
+        Cross-platform alternative to `Transcript(Path("/dev/null"), "off")`.
+        """
+        return cls(path=Path("transcript-off"), mode="off")
+
     # ── Public API ────────────────────────────────────────────────────────
 
     @property

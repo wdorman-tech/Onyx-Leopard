@@ -15,7 +15,7 @@ class StateArrays:
     alive[i] is True hold meaningful data.
     """
 
-    __slots__ = (
+    __slots__ = (  # noqa: RUF023 — grouped by semantic role, not alphabetical
         "max_capacity",
         "n_active",
         "company_names",
@@ -118,9 +118,7 @@ class StateArrays:
             if arr is None:
                 raise ValueError(f"Unknown parameter '{key}' — not a StateArrays field")
             if isinstance(arr, np.ndarray) and arr.shape[0] == self.max_capacity:
-                if arr.ndim == 1:
-                    arr[idx] = value
-                elif arr.ndim == 2:
+                if arr.ndim == 1 or arr.ndim == 2:
                     arr[idx] = value
             else:
                 raise ValueError(

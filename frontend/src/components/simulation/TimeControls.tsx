@@ -13,7 +13,7 @@ interface TimeControlsProps {
   onSetSpeed: (speed: number) => void;
 }
 
-const SPEEDS = [1, 2, 5, 10, 50, 100, 500];
+const SPEEDS = [1, 2, 5, 10, 50, 100];
 
 export function TimeControls({
   playing,

@@ -9,6 +9,13 @@ const CATEGORY_COLORS: Record<NodeCategory, string> = {
   corporate: "#3b82f6",
   external: "#f59e0b",
   revenue: "#8b5cf6",
+  supplier: "#14b8a6",
+  ops: "#6366f1",
+  sales: "#06b6d4",
+  marketing: "#f97316",
+  finance: "#84cc16",
+  exec: "#0f172a",
+  cost: "#ef4444",
 };
 
 const CATEGORY_LABELS: Record<NodeCategory, string> = {
@@ -17,6 +24,13 @@ const CATEGORY_LABELS: Record<NodeCategory, string> = {
   corporate: "Corporate",
   external: "External",
   revenue: "Revenue",
+  supplier: "Supplier",
+  ops: "Operations",
+  sales: "Sales",
+  marketing: "Marketing",
+  finance: "Finance",
+  exec: "Executive",
+  cost: "Cost",
 };
 
 interface NodeTooltipProps {

@@ -214,10 +214,10 @@ def test_control_set_speed(client, valid_seed_dict, valid_stance_dict):
     sid = start["session_id"]
     r = client.post(
         f"/api/v2/simulate/control/{sid}",
-        json={"action": "set_speed", "speed": 0.01},
+        json={"action": "set_speed", "speed": 10.0},
     )
     assert r.status_code == 200
-    assert r.json()["speed"] == 0.01
+    assert r.json()["speed"] == 10.0
 
 
 def test_control_unknown_session(client):
@@ -252,8 +252,8 @@ def test_stream_emits_tick_events(client, valid_seed_dict, valid_stance_dict):
     }
     sid = client.post("/api/v2/simulate/start", json=body).json()["session_id"]
 
-    # Set speed very high to drain the sim quickly
-    client.post(f"/api/v2/simulate/control/{sid}", json={"action": "set_speed", "speed": 0.001})
+    # Set speed very high to drain the sim quickly (multiplier semantic).
+    client.post(f"/api/v2/simulate/control/{sid}", json={"action": "set_speed", "speed": 1000.0})
 
     with client.stream("GET", f"/api/v2/simulate/stream/{sid}") as resp:
         assert resp.status_code == 200

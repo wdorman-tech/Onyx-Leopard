@@ -60,8 +60,27 @@ from src.simulation.stance import CeoStance
 
 
 def _content_block(text: str) -> Any:
+    """Build a mock content block.
+
+    If `text` parses as a JSON object, produce a `tool_use` block (matching
+    the production code's forced-tool_choice path). Otherwise produce a plain
+    text block — exercises the orchestrator's "no tool_use found" error path,
+    which is how scripted bad-JSON strings simulate malformed responses now
+    that the production call uses tool-use instead of free-form JSON.
+    """
     block = MagicMock()
-    block.text = text
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        block.type = "tool_use"
+        block.input = parsed
+        block.text = None
+    else:
+        block.type = "text"
+        block.text = text
+        block.input = None
     return block
 
 

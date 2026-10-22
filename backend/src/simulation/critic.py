@@ -109,6 +109,56 @@ class CriticScore(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Anthropic tool-use schema. Forced tool_choice structurally guarantees the
+# response shape (no markdown fences, no extra fields, no truncated JSON
+# paragraphs) — the previous free-form parser hit the 512-token cap mid-
+# `reasoning` paragraph and dropped the score entirely.
+# ---------------------------------------------------------------------------
+
+
+_CRITIC_TOOL: dict[str, Any] = {
+    "name": "submit_critic_score",
+    "description": (
+        "Submit your stance-alignment score for the CEO decision you were "
+        "shown. You MUST call this tool exactly once."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["score", "reasoning"],
+        "properties": {
+            "score": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": (
+                    "1.0 = perfectly stance-aligned, 0.5 = ambiguous, "
+                    "0.0 = direct contradiction."
+                ),
+            },
+            "violations": {
+                "type": "array",
+                "items": {"type": "string"},
+                "default": [],
+                "description": (
+                    "Short stance-attribute names (e.g. risk_tolerance, "
+                    "cash_comfort) the decision contradicts. Empty when "
+                    "score == 1.0."
+                ),
+            },
+            "reasoning": {
+                "type": "string",
+                "minLength": 1,
+                "description": (
+                    "One-paragraph explanation of the score for audit logs."
+                ),
+            },
+        },
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # CriticAgent
 # ---------------------------------------------------------------------------
 
@@ -238,9 +288,20 @@ class CriticAgent:
                 max_tokens=CRITIC_MAX_TOKENS,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
+                tools=[_CRITIC_TOOL],
+                tool_choice={"type": "tool", "name": _CRITIC_TOOL["name"]},
             )
-            raw = response.content[0].text
-            parsed = self._parse_score(raw)
+            tool_block = next(
+                (b for b in response.content if getattr(b, "type", None) == "tool_use"),
+                None,
+            )
+            if tool_block is None:
+                raise ValueError(
+                    "Expected tool_use block in critic response (tool_choice "
+                    "was forced); got blocks: "
+                    f"{[getattr(b, 'type', '?') for b in response.content]!r}"
+                )
+            parsed = CriticScore(**dict(tool_block.input))
         except Exception as exc:  # best-effort telemetry — never abort the sim
             log.warning(
                 "Critic LLM call failed at tick=%d (company=%s): %s",
@@ -385,11 +446,8 @@ class CriticAgent:
                 "Populate `violations` with short stance-attribute names "
                 "(e.g. \"risk_tolerance\", \"cash_comfort\") that the "
                 "decision contradicts. Empty list when score == 1.0.\n\n"
-                "Return STRICTLY valid JSON matching this schema:\n"
-                "  {\"score\": float in [0,1], "
-                "\"violations\": list[str], "
-                "\"reasoning\": str}\n"
-                "No markdown fences. No preamble. JSON only."
+                "You MUST call the submit_critic_score tool exactly once. "
+                "Do not respond with free-form text."
             )
         )
 
@@ -426,37 +484,6 @@ class CriticAgent:
             },
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
-
-    # ── Parsing ─────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _parse_score(raw: str) -> CriticScore:
-        """Extract a `CriticScore` from a possibly-fenced LLM response.
-
-        Mirrors `orchestrator._parse_llm_json` so the critic stays robust
-        to the same Haiku-shaped failure modes (markdown fences,
-        preambles, trailing prose). Falls back to outermost { ... } as
-        last resort.
-        """
-        text = raw.strip()
-        if not text:
-            raise ValueError("Empty critic LLM response")
-        try:
-            return CriticScore.model_validate_json(text)
-        except (ValidationError, ValueError):
-            pass
-        # Strip markdown fences anywhere in the response.
-        import re
-
-        fence = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
-        if fence:
-            return CriticScore.model_validate_json(fence.group(1).strip())
-        # Last resort: outermost { ... }.
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end > start:
-            return CriticScore.model_validate_json(text[start : end + 1])
-        raise ValueError(f"No JSON object in critic response: {text[:200]!r}")
 
 
 __all__ = [

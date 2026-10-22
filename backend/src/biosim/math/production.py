@@ -30,7 +30,7 @@ def optimal_labor(
     tfp: np.ndarray,
     alpha: np.ndarray,
     beta: np.ndarray,
-    wage: np.ndarray,  # noqa: ARG001 — reserved for wage-constrained optimization in Phase 2
+    wage: np.ndarray,
 ) -> np.ndarray:
     """
     Inverse Cobb-Douglas: given target revenue and fixed capital, solve for labor.

@@ -209,7 +209,7 @@ export function MarketDashboard({
             Market Share
           </h3>
           <div className="h-36">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={shareChartData}>
                 <XAxis
                   dataKey="tick"
@@ -267,7 +267,7 @@ export function MarketDashboard({
             Concentration & Firms
           </h3>
           <div className="h-24">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <LineChart data={chartData}>
                 <XAxis
                   dataKey="tick"

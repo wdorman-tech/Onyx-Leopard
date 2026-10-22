@@ -28,6 +28,8 @@ Live in parallel with `unified.py` until wave 5 deletes the legacy file.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 import math
 import random as _random_module
@@ -40,7 +42,7 @@ import numpy as np
 from src.biosim.math.competition import build_competition_matrix, step_competition
 from src.biosim.math.production import cobb_douglas
 from src.biosim.math.solver import solve_satisfaction_step
-from src.simulation.bridge import BridgeAggregate, derive_bridge_aggregate
+from src.simulation.bridge import derive_bridge_aggregate
 from src.simulation.critic import CriticAgent, CriticScore
 from src.simulation.library_loader import NodeLibrary
 from src.simulation.orchestrator import (
@@ -274,6 +276,7 @@ class CompanyAgentV2:
         cost_tracker: CostTracker | None = None,
         shock_scheduler: ShockScheduler | None = None,
         orchestrator: OrchestratorBundle | None = None,
+        ai_ceo_enabled: bool = True,
     ) -> None:
         self.seed = seed
         self.stance = stance
@@ -281,8 +284,15 @@ class CompanyAgentV2:
         self.sim_id = sim_id
         self.company_id = company_id
         self.rng = rng
+        # LLM orchestrator tiers dereference `transcript.mode`; a None default
+        # crashes them. Substitute an off-mode transcript so the LLM tiers run
+        # without any persistence side effects. Callers that want recording
+        # pass a Transcript(mode="record") explicitly.
+        if transcript is None:
+            transcript = Transcript.off()
         self.transcript = transcript
         self.cost_tracker = cost_tracker or CostTracker(ceiling_usd=50.0)
+        self.ai_ceo_enabled = ai_ceo_enabled
 
         self.tick: int = 0
         self.cash: float = float(seed.starting_cash)
@@ -329,6 +339,14 @@ class CompanyAgentV2:
 
         # Histories
         self._hist = _Histories()
+
+        # Unbounded log of every decision the orchestrator emitted across the
+        # full run, in tick order. `_hist.decisions` is bounded at HISTORY_LEN
+        # for the orchestrator's rolling context window; the post-mortem
+        # agent needs the entire stream to produce a faithful end-of-run
+        # report. Stored as `(tick, decision)` so the post-mortem can render
+        # a timeline without re-deriving it from the transcript file.
+        self.full_decision_log: list[tuple[int, CeoDecision]] = []
 
         # Shock plumbing — default to a scheduler with no arrivals if caller
         # didn't provide one. Tests pass a real scheduler to inject events.
@@ -378,6 +396,7 @@ class CompanyAgentV2:
                 critic=critic,
                 stance=stance,
                 company_id=company_id,
+                ai_ceo_enabled=ai_ceo_enabled,
             )
         self.orchestrator = orchestrator
 
@@ -640,7 +659,10 @@ class CompanyAgentV2:
         # 5c. Apply capacity reductions (key-departure team_capacity, regulatory cap).
         # Cobb-Douglas production cap (P-MATH-1). Y = A * K^α * L^β where:
         #   A (TFP) = 1.0 + COBB_DOUGLAS_QUALITY_GAIN * sum(bridge_agg.quality.values())
-        #   K (capital stock) = max(seed.starting_cash + capital_signal * COBB_DOUGLAS_CAPITAL_BUCKET_SCALE, 1.0)
+        #   K (capital stock) = max(
+        #       seed.starting_cash + capital_signal * COBB_DOUGLAS_CAPITAL_BUCKET_SCALE,
+        #       1.0,
+        #   )
         #   L (labor force)   = max(self._compute_employee_count(), 1.0)
         # A capital-rich firm with many workers produces more units; a thin firm
         # can't serve all the demand its marketing pulls. Bottleneck binds.
@@ -767,6 +789,7 @@ class CompanyAgentV2:
         for decision in decisions:
             self._apply_decision(decision)
             self._hist.decisions.append(decision)
+            self.full_decision_log.append((self.tick, decision))
 
         # 9. Histories
         self._hist.revenue.append(self.daily_revenue)
@@ -1117,6 +1140,7 @@ class MultiCompanySimV2:
         market_growth_rate: float = DEFAULT_MARKET_GROWTH_RATE,
         share_alpha: float = DEFAULT_SHARE_ALPHA,
         share_beta: float = DEFAULT_SHARE_BETA,
+        lv_rng_seed: int | None = None,
     ) -> None:
         self.sim_id = sim_id
         self.companies = companies
@@ -1153,9 +1177,23 @@ class MultiCompanySimV2:
         self._lv_index: dict[int, int] = {
             id(c): i for i, c in enumerate(self.companies)
         }
+        # LV competition matrix seeding: prefer the caller-provided
+        # `lv_rng_seed` so two builds with the same upstream seed produce
+        # identical competition matrices. Python's process-randomized
+        # `hash(sim_id)` was not stable across processes — reproducibility
+        # required, this fix is mandatory.
+        if lv_rng_seed is None:
+            # Fall back to a hash of `sim_id` only when no explicit seed was
+            # threaded. `hashlib.blake2b` is stable across processes (unlike
+            # the builtin `hash`), so identical sim_ids still yield identical
+            # matrices even without an upstream rng_seed.
+            digest = hashlib.blake2b(
+                self.sim_id.encode("utf-8"), digest_size=8
+            ).digest()
+            lv_rng_seed = int.from_bytes(digest, "big") & 0x7FFFFFFF
         self._lv_competition_matrix_full: np.ndarray = build_competition_matrix(
             max(1, len(self.companies)),
-            rng=np.random.default_rng(seed=hash(self.sim_id) & 0x7FFFFFFF),
+            rng=np.random.default_rng(seed=lv_rng_seed),
         )
 
     @property
@@ -1251,11 +1289,17 @@ class MultiCompanySimV2:
             c.allocated_demand = ceiling_customers
             c.market_share = share
 
-        # Tick each company
-        results: list[TickResult] = []
-        for c in alive:
-            tr = await c.step()
-            results.append(tr)
+        # Tick each company in parallel. The orchestrator's LLM calls
+        # dominate per-tick wall time, so concurrent execution cuts that
+        # cost ~N× at N companies. Each `CompanyAgentV2.step()` only
+        # mutates its own instance state; the shared resources it touches
+        # (`CostTracker`, `Transcript`) guard their critical sections with
+        # `threading.Lock`, which on a single-thread asyncio event loop is
+        # effectively a no-op around already-atomic ops — safe to call
+        # from concurrent coroutines.
+        results: list[TickResult] = list(
+            await asyncio.gather(*(c.step() for c in alive))
+        )
 
         # Lotka-Volterra competition update on per-company market_strength
         # (P-MATH-3, CLAUDE.md mandate). Each company's market_strength evolves

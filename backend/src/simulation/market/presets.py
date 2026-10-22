@@ -8,7 +8,10 @@ MARKET_PRESETS: dict[str, MarketPreset] = {
     "price-war": MarketPreset(
         name="Price War",
         slug="price-war",
-        description="High marketing spend drives share; high churn. Favors well-capitalized incumbents.",
+        description=(
+            "High marketing spend drives share; high churn. "
+            "Favors well-capitalized incumbents."
+        ),
         params=MarketParams(
             alpha=1.5,
             beta=0.5,
@@ -35,7 +38,10 @@ MARKET_PRESETS: dict[str, MarketPreset] = {
     "innovation-race": MarketPreset(
         name="Innovation Race",
         slug="innovation-race",
-        description="Quality determines winners; slow churn. Favors innovative entrants over big spenders.",
+        description=(
+            "Quality determines winners; slow churn. "
+            "Favors innovative entrants over big spenders."
+        ),
         params=MarketParams(
             alpha=0.3,
             beta=1.5,

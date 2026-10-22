@@ -19,6 +19,7 @@ export interface CEODecision {
 }
 
 export interface CEOReport {
+  company_id: string;
   company_name: string;
   strategy: string;
   performance_summary: string;

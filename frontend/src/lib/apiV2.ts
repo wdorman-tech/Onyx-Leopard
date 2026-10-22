@@ -46,6 +46,40 @@ export interface CompanySeed {
   initial_supplier_types: string[];
   initial_revenue_streams: string[];
   initial_cost_centers: string[];
+  initial_locations: number;
+  initial_marketing_intensity: number;
+  initial_quality_target: number;
+  initial_price_position: "discount" | "mid" | "premium";
+  initial_capital_runway_months: number;
+  initial_hiring_pace: "frozen" | "slow" | "steady" | "aggressive";
+  initial_geographic_scope: "local" | "regional" | "national" | "global";
+  initial_revenue_concentration: number;
+  initial_customer_acquisition_channel:
+    | "word_of_mouth"
+    | "outbound_sales"
+    | "paid_ads"
+    | "content"
+    | "partnerships";
+  cobb_douglas_alpha: number;
+  cobb_douglas_beta: number;
+}
+
+export interface ImportedCompany {
+  filename: string;
+  name: string;
+  industry: string;
+  stage: string;
+  node_count: number;
+  seed: CompanySeed;
+}
+
+export async function getImportedCompanies(): Promise<ImportedCompany[]> {
+  const res = await fetch("/api/companies");
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`companies API error ${res.status}: ${detail}`);
+  }
+  return res.json() as Promise<ImportedCompany[]>;
 }
 
 // ─── CeoStance ────────────────────────────────────────────────────────────
@@ -119,12 +153,15 @@ export function sampleStance(archetype: string, rngSeed?: number): Promise<CeoSt
 export interface StartV2Request {
   seed: CompanySeed;
   stance: CeoStance;
+  seeds?: CompanySeed[];
+  stances?: CeoStance[];
   num_companies?: number;
   duration_ticks?: number;
   tam_initial?: number;
   shock_lambdas?: Record<string, number>;
   cost_ceiling_usd?: number;
   rng_seed?: number;
+  ai_ceo_enabled?: boolean;
 }
 
 export interface StartV2Response {

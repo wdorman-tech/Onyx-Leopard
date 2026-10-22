@@ -170,7 +170,7 @@ export function CompanyDashboard({
             Cash
           </h3>
           <div className="h-28">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <LineChart data={chartData}>
                 <XAxis dataKey="tick" stroke="#e2e8f0" tick={{ fontSize: 8, fill: "#64748b" }} axisLine={false} tickLine={false} />
                 <YAxis stroke="#e2e8f0" tick={{ fontSize: 8, fill: "#64748b" }} axisLine={false} tickLine={false} width={45} tickFormatter={(v) => fmt$(Number(v))} />
@@ -193,7 +193,7 @@ export function CompanyDashboard({
             Revenue & Locations
           </h3>
           <div className="h-24">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <LineChart data={chartData}>
                 <XAxis dataKey="tick" stroke="#e2e8f0" tick={{ fontSize: 8, fill: "#64748b" }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="left" stroke="#e2e8f0" tick={{ fontSize: 8, fill: "#64748b" }} axisLine={false} tickLine={false} width={40} tickFormatter={(v) => fmt$(Number(v))} />

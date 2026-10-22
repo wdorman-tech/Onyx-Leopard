@@ -106,7 +106,7 @@ def solve_satisfaction_step(
     in the engine evolves through the same RK45 path with consistent
     fallback semantics. P-MATH-2 fix.
     """
-    def rhs(t, y):  # noqa: ARG001
+    def rhs(t, y):
         return np.array([rate * (target - y[0])])
 
     y0 = np.array([float(current)])

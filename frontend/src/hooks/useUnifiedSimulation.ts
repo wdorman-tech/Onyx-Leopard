@@ -1,19 +1,29 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
-import type { GraphData, SimNode, SimEdge } from "@/types/graph";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { GraphData, SimEdge, SimNode } from "@/types/graph";
 import type {
   CEODecisionEvent,
   CEOReport,
   UnifiedAgentSnapshot,
   UnifiedTickData,
 } from "@/types/unified";
-import type { SpecDisplay } from "@/lib/api";
 import {
-  startUnifiedSimulation,
-  controlSimulation,
-  createSimulationStream,
-} from "@/lib/api";
+  type CompanyTickPayload,
+  type GraphSnapshotV2,
+  controlV2,
+  createV2Stream,
+  sampleSeed,
+  sampleStance,
+  startV2,
+  type CompanySeed,
+} from "@/lib/apiV2";
+
+export interface SpecDisplay {
+  stage_labels: Record<string, string>;
+  event_noise_filters: string[];
+  duration_options: number[];
+}
 
 export interface UseUnifiedSimulationReturn {
   sessionId: string | null;
@@ -43,12 +53,41 @@ export interface UseUnifiedSimulationReturn {
     aiCeoEnabled?: boolean,
     durationYears?: number,
     companyStrategies?: Record<number, string>,
+    seedOverride?: CompanySeed,
   ) => Promise<void>;
   play: () => Promise<void>;
   pause: () => Promise<void>;
   setSpeed: (multiplier: number) => Promise<void>;
   setFocusedCompany: (companyId: string) => void;
 }
+
+const COMPANY_COLORS = [
+  "#2563eb",
+  "#dc2626",
+  "#16a34a",
+  "#9333ea",
+  "#ea580c",
+  "#0891b2",
+  "#be123c",
+  "#4f46e5",
+  "#65a30d",
+  "#c2410c",
+];
+
+const SPEC_DISPLAY: SpecDisplay = {
+  stage_labels: { "1": "Operating" },
+  event_noise_filters: [],
+  duration_options: [1, 5, 10, 20],
+};
+
+const STRATEGY_TO_STANCE: Record<string, string> = {
+  aggressive_growth: "venture_growth",
+  quality_focus: "founder_operator",
+  cost_leader: "bootstrap",
+  balanced: "bootstrap",
+  market_dominator: "consolidator",
+  survivor: "turnaround",
+};
 
 function mergeGraphs(
   graphs: Record<string, GraphData>,
@@ -85,6 +124,65 @@ function mergeGraphs(
   return { nodes: allNodes, edges: allEdges };
 }
 
+function asGraphData(graph: GraphSnapshotV2): GraphData {
+  return {
+    nodes: graph.nodes.map((node) => ({
+      ...node,
+      category: node.category as SimNode["category"],
+    })),
+    edges: graph.edges,
+  };
+}
+
+function countNodes(company: CompanyTickPayload, category: string): number {
+  return company.graph.nodes
+    .filter((node) => node.category === category)
+    .reduce((sum, node) => sum + (node.metrics.count ?? 1), 0);
+}
+
+function toAgentSnapshot(
+  company: CompanyTickPayload,
+  share: number,
+  index: number,
+  strategy: string | null,
+): UnifiedAgentSnapshot {
+  const nodeCount = company.graph.nodes.reduce(
+    (sum, node) => sum + (node.metrics.count ?? 1),
+    0,
+  );
+  const locationCount = Math.max(1, countNodes(company, "location"));
+  const marketingNodes = countNodes(company, "marketing");
+  const qualityNodes =
+    countNodes(company, "ops") +
+    countNodes(company, "exec") +
+    countNodes(company, "sales");
+
+  return {
+    id: company.company_id,
+    name: `Company ${index + 1}`,
+    alive: !company.bankrupt,
+    color: COMPANY_COLORS[index % COMPANY_COLORS.length],
+    quality: company.avg_satisfaction + qualityNodes * 0.05,
+    marketing: 1 + marketingNodes * 0.1,
+    capacity:
+      company.capacity_utilization > 0
+        ? company.daily_revenue / company.capacity_utilization
+        : company.daily_revenue,
+    share,
+    utilization: company.capacity_utilization,
+    binding_constraint: company.capacity_utilization >= 0.95 ? "capacity" : "demand",
+    cash: company.cash,
+    daily_revenue: company.daily_revenue,
+    daily_costs: company.daily_costs,
+    stage: 1,
+    location_count: locationCount,
+    node_count: nodeCount,
+    avg_satisfaction: company.avg_satisfaction,
+    total_employees: company.employee_count,
+    strategy,
+  };
+}
+
 export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -102,11 +200,10 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
   const [eventLog, setEventLog] = useState<string[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ceoThinking, setCeoThinking] = useState(false);
-  const [ceoDecisionLog, setCeoDecisionLog] = useState<CEODecisionEvent[]>([]);
+  const [ceoDecisionLog] = useState<CEODecisionEvent[]>([]);
   const [reports, setReports] = useState<CEOReport[] | null>(null);
-  const [specDisplay, setSpecDisplay] = useState<SpecDisplay | null>(null);
-  const [founderType, setFounderType] = useState<string | null>(null);
+  const [specDisplay, setSpecDisplay] = useState<SpecDisplay | null>(SPEC_DISPLAY);
+  const [founderType, setFounderType] = useState<string | null>("founder");
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const mergedGraph = useMemo(() => {
@@ -121,41 +218,57 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
       aiCeoEnabled = true,
       durationYears = 5,
       companyStrategies: Record<number, string> = {},
+      seedOverride?: CompanySeed,
     ) => {
+      void startMode;
       try {
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
-
+        eventSourceRef.current?.close();
         setError(null);
-        setCeoThinking(false);
-        setCeoDecisionLog([]);
-        setReports(null);
-
-        const maxTicks = aiCeoEnabled ? durationYears * 365 : 0;
-        const resp = await startUnifiedSimulation(
-          startMode,
-          numCompanies,
-          maxTicks,
-          aiCeoEnabled,
-          durationYears,
-          companyStrategies,
-        );
-        setSessionId(resp.session_id);
-        if (resp.spec_display) setSpecDisplay(resp.spec_display);
-        if (resp.founder_type) setFounderType(resp.founder_type);
         setTick(0);
-        setIsComplete(false);
-        setStatus("operating");
+        setTam(0);
+        setCaptured(0);
+        setHhi(0);
+        setAgentCount(0);
         setAgents([]);
         setGraphs({});
         setHistory([]);
         setEventLog([]);
+        setFocusedCompanyId("");
+        setIsComplete(false);
+        setStatus("operating");
+        setSpecDisplay(SPEC_DISPLAY);
+        setFounderType("founder");
+        setReports(null);
+
+        // Per-company stances honor companyStrategies — the previous code
+        // sampled only strategy[0] and applied it to every company, which
+        // made the per-company strategy UI a label-only feature. Stances
+        // are sampled in parallel; seeds use the imported override when
+        // provided, otherwise share a single `small_team` sample.
+        const baseSeed = seedOverride ?? (await sampleSeed("small_team"));
+        const stances = await Promise.all(
+          Array.from({ length: numCompanies }, (_, i) =>
+            sampleStance(
+              STRATEGY_TO_STANCE[
+                companyStrategies[i] ?? "balanced"
+              ] ?? "bootstrap",
+            ),
+          ),
+        );
+        const resp = await startV2({
+          seed: baseSeed,
+          stance: stances[0],
+          stances,
+          num_companies: numCompanies,
+          duration_ticks: Math.max(10, durationYears * 365),
+          tam_initial: baseSeed.tam,
+          ai_ceo_enabled: aiCeoEnabled,
+        });
+
+        setSessionId(resp.session_id);
         setPlaying(true);
 
-        const noiseFilters = resp.spec_display?.event_noise_filters ?? [];
-
-        const es = createSimulationStream(resp.session_id);
+        const es = createV2Stream(resp.session_id);
         eventSourceRef.current = es;
 
         es.onmessage = (event) => {
@@ -166,91 +279,85 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
             console.error("Failed to parse SSE message:", e);
             return;
           }
-          switch (data.type) {
-            case "tick": {
-              if (data.mode !== "unified") break;
-              const tickData: UnifiedTickData = {
-                tick: data.tick as number,
-                status: data.status as string,
-                mode: "unified",
-                tam: data.tam as number,
-                captured: data.captured as number,
-                hhi: data.hhi as number,
-                agent_count: data.agent_count as number,
-                agents: data.agents as UnifiedAgentSnapshot[],
-                focused_company_id: data.focused_company_id as string,
-                graphs: data.graphs as Record<string, GraphData>,
-                events: data.events as string[],
-              };
-              setTick(tickData.tick);
-              setTam(tickData.tam);
-              setCaptured(tickData.captured);
-              setHhi(tickData.hhi);
-              setAgentCount(tickData.agent_count);
-              setAgents(tickData.agents);
-              setFocusedCompanyId((prev) =>
-                prev || tickData.focused_company_id || "",
-              );
-              setStatus(tickData.status);
-              if (tickData.graphs) {
-                setGraphs(tickData.graphs);
-              }
-              // Strip graphs from history entries to avoid unbounded memory growth
-              const { graphs: _g, ...historyEntry } = tickData;
-              setHistory((prev) => [...prev.slice(-499), historyEntry as UnifiedTickData]);
-              if ((data.events as string[])?.length > 0) {
-                const significant = (data.events as string[]).filter(
-                  (e: string) => !noiseFilters.some((f) => e.includes(f)),
-                );
-                if (significant.length > 0) {
-                  setEventLog((prev) => [
-                    ...prev.slice(-499),
-                    ...significant.map(
-                      (e: string) => `Day ${data.tick}: ${e}`,
-                    ),
-                  ]);
-                }
-              }
-              break;
+
+          if (data.type === "tick") {
+            const companies = data.companies as CompanyTickPayload[];
+            const shares = (data.shares as number[]) ?? [];
+            const agentsNext = companies.map((company, index) =>
+              toAgentSnapshot(
+                company,
+                shares[index] ?? 0,
+                index,
+                companyStrategies[index] ?? null,
+              ),
+            );
+            const graphsNext = Object.fromEntries(
+              companies.map((company) => [company.company_id, asGraphData(company.graph)]),
+            );
+            const events = companies.flatMap((company) =>
+              company.decisions.map((decision) =>
+                `${company.company_id}: ${decision.tier} decision - ${decision.reasoning}`,
+              ),
+            );
+            const capturedNext = companies.reduce(
+              (sum, company) => sum + company.daily_revenue,
+              0,
+            );
+            const hhiNext = shares.reduce((sum, share) => sum + share * share, 0);
+            const tickData: UnifiedTickData = {
+              tick: data.tick as number,
+              status: "operating",
+              mode: "unified",
+              tam: data.tam as number,
+              captured: capturedNext,
+              hhi: hhiNext,
+              agent_count: agentsNext.length,
+              agents: agentsNext,
+              focused_company_id: agentsNext[0]?.id ?? "",
+              graphs: graphsNext,
+              events,
+            };
+
+            setTick(tickData.tick);
+            setTam(tickData.tam);
+            setCaptured(tickData.captured);
+            setHhi(tickData.hhi);
+            setAgentCount(tickData.agent_count);
+            setAgents(tickData.agents);
+            setFocusedCompanyId((prev) => prev || tickData.focused_company_id || "");
+            setGraphs(tickData.graphs);
+            const { graphs: _graphs, ...historyEntry } = tickData;
+            setHistory((prev) => [...prev.slice(-499), historyEntry as UnifiedTickData]);
+            if (events.length > 0) {
+              setEventLog((prev) => [
+                ...prev.slice(-499),
+                ...events.map((e) => `Day ${data.tick}: ${e}`),
+              ]);
             }
-            case "complete":
-              setPlaying(false);
-              setIsComplete(true);
-              es.close();
-              break;
-            case "stopped":
-              setPlaying(false);
-              es.close();
-              break;
-            case "ceo_thinking":
-              setCeoThinking(true);
-              break;
-            case "ceo_decisions": {
-              setCeoThinking(false);
-              const decisions = data.decisions as CEODecisionEvent[];
-              if (decisions?.length > 0) {
-                setCeoDecisionLog((prev) => [...prev, ...decisions]);
-                setEventLog((prev) => [
-                  ...prev,
-                  ...decisions.map(
-                    (d) =>
-                      `Year ${d.sim_year} — ${d.company_name} (${d.strategy}): ` +
-                      `price=$${d.decision.price_adjustment}, ` +
-                      `expansion=${d.decision.expansion_pace}, ` +
-                      `marketing=${d.decision.marketing_intensity.toFixed(1)} — ` +
-                      `"${d.decision.reasoning}"`,
-                  ),
-                ]);
-              }
-              break;
-            }
-            case "generating_reports":
-              setCeoThinking(true);
-              break;
-            case "reports":
-              setCeoThinking(false);
-              setReports(data.reports as CEOReport[]);
-              break;
+            return;
+          }
+
+          if (data.type === "reports") {
+            const incoming = (data.reports as CEOReport[]) ?? [];
+            // Only flip to non-null when there is at least one report — the
+            // dashboard gates the "View CEO Reports" button on length > 0,
+            // and an empty payload should not pop an empty modal.
+            setReports(incoming.length > 0 ? incoming : null);
+            return;
+          }
+
+          if (data.type === "complete") {
+            setPlaying(false);
+            setIsComplete(true);
+            setStatus("complete");
+            es.close();
+            return;
+          }
+
+          if (data.type === "stopped") {
+            setPlaying(false);
+            setStatus("stopped");
+            es.close();
           }
         };
 
@@ -271,20 +378,20 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
 
   const play = useCallback(async () => {
     if (!sessionId) return;
-    await controlSimulation(sessionId, "play");
+    await controlV2(sessionId, "play");
     setPlaying(true);
   }, [sessionId]);
 
   const pause = useCallback(async () => {
     if (!sessionId) return;
-    await controlSimulation(sessionId, "pause");
+    await controlV2(sessionId, "pause");
     setPlaying(false);
   }, [sessionId]);
 
   const setSpeed = useCallback(
     async (multiplier: number) => {
       if (!sessionId) return;
-      await controlSimulation(sessionId, "set_speed", multiplier);
+      await controlV2(sessionId, "set_speed", multiplier);
       setSpeedState(multiplier);
     },
     [sessionId],
@@ -307,7 +414,7 @@ export function useUnifiedSimulation(): UseUnifiedSimulationReturn {
     eventLog,
     isComplete,
     error,
-    ceoThinking,
+    ceoThinking: false,
     ceoDecisionLog,
     reports,
     specDisplay,

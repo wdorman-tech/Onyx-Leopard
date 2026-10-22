@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import logging
 import random
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -45,13 +44,16 @@ from src.simulation.library_loader import NodeLibrary, get_library
 from src.simulation.replay import CostTracker, Transcript
 from src.simulation.seed import (
     ARCHETYPES as SEED_ARCHETYPES,
+)
+from src.simulation.seed import (
     CompanySeed,
     sample_seed_for_archetype,
 )
 from src.simulation.shocks import ShockScheduler
 from src.simulation.stance import (
     ARCHETYPES as STANCE_ARCHETYPES,
-    CeoStance,
+)
+from src.simulation.stance import (
     sample_stance,
 )
 from src.simulation.unified_v2 import (
@@ -117,7 +119,10 @@ class MonteCarloConfigV2(BaseModel):
     initial_cost_centers: list[str] = Field(default_factory=list)
     pin_economics_model: str | None = Field(
         default=None,
-        description="If set, force seed.economics_model to this value (overrides archetype roulette).",
+        description=(
+            "If set, force seed.economics_model to this value "
+            "(overrides archetype roulette)."
+        ),
     )
     tam_initial: float = Field(default=1_000_000.0, ge=1.0)
 
@@ -209,7 +214,7 @@ def _build_seed_for_run(
         # Coerce to int if the seed field is int-typed
         current = getattr(seed, var.field)
         if isinstance(current, int):
-            value_typed: float | int = int(round(value))
+            value_typed: float | int = round(value)
         else:
             value_typed = round(value, 4)
         overrides[var.field] = value_typed

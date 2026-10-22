@@ -1,8 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Building2 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
+import { getImportedCompanies, type ImportedCompany } from "@/lib/apiV2";
 
 const AGENT_NAMES = [
   "Alpha Corp", "Beta Inc", "Gamma Ltd", "Delta Co", "Epsilon Group",
@@ -31,15 +32,15 @@ interface UnifiedSetupProps {
   durationYears: number;
   durationOptions: number[];
   companyStrategies: Record<number, string>;
+  selectedCompany: ImportedCompany | null;
   onSetStartMode: (mode: string) => void;
   onSetCompanyCount: (count: number) => void;
   onSetAiCeoEnabled: (enabled: boolean) => void;
   onSetDurationYears: (years: number) => void;
   onSetCompanyStrategies: (fn: (prev: Record<number, string>) => Record<number, string>) => void;
+  onSetSelectedCompany: (company: ImportedCompany | null) => void;
   onStart: () => void;
   onBack: () => void;
-  onSelectMarket: () => void;
-  onSelectGrowth: () => void;
 }
 
 export function UnifiedSetup({
@@ -49,17 +50,23 @@ export function UnifiedSetup({
   durationYears,
   durationOptions,
   companyStrategies,
+  selectedCompany,
   onSetStartMode,
   onSetCompanyCount,
   onSetAiCeoEnabled,
   onSetDurationYears,
   onSetCompanyStrategies,
+  onSetSelectedCompany,
   onStart,
   onBack,
-  onSelectMarket,
-  onSelectGrowth,
 }: UnifiedSetupProps) {
-  const router = useRouter();
+  const [importedCompanies, setImportedCompanies] = useState<ImportedCompany[]>([]);
+
+  useEffect(() => {
+    getImportedCompanies()
+      .then(setImportedCompanies)
+      .catch(() => setImportedCompanies([]));
+  }, []);
 
   return (
     <div className="h-screen flex flex-col bg-surface-0 phase-enter relative">
@@ -83,6 +90,41 @@ export function UnifiedSetup({
         </p>
 
         <div className="max-w-md w-full space-y-6">
+          {importedCompanies.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2 block">
+                Imported Profile
+              </label>
+              <div className="grid grid-cols-1 gap-2">
+                {importedCompanies.map((company) => (
+                  <button
+                    key={company.filename}
+                    onClick={() =>
+                      onSetSelectedCompany(
+                        selectedCompany?.filename === company.filename ? null : company,
+                      )
+                    }
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all text-left ${
+                      selectedCompany?.filename === company.filename
+                        ? "border-accent bg-accent/5 ring-1 ring-accent/30"
+                        : "border-surface-200 hover:border-surface-300"
+                    }`}
+                  >
+                    <Building2 size={16} className="text-surface-500 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-surface-800 truncate">
+                        {company.name}
+                      </div>
+                      <div className="text-[11px] text-surface-500 truncate">
+                        {company.industry || company.seed.economics_model}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-semibold text-surface-600 uppercase tracking-wider mb-2 block">
               Starting Conditions
@@ -193,7 +235,7 @@ export function UnifiedSetup({
                   {Array.from({ length: companyCount }, (_, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <span className="text-xs text-surface-500 w-24 truncate flex-shrink-0">
-                        {AGENT_NAMES[i]}
+                        {i === 0 && selectedCompany ? selectedCompany.name : AGENT_NAMES[i]}
                       </span>
                       <select
                         value={companyStrategies[i] || "balanced"}
@@ -224,31 +266,9 @@ export function UnifiedSetup({
           >
             Start Simulation
           </button>
-
-          <button
-            onClick={() => router.push("/profile")}
-            className="w-full py-3 rounded-xl border border-surface-200 text-surface-700 font-semibold text-sm transition-all hover:border-accent hover:text-accent hover:bg-accent/5 flex items-center justify-center gap-2"
-          >
-            <Plus size={16} />
-            Create Your Business
-          </button>
         </div>
       </div>
 
-      <div className="absolute bottom-4 right-5 flex items-center gap-4">
-        <button
-          onClick={onSelectMarket}
-          className="text-xs text-surface-400 hover:text-surface-600 transition-colors"
-        >
-          Market Competition
-        </button>
-        <button
-          onClick={onSelectGrowth}
-          className="text-xs text-surface-400 hover:text-surface-600 transition-colors"
-        >
-          Company Growth
-        </button>
-      </div>
     </div>
   );
 }

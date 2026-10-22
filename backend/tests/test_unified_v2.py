@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import random
-from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,20 +15,18 @@ import pytest
 from src.simulation.library_loader import get_library
 from src.simulation.orchestrator import (
     CeoDecision,
-    CompanyState,
     HeuristicOrchestrator,
     OrchestratorBundle,
 )
 from src.simulation.replay import CostTracker
 from src.simulation.seed import (
-    CompanySeed,
     sample_seed_for_archetype,
 )
 from src.simulation.shocks import (
     Shock,
     ShockScheduler,
-    make_market_crash,
     make_key_employee_departure,
+    make_market_crash,
     make_new_competitor_entry,
     make_regulatory_change,
     make_supply_chain_disruption,
@@ -37,7 +34,6 @@ from src.simulation.shocks import (
     make_viral_growth_event,
 )
 from src.simulation.stance import (
-    CeoStance,
     sample_stance,
 )
 from src.simulation.unified_v2 import (
@@ -45,7 +41,6 @@ from src.simulation.unified_v2 import (
     MultiCompanySimV2,
     TickResult,
 )
-
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -82,7 +77,8 @@ def _valid_refs_for(library, economics_model):
         # Pick any revenue node
         for key, node in library.nodes.items():
             if node.category == "revenue":
-                revenues.append(key); break
+                revenues.append(key)
+                break
     if not costs:
         costs = ["bookkeeper"]
     return suppliers, revenues, costs
@@ -554,8 +550,17 @@ def test_archetype_seed_runs_60_ticks(library, archetype):
         asyncio.run(agent.step())
         if not agent.alive:
             break
-    # Should at least have advanced ticks
-    assert agent.tick > 0
+    # Either ran a meaningful slice of the run (≥30 ticks) OR died honestly.
+    # `agent.tick > 0` is too weak — passes even if the agent crashed on tick 1.
+    assert agent.tick >= 30 or agent.alive is False, (
+        f"archetype={archetype}: tick={agent.tick}, alive={agent.alive} — "
+        "agent neither ran enough ticks nor died honestly"
+    )
+    # Cross-check: cash MUST have moved during the run (sanity that math fired).
+    assert agent.cash != seed.starting_cash, (
+        f"archetype={archetype}: cash unchanged from {seed.starting_cash} after "
+        f"{agent.tick} tick(s) — engine math likely no-op'd"
+    )
 
 
 # ─── adjust_params wiring (Phase 1.1b — P-ENG-1, Decision 2A) ──────────────
@@ -684,7 +689,7 @@ def test_ceo_raise_amount_increases_cash_only_for_venture_archetype(library):
 
 
 def test_ceo_negative_raise_amount_rejected(library, small_team_seed_and_stance):
-    seed, stance = small_team_seed_and_stance
+    seed, _ = small_team_seed_and_stance
     # Force a venture-permitted stance
     rng = random.Random(7)
     stance_vc = sample_stance("venture_growth", rng=rng)
@@ -697,7 +702,7 @@ def test_ceo_negative_raise_amount_rejected(library, small_team_seed_and_stance)
 def test_financing_shock_haircuts_raise_amount(library, small_team_seed_and_stance):
     """When financing_availability_mult < 1.0, the actual cash inflow from a
     raise is scaled down — investors pull back during a credit crunch."""
-    seed, stance = small_team_seed_and_stance
+    seed, _ = small_team_seed_and_stance
     rng = random.Random(7)
     stance_vc = sample_stance("venture_growth", rng=rng)
     agent = _make_agent(seed, stance_vc, library)

@@ -8,7 +8,6 @@ import pytest
 
 from src.simulation.library_loader import _reset_library_cache, get_library
 from src.simulation.monte_carlo_v2 import (
-    CompanyResultV2,
     MonteCarloConfigV2,
     MonteCarloReportV2,
     MonteCarloRunnerV2,
@@ -16,7 +15,6 @@ from src.simulation.monte_carlo_v2 import (
     SeedVariation,
     run_single_v2,
 )
-
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────
 

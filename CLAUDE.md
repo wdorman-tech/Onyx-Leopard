@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Onyx Leopard — Guiding Principles
 
 Every build decision, feature addition, and refactor must align with these principles. This is the constitution of the project. Read it before writing code.
@@ -7,6 +11,56 @@ Every build decision, feature addition, and refactor must align with these princ
 Onyx Leopard is an open-source, local-run business simulation framework. It models any business as a node-based growth system where AI agents operate departments, make decisions, and react to market conditions. The simulation produces emergent outcomes — not scripted results.
 
 **The end goal:** Run 10+ parallel simulations of slightly different business configurations simultaneously, Monte Carlo style, to determine optimal structure, strategy, and resilience. Stress-test a business against market shocks, competitive pressure, and internal failures before it exists in the real world.
+
+## Common Commands
+
+**One-shot setup + launch (the supported entry point):**
+```bash
+python start.py    # checks Python 3.12+/Node/pnpm, installs deps, prompts for ANTHROPIC_API_KEY,
+                   # frees ports 8000/3000, then runs uvicorn + pnpm dev together
+```
+
+**Backend (run from `backend/`):**
+```bash
+uv sync --group dev                                # install (or: pip install -e . for the runtime only)
+uv run uvicorn src.main:app --reload --port 8000   # run API alone
+uv run pytest -v                                   # full suite
+uv run pytest -v -m "not slow"                     # skip multi-year/long-running tests
+uv run pytest tests/test_unified_v2.py::test_name  # single test
+uv run ruff check src/ tests/
+uv run ruff format src/ tests/
+```
+
+The pytest `slow` marker is registered in `backend/pyproject.toml`; respect it when adding long sims. Tests rely on `src.*` imports — always invoke from `backend/`, not the repo root.
+
+**Frontend (run from `frontend/`):**
+```bash
+pnpm install
+pnpm dev          # next dev on port 3000
+pnpm build        # production build (use to catch type errors)
+pnpm lint         # eslint
+```
+
+There is no frontend test runner configured. Type-check via `pnpm build` or `tsc --noEmit`.
+
+**Configuration:** `backend/.env` holds `ANTHROPIC_API_KEY` (template at `.env.example`). Without it the sim runs in pure-math mode (no LLM orchestrator calls).
+
+## Architecture Quick Reference
+
+Concrete pointers so future instances don't have to crawl the tree to find the load-bearing files:
+
+- **API entry:** `backend/src/main.py` mounts `simulation_v2_router` at `/api/v2/simulate` with SSE streaming and CORS for `localhost:3000`. Routes live in `backend/src/routes/simulation_v2.py`.
+- **V2 simulation engine:** `backend/src/simulation/unified_v2.py` — `MultiCompanySimV2` runs N `CompanyAgentV2` instances per tick. This is the active engine. The legacy v1 `unified.py` / `IndustrySpec` path is being deleted (wave 5).
+- **Inputs to the v2 engine:** `seed.py` (`CompanySeed`, ~31 fields, archetype samplers), `stance.py` (`CeoStance`, locked CEO persona), `library_loader.py` (`NodeLibrary`, loads `node_library.yaml`), `shocks.py` (`ShockScheduler`).
+- **Orchestrator triad** (`backend/src/simulation/orchestrator.py`): `HeuristicOrchestrator` (Tier 1, free) → `TacticalOrchestrator` (Haiku) → `StrategicOrchestrator` (Sonnet). The `OrchestratorBundle` decides which nodes spawn/retire each tick. `critic.py` validates strategic decisions.
+- **Pure math layer** lives at **`backend/src/biosim/`** (NOT a separate top-level `src/biosim/` — older docs and the README still say that): `math/production.py` (Cobb-Douglas), `math/competition.py` (Lotka-Volterra), `math/solver.py` (RK45 → BDF → Euler), `math/growth.py`, `engine/tick.py`, `agents/mesa_model.py`. v2 imports these directly (`from src.biosim.math.competition import ...`).
+- **Standalone market engine:** `backend/src/simulation/market/engine.py` (`MarketEngine`) with presets in `presets.py` — the price-war / innovation-race / monopoly / commodity scenarios used by the market dashboard.
+- **Bridge derivation:** `bridge.py` derives modifier aggregates each tick from the live spawned-node set. There is no static modifier-key declaration in v2 (intentional — see the file header on the empty-modifier-key bug class it eliminates).
+- **Frontend:** Next.js App Router under `frontend/src/app/`, force-directed canvas graph at `frontend/src/components/graph/ForceGraph.tsx` (the visual reference — see "Visualization" below), v2 SSE client in `frontend/src/lib/apiV2.ts` and `frontend/src/hooks/useV2Simulation.ts`.
+
+**Frontend caveat:** `frontend/AGENTS.md` warns that Next.js 16 has breaking changes from prior versions — App Router conventions in your training data may be wrong. Read `node_modules/next/dist/docs/` before writing Next.js code, and heed deprecation notices.
+
+**Path drift to watch for:** The README's "Project Structure" and Development sections still describe `src/biosim/` and a top-level `tests/` — those are stale. Real locations are `backend/src/biosim/` and `backend/tests/`.
 
 ## Core Vision
 
@@ -49,8 +103,8 @@ Each node/agent carries its own running state history. Behavior in tick N+1 is s
 ### 6. Separation of Concerns
 
 Three distinct layers, never mixed:
-- **Pure math layer** (`src/biosim/`): ODEs, growth models, competition models via Mesa/NumPy/SciPy. No business logic, no API calls, no UI concerns.
-- **Business logic layer** (`backend/src/`): FastAPI routes, session management, industry configs, AI agent orchestration, SSE streaming. Contains its own simulation engines (`UnifiedEngine`, `MarketEngine`, `GrowthEngine`) that currently implement market math directly. Long-term, shared math should consolidate into the pure math layer.
+- **Pure math layer** (`backend/src/biosim/`): ODEs, growth models, competition models via Mesa/NumPy/SciPy. No business logic, no API calls, no UI concerns.
+- **Business logic layer** (`backend/src/simulation/` + `backend/src/routes/`): FastAPI routes, session management, seed/stance/library inputs, orchestrator triad, SSE streaming. Active engine is `MultiCompanySimV2` in `unified_v2.py`; `MarketEngine` is the standalone market-dashboard engine. The legacy v1 `UnifiedEngine` path is being retired. Shared math is consolidating into the pure math layer — v2 already imports `production`, `competition`, and `solver` directly from `src.biosim`.
 - **Presentation layer** (`frontend/src/`): Visualization, controls, dashboards. Consumes SSE streams. No simulation logic.
 
 ### 7. Data-Driven Configuration
@@ -84,11 +138,11 @@ When adding new mechanics, find the established mathematical model for that phen
 ## AI Agent Architecture
 
 ### Current State
-- CEO agents use Claude Sonnet, called on a fixed interval (every 182 ticks / ~6 months sim time)
-- Agents observe company state and market conditions, return structured JSON decisions
-- Decisions apply as parameter mutations (price, cost, expansion pace, marketing boost)
-- CEO decision history (last 2 decisions) is included in prompts for continuity
-- All simulation math runs without AI — AI is an overlay, not a dependency
+- v2 uses an orchestrator triad (`backend/src/simulation/orchestrator.py`): `HeuristicOrchestrator` (rule-based, every tick, free) → `TacticalOrchestrator` (Haiku) → `StrategicOrchestrator` (Sonnet). The `CriticAgent` (`critic.py`) scores strategic proposals.
+- CEO persona is locked at start via `CeoStance` (`stance.py`); company shape comes from `CompanySeed` (`seed.py`) — both are inputs to `/api/v2/simulate/start`.
+- The orchestrator decides which nodes spawn/retire from a universal `NodeLibrary` (`node_library.yaml`); bridge modifiers are derived each tick from the live spawned set, not declared statically.
+- `CostTracker` (`replay.py`) enforces a per-run dollar ceiling; `Transcript` records the full decision stream for replay.
+- All simulation math runs without AI — AI is an overlay, not a dependency. With no `ANTHROPIC_API_KEY` the heuristic tier handles every decision.
 
 ### Target Architecture
 - Agents operate within the simulation tick loop, not called externally by routes
@@ -164,23 +218,30 @@ Any new feature that adds nodes, edges, or visual state must integrate into this
 
 ## Tech Stack
 
-- **Backend:** Python >=3.12, FastAPI, NumPy, SciPy, Pydantic 2, camel-ai (multi-agent framework)
-- **Pure math layer:** Mesa 3, NumPy, SciPy, NetworkX (in `src/biosim/`, separate from backend)
-- **Frontend:** Next.js 16, React 19, d3-force (canvas-rendered), Recharts, TailwindCSS 4, TypeScript (strict)
-- **AI:** Anthropic Claude API — currently Sonnet only; target is Sonnet (executive) + Haiku (operational)
-- **Configuration:** YAML industry specs, JSON company profiles (.oleo format)
+- **Backend:** Python >=3.12, FastAPI, NumPy 2, SciPy, Pydantic 2, camel-ai (multi-agent framework), edgartools (SEC EDGAR)
+- **Pure math layer:** Mesa 3, NumPy, SciPy, NetworkX — at `backend/src/biosim/` (a sub-package of the backend, not a separate top-level project)
+- **Frontend:** Next.js 16, React 19, d3-force (canvas-rendered), Recharts, TailwindCSS 4, TypeScript (strict). Note: Next.js 16 has breaking changes — see `frontend/AGENTS.md`.
+- **AI:** Anthropic Claude API — Sonnet for the strategic orchestrator + critic, Haiku for the tactical orchestrator. Heuristic tier needs no key.
+- **Configuration:** Universal `node_library.yaml` (no per-industry specs in v2), JSON company profiles (.oleo format), `CompanySeed` + `CeoStance` Pydantic models on the API.
 - **Deployment:** Local only. No cloud services. `start.py` is the single entry point.
 
 ## Project Structure
 
 ```
-backend/src/simulation/          # Business logic + engine orchestration
-backend/src/simulation/market/   # Market competition engine
-backend/src/simulation/industries/  # YAML industry configs
-backend/src/routes/              # FastAPI API routes
-src/biosim/                      # Pure math engine (NumPy/SciPy)
-frontend/src/                    # Next.js frontend
-documentation/                   # Architecture docs
-research/industries/             # Industry research (sourced)
-tests/                           # Test suites
+backend/src/main.py              # FastAPI app, CORS, /health, mounts simulation_v2_router
+backend/src/routes/              # FastAPI API routes (simulation_v2.py — SSE streaming)
+backend/src/simulation/          # Business logic: unified_v2, orchestrator, seed, stance,
+                                 #   library_loader, bridge, shocks, critic, replay, monte_carlo_v2
+backend/src/simulation/market/   # Standalone MarketEngine + presets (separate from v2 unified engine)
+backend/src/simulation/node_library.yaml  # Universal node taxonomy (replaces v1 industry specs)
+backend/src/biosim/              # Pure math engine (NumPy/SciPy/Mesa) — math/, engine/, agents/, types/
+backend/tests/                   # pytest suites (test_unified_v2, test_growth_invariants,
+                                 #   test_orchestrator_*, test_market_*, test_biosim_integration, ...)
+frontend/src/                    # Next.js frontend (App Router)
+frontend/src/components/graph/ForceGraph.tsx  # The canvas force graph — visual reference
+frontend/AGENTS.md               # READ FIRST when editing frontend — Next.js 16 caveats
+documentation/                   # Architecture docs (market_engine_*)
+research/industries/             # Industry research (sourced) — 15 industries
+start.py                         # Single entry point: deps + dual-server launch
+.env.example                     # Template; real key lives in backend/.env
 ```

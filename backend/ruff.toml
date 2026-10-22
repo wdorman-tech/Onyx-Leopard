@@ -3,6 +3,32 @@ target-version = "py312"
 
 [lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+# Greek letters appear throughout comments/docstrings/strings for
+# Cobb-Douglas (α, β), Lotka-Volterra (α_ij), and multinomial-logit
+# (q_i^β * m_i^α) notation. RUF001-003 flag those as "ambiguous"; the
+# math context makes the Greek letter clearer than `alpha`/`beta`.
+ignore = [
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[lint.per-file-ignores]
+# load_dotenv() must run before any FastAPI / route imports that resolve
+# env vars at import time, so module-level imports cannot all sit at the
+# top of the file.
+"src/main.py" = ["E402"]
+# orchestrator.py and seed_builder.py place a small helper above their
+# downstream-module imports to keep the import cycle one-directional —
+# the helper does not depend on those modules. Splitting it out would
+# fragment the single-file domain code.
+"src/simulation/orchestrator.py" = ["E402"]
+"src/simulation/seed_builder.py" = ["E402"]
+# Tests intentionally bind LLM/sim outputs to locally-named variables for
+# readability even when only one field is read later, use
+# `pytest.raises(Exception)` for guard-clause smoke tests, and frequently
+# carry long assertion messages or table-of-cases tuples.
+"tests/*" = ["F841", "B017", "B007", "E501"]
 
 [format]
 quote-style = "double"

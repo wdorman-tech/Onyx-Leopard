@@ -14,7 +14,16 @@
       "year_founded": 1975,
       "headquarters": "Redmond, Washington, USA",
       "geographic_scope": "Global",
-      "operating_regions": ["United States", "Europe", "Asia Pacific", "Latin America", "Middle East & Africa", "Canada", "Japan", "India"]
+      "operating_regions": [
+        "United States",
+        "Europe",
+        "Asia Pacific",
+        "Latin America",
+        "Middle East & Africa",
+        "Canada",
+        "Japan",
+        "India"
+      ]
     },
     "organization": {
       "total_headcount": 228000,
@@ -27,15 +36,47 @@
           "budget": 28000000000,
           "function": "Azure cloud infrastructure, AI services, data analytics, Copilot platform, OpenAI partnership integration, and enterprise cloud solutions. Includes Azure compute, storage, networking, AI/ML services, and developer tools.",
           "sub_teams": [
-            { "id": "st-azure-infra", "name": "Azure Infrastructure", "headcount": 18000 },
-            { "id": "st-azure-ai", "name": "Azure AI & Cognitive Services", "headcount": 10000 },
-            { "id": "st-copilot", "name": "Copilot Platform", "headcount": 8000 },
-            { "id": "st-data-analytics", "name": "Data & Analytics (Fabric, Synapse)", "headcount": 6000 },
-            { "id": "st-azure-security", "name": "Cloud Security & Identity", "headcount": 5000 },
-            { "id": "st-devtools", "name": "Developer Tools (VS Code, GitHub)", "headcount": 8000 },
-            { "id": "st-azure-ops", "name": "Cloud Operations & SRE", "headcount": 10000 }
+            {
+              "id": "st-azure-infra",
+              "name": "Azure Infrastructure",
+              "headcount": 18000
+            },
+            {
+              "id": "st-azure-ai",
+              "name": "Azure AI & Cognitive Services",
+              "headcount": 10000
+            },
+            {
+              "id": "st-copilot",
+              "name": "Copilot Platform",
+              "headcount": 8000
+            },
+            {
+              "id": "st-data-analytics",
+              "name": "Data & Analytics (Fabric, Synapse)",
+              "headcount": 6000
+            },
+            {
+              "id": "st-azure-security",
+              "name": "Cloud Security & Identity",
+              "headcount": 5000
+            },
+            {
+              "id": "st-devtools",
+              "name": "Developer Tools (VS Code, GitHub)",
+              "headcount": 8000
+            },
+            {
+              "id": "st-azure-ops",
+              "name": "Cloud Operations & SRE",
+              "headcount": 10000
+            }
           ],
-          "kpis": { "azure_revenue_growth": 0.29, "ai_customer_count": 65000, "azure_regions": 60 }
+          "kpis": {
+            "azure_revenue_growth": 0.29,
+            "ai_customer_count": 65000,
+            "azure_regions": 60
+          }
         },
         {
           "id": "dept-productivity",
@@ -44,14 +85,41 @@
           "budget": 12000000000,
           "function": "Microsoft 365, Office apps, Dynamics 365, Power Platform, Teams, and Viva. Enterprise productivity and collaboration tools serving 400M+ paid seats.",
           "sub_teams": [
-            { "id": "st-m365", "name": "Microsoft 365 Apps", "headcount": 12000 },
-            { "id": "st-teams", "name": "Microsoft Teams", "headcount": 5000 },
-            { "id": "st-dynamics", "name": "Dynamics 365 & Power Platform", "headcount": 8000 },
-            { "id": "st-copilot-m365", "name": "Copilot for Microsoft 365", "headcount": 6000 },
-            { "id": "st-viva", "name": "Microsoft Viva & Employee Experience", "headcount": 3000 },
-            { "id": "st-security-m365", "name": "Security & Compliance (M365)", "headcount": 6000 }
+            {
+              "id": "st-m365",
+              "name": "Microsoft 365 Apps",
+              "headcount": 12000
+            },
+            {
+              "id": "st-teams",
+              "name": "Microsoft Teams",
+              "headcount": 5000
+            },
+            {
+              "id": "st-dynamics",
+              "name": "Dynamics 365 & Power Platform",
+              "headcount": 8000
+            },
+            {
+              "id": "st-copilot-m365",
+              "name": "Copilot for Microsoft 365",
+              "headcount": 6000
+            },
+            {
+              "id": "st-viva",
+              "name": "Microsoft Viva & Employee Experience",
+              "headcount": 3000
+            },
+            {
+              "id": "st-security-m365",
+              "name": "Security & Compliance (M365)",
+              "headcount": 6000
+            }
           ],
-          "kpis": { "m365_commercial_seats": 400000000, "teams_monthly_users": 320000000 }
+          "kpis": {
+            "m365_commercial_seats": 400000000,
+            "teams_monthly_users": 320000000
+          }
         },
         {
           "id": "dept-personal-computing",
@@ -60,12 +128,32 @@
           "budget": 8000000000,
           "function": "Windows OS, Surface hardware, Bing/Edge, Windows OEM licensing. Includes Windows 11, Copilot+ PCs, and search advertising.",
           "sub_teams": [
-            { "id": "st-windows", "name": "Windows Platform", "headcount": 10000 },
-            { "id": "st-surface", "name": "Surface Devices", "headcount": 4000 },
-            { "id": "st-search-ads", "name": "Search & Advertising (Bing, Edge)", "headcount": 6000 },
-            { "id": "st-windows-oem", "name": "Windows OEM & Licensing", "headcount": 5000 }
+            {
+              "id": "st-windows",
+              "name": "Windows Platform",
+              "headcount": 10000
+            },
+            {
+              "id": "st-surface",
+              "name": "Surface Devices",
+              "headcount": 4000
+            },
+            {
+              "id": "st-search-ads",
+              "name": "Search & Advertising (Bing, Edge)",
+              "headcount": 6000
+            },
+            {
+              "id": "st-windows-oem",
+              "name": "Windows OEM & Licensing",
+              "headcount": 5000
+            }
           ],
-          "kpis": { "windows_market_share": 0.72, "bing_market_share": 0.035, "search_ad_revenue_growth": 0.18 }
+          "kpis": {
+            "windows_market_share": 0.72,
+            "bing_market_share": 0.035,
+            "search_ad_revenue_growth": 0.18
+          }
         },
         {
           "id": "dept-gaming",
@@ -74,12 +162,31 @@
           "budget": 9000000000,
           "function": "Xbox console hardware, Game Pass subscription service, first-party game studios (including Activision Blizzard, Bethesda), and cloud gaming (xCloud).",
           "sub_teams": [
-            { "id": "st-xbox", "name": "Xbox Platform & Hardware", "headcount": 5000 },
-            { "id": "st-game-pass", "name": "Game Pass & Cloud Gaming", "headcount": 3000 },
-            { "id": "st-studios", "name": "Xbox Game Studios", "headcount": 12000 },
-            { "id": "st-gaming-pub", "name": "Gaming Publishing & Distribution", "headcount": 2000 }
+            {
+              "id": "st-xbox",
+              "name": "Xbox Platform & Hardware",
+              "headcount": 5000
+            },
+            {
+              "id": "st-game-pass",
+              "name": "Game Pass & Cloud Gaming",
+              "headcount": 3000
+            },
+            {
+              "id": "st-studios",
+              "name": "Xbox Game Studios",
+              "headcount": 12000
+            },
+            {
+              "id": "st-gaming-pub",
+              "name": "Gaming Publishing & Distribution",
+              "headcount": 2000
+            }
           ],
-          "kpis": { "game_pass_subscribers": 34000000, "gaming_revenue_growth": 0.61 }
+          "kpis": {
+            "game_pass_subscribers": 34000000,
+            "gaming_revenue_growth": 0.61
+          }
         },
         {
           "id": "dept-linkedin",
@@ -88,12 +195,31 @@
           "budget": 5000000000,
           "function": "Professional networking platform with 1B+ members. Revenue from Talent Solutions (recruiting), Marketing Solutions (advertising), Premium subscriptions, and Learning.",
           "sub_teams": [
-            { "id": "st-linkedin-eng", "name": "LinkedIn Engineering", "headcount": 8000 },
-            { "id": "st-linkedin-talent", "name": "Talent Solutions", "headcount": 5000 },
-            { "id": "st-linkedin-marketing", "name": "Marketing Solutions", "headcount": 4000 },
-            { "id": "st-linkedin-premium", "name": "Premium & Learning", "headcount": 3000 }
+            {
+              "id": "st-linkedin-eng",
+              "name": "LinkedIn Engineering",
+              "headcount": 8000
+            },
+            {
+              "id": "st-linkedin-talent",
+              "name": "Talent Solutions",
+              "headcount": 5000
+            },
+            {
+              "id": "st-linkedin-marketing",
+              "name": "Marketing Solutions",
+              "headcount": 4000
+            },
+            {
+              "id": "st-linkedin-premium",
+              "name": "Premium & Learning",
+              "headcount": 3000
+            }
           ],
-          "kpis": { "linkedin_members": 1000000000, "linkedin_revenue_growth": 0.10 }
+          "kpis": {
+            "linkedin_members": 1000000000,
+            "linkedin_revenue_growth": 0.1
+          }
         },
         {
           "id": "dept-research",
@@ -102,12 +228,31 @@
           "budget": 4000000000,
           "function": "Fundamental and applied research across AI, quantum computing, natural language processing, computer vision, systems, and security. 10+ global research labs.",
           "sub_teams": [
-            { "id": "st-msr-ai", "name": "MSR AI & Deep Learning", "headcount": 1200 },
-            { "id": "st-msr-quantum", "name": "Quantum Computing Research", "headcount": 500 },
-            { "id": "st-msr-systems", "name": "Systems & Networking Research", "headcount": 800 },
-            { "id": "st-msr-hci", "name": "HCI & Accessibility Research", "headcount": 500 }
+            {
+              "id": "st-msr-ai",
+              "name": "MSR AI & Deep Learning",
+              "headcount": 1200
+            },
+            {
+              "id": "st-msr-quantum",
+              "name": "Quantum Computing Research",
+              "headcount": 500
+            },
+            {
+              "id": "st-msr-systems",
+              "name": "Systems & Networking Research",
+              "headcount": 800
+            },
+            {
+              "id": "st-msr-hci",
+              "name": "HCI & Accessibility Research",
+              "headcount": 500
+            }
           ],
-          "kpis": { "research_papers_per_year": 1500, "patents_filed_per_year": 3000 }
+          "kpis": {
+            "research_papers_per_year": 1500,
+            "patents_filed_per_year": 3000
+          }
         },
         {
           "id": "dept-sales",
@@ -116,13 +261,36 @@
           "budget": 22000000000,
           "function": "Enterprise sales, partner ecosystem (400K+ partners), marketing, customer success, and field operations. Manages relationships with Fortune 500 and government customers.",
           "sub_teams": [
-            { "id": "st-enterprise-sales", "name": "Enterprise Sales", "headcount": 12000 },
-            { "id": "st-partner", "name": "Partner Ecosystem & Channel", "headcount": 6000 },
-            { "id": "st-customer-success", "name": "Customer Success", "headcount": 5000 },
-            { "id": "st-marketing", "name": "Marketing & Brand", "headcount": 4000 },
-            { "id": "st-commercial", "name": "Commercial Sales (SMB)", "headcount": 3000 }
+            {
+              "id": "st-enterprise-sales",
+              "name": "Enterprise Sales",
+              "headcount": 12000
+            },
+            {
+              "id": "st-partner",
+              "name": "Partner Ecosystem & Channel",
+              "headcount": 6000
+            },
+            {
+              "id": "st-customer-success",
+              "name": "Customer Success",
+              "headcount": 5000
+            },
+            {
+              "id": "st-marketing",
+              "name": "Marketing & Brand",
+              "headcount": 4000
+            },
+            {
+              "id": "st-commercial",
+              "name": "Commercial Sales (SMB)",
+              "headcount": 3000
+            }
           ],
-          "kpis": { "enterprise_customer_retention": 0.95, "partner_count": 400000 }
+          "kpis": {
+            "enterprise_customer_retention": 0.95,
+            "partner_count": 400000
+          }
         },
         {
           "id": "dept-finance",
@@ -131,13 +299,36 @@
           "budget": 1800000000,
           "function": "Financial planning, treasury, investor relations, tax, internal audit, and capital allocation. Manages $75B+ cash position and dividend program.",
           "sub_teams": [
-            { "id": "st-fpa", "name": "FP&A", "headcount": 2500 },
-            { "id": "st-treasury-msft", "name": "Treasury", "headcount": 1500 },
-            { "id": "st-tax-msft", "name": "Tax", "headcount": 1500 },
-            { "id": "st-ir-msft", "name": "Investor Relations", "headcount": 500 },
-            { "id": "st-audit-msft", "name": "Internal Audit & Compliance", "headcount": 2000 }
+            {
+              "id": "st-fpa",
+              "name": "FP&A",
+              "headcount": 2500
+            },
+            {
+              "id": "st-treasury-msft",
+              "name": "Treasury",
+              "headcount": 1500
+            },
+            {
+              "id": "st-tax-msft",
+              "name": "Tax",
+              "headcount": 1500
+            },
+            {
+              "id": "st-ir-msft",
+              "name": "Investor Relations",
+              "headcount": 500
+            },
+            {
+              "id": "st-audit-msft",
+              "name": "Internal Audit & Compliance",
+              "headcount": 2000
+            }
           ],
-          "kpis": { "free_cash_flow": 74000000000, "dividend_yield": 0.007 }
+          "kpis": {
+            "free_cash_flow": 74000000000,
+            "dividend_yield": 0.007
+          }
         },
         {
           "id": "dept-legal",
@@ -146,12 +337,31 @@
           "budget": 2200000000,
           "function": "Legal affairs, government relations, regulatory compliance, IP, responsible AI policy, and corporate social responsibility.",
           "sub_teams": [
-            { "id": "st-legal-regulatory", "name": "Regulatory & Government Affairs", "headcount": 2000 },
-            { "id": "st-legal-ip", "name": "Intellectual Property", "headcount": 1500 },
-            { "id": "st-responsible-ai", "name": "Responsible AI & Ethics", "headcount": 1000 },
-            { "id": "st-legal-compliance", "name": "Compliance & Privacy", "headcount": 1500 }
+            {
+              "id": "st-legal-regulatory",
+              "name": "Regulatory & Government Affairs",
+              "headcount": 2000
+            },
+            {
+              "id": "st-legal-ip",
+              "name": "Intellectual Property",
+              "headcount": 1500
+            },
+            {
+              "id": "st-responsible-ai",
+              "name": "Responsible AI & Ethics",
+              "headcount": 1000
+            },
+            {
+              "id": "st-legal-compliance",
+              "name": "Compliance & Privacy",
+              "headcount": 1500
+            }
           ],
-          "kpis": { "responsible_ai_reviews": 500, "regulatory_compliance_rate": 0.98 }
+          "kpis": {
+            "responsible_ai_reviews": 500,
+            "regulatory_compliance_rate": 0.98
+          }
         },
         {
           "id": "dept-hr",
@@ -160,25 +370,94 @@
           "budget": 1500000000,
           "function": "Global talent management, recruiting, compensation, culture & DEI, and workplace strategy for 228K employees across 100+ countries.",
           "sub_teams": [
-            { "id": "st-recruiting", "name": "Talent Acquisition", "headcount": 2500 },
-            { "id": "st-people", "name": "People Operations", "headcount": 3500 },
-            { "id": "st-dei", "name": "Diversity, Equity & Inclusion", "headcount": 1000 },
-            { "id": "st-comp", "name": "Compensation & Benefits", "headcount": 2000 }
+            {
+              "id": "st-recruiting",
+              "name": "Talent Acquisition",
+              "headcount": 2500
+            },
+            {
+              "id": "st-people",
+              "name": "People Operations",
+              "headcount": 3500
+            },
+            {
+              "id": "st-dei",
+              "name": "Diversity, Equity & Inclusion",
+              "headcount": 1000
+            },
+            {
+              "id": "st-comp",
+              "name": "Compensation & Benefits",
+              "headcount": 2000
+            }
           ],
-          "kpis": { "employee_satisfaction": 0.79, "voluntary_turnover": 0.09 }
+          "kpis": {
+            "employee_satisfaction": 0.79,
+            "voluntary_turnover": 0.09
+          }
         }
       ],
       "key_roles": [
-        { "id": "role-ceo", "title": "Chief Executive Officer", "department_id": "dept-cloud-ai", "reports_to": "board" },
-        { "id": "role-cfo", "title": "Chief Financial Officer", "department_id": "dept-finance", "reports_to": "role-ceo" },
-        { "id": "role-cto", "title": "Chief Technology Officer", "department_id": "dept-cloud-ai", "reports_to": "role-ceo" },
-        { "id": "role-evp-cloud", "title": "EVP Cloud & AI", "department_id": "dept-cloud-ai", "reports_to": "role-ceo" },
-        { "id": "role-evp-gaming", "title": "CEO Microsoft Gaming", "department_id": "dept-gaming", "reports_to": "role-ceo" },
-        { "id": "role-evp-experiences", "title": "EVP Experiences & Devices", "department_id": "dept-personal-computing", "reports_to": "role-ceo" },
-        { "id": "role-cmo", "title": "Chief Marketing Officer", "department_id": "dept-sales", "reports_to": "role-ceo" },
-        { "id": "role-gc", "title": "President & Vice Chair", "department_id": "dept-legal", "reports_to": "role-ceo" },
-        { "id": "role-linkedin-ceo", "title": "CEO LinkedIn", "department_id": "dept-linkedin", "reports_to": "role-ceo" },
-        { "id": "role-chro", "title": "Chief Human Resources Officer", "department_id": "dept-hr", "reports_to": "role-ceo" }
+        {
+          "id": "role-ceo",
+          "title": "Chief Executive Officer",
+          "department_id": "dept-cloud-ai",
+          "reports_to": "board"
+        },
+        {
+          "id": "role-cfo",
+          "title": "Chief Financial Officer",
+          "department_id": "dept-finance",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-cto",
+          "title": "Chief Technology Officer",
+          "department_id": "dept-cloud-ai",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-evp-cloud",
+          "title": "EVP Cloud & AI",
+          "department_id": "dept-cloud-ai",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-evp-gaming",
+          "title": "CEO Microsoft Gaming",
+          "department_id": "dept-gaming",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-evp-experiences",
+          "title": "EVP Experiences & Devices",
+          "department_id": "dept-personal-computing",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-cmo",
+          "title": "Chief Marketing Officer",
+          "department_id": "dept-sales",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-gc",
+          "title": "President & Vice Chair",
+          "department_id": "dept-legal",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-linkedin-ceo",
+          "title": "CEO LinkedIn",
+          "department_id": "dept-linkedin",
+          "reports_to": "role-ceo"
+        },
+        {
+          "id": "role-chro",
+          "title": "Chief Human Resources Officer",
+          "department_id": "dept-hr",
+          "reports_to": "role-ceo"
+        }
       ],
       "avg_salary": 175000,
       "turnover_rate": 0.09,
@@ -215,8 +494,8 @@
         {
           "name": "LinkedIn",
           "annual_revenue": 17000000000,
-          "growth_rate": 0.10,
-          "margin": 0.40,
+          "growth_rate": 0.1,
+          "margin": 0.4,
           "type": "recurring"
         },
         {
@@ -261,49 +540,119 @@
           "name": "Amazon Web Services",
           "est_revenue": 105000000000,
           "est_market_share": 0.31,
-          "relative_cost": 0.90,
-          "strengths": ["Largest cloud market share", "Broadest service catalog", "Strong startup/SMB adoption", "First-mover advantage in IaaS"],
-          "weaknesses": ["Lower enterprise penetration vs Microsoft", "No productivity suite equivalent", "AI strategy reliant on open-source/custom models", "Margin pressure from infrastructure investment"]
+          "relative_cost": 0.9,
+          "strengths": [
+            "Largest cloud market share",
+            "Broadest service catalog",
+            "Strong startup/SMB adoption",
+            "First-mover advantage in IaaS"
+          ],
+          "weaknesses": [
+            "Lower enterprise penetration vs Microsoft",
+            "No productivity suite equivalent",
+            "AI strategy reliant on open-source/custom models",
+            "Margin pressure from infrastructure investment"
+          ]
         },
         {
           "name": "Google Cloud Platform",
           "est_revenue": 43000000000,
           "est_market_share": 0.11,
           "relative_cost": 0.85,
-          "strengths": ["AI/ML leadership (Gemini, TPUs)", "Data analytics (BigQuery)", "Strong developer brand", "YouTube advertising synergies"],
-          "weaknesses": ["Distant third in cloud market share", "Enterprise sales force smaller", "Workspace adoption lower than M365", "Reputation for product discontinuation"]
+          "strengths": [
+            "AI/ML leadership (Gemini, TPUs)",
+            "Data analytics (BigQuery)",
+            "Strong developer brand",
+            "YouTube advertising synergies"
+          ],
+          "weaknesses": [
+            "Distant third in cloud market share",
+            "Enterprise sales force smaller",
+            "Workspace adoption lower than M365",
+            "Reputation for product discontinuation"
+          ]
         },
         {
           "name": "Salesforce",
           "est_revenue": 35000000000,
           "est_market_share": 0.05,
           "relative_cost": 1.2,
-          "strengths": ["CRM market leader", "Strong ecosystem (AppExchange)", "Customer success methodology", "Einstein AI features"],
-          "weaknesses": ["Narrower product scope", "High customer acquisition cost", "Losing ground to Dynamics 365 in mid-market", "Margin compression from competition"]
+          "strengths": [
+            "CRM market leader",
+            "Strong ecosystem (AppExchange)",
+            "Customer success methodology",
+            "Einstein AI features"
+          ],
+          "weaknesses": [
+            "Narrower product scope",
+            "High customer acquisition cost",
+            "Losing ground to Dynamics 365 in mid-market",
+            "Margin compression from competition"
+          ]
         },
         {
           "name": "Oracle",
           "est_revenue": 55000000000,
           "est_market_share": 0.04,
           "relative_cost": 1.1,
-          "strengths": ["Database market dominance", "Strong ERP (Fusion)", "Autonomous database innovation", "Healthcare vertical strength"],
-          "weaknesses": ["Cloud migration slower than competitors", "Complex licensing", "Developer mindshare declining", "Aging on-premises customer base"]
+          "strengths": [
+            "Database market dominance",
+            "Strong ERP (Fusion)",
+            "Autonomous database innovation",
+            "Healthcare vertical strength"
+          ],
+          "weaknesses": [
+            "Cloud migration slower than competitors",
+            "Complex licensing",
+            "Developer mindshare declining",
+            "Aging on-premises customer base"
+          ]
         }
       ],
       "primary_competition_dimension": "Cloud platform breadth, AI integration, enterprise ecosystem lock-in",
-      "barriers_to_entry": "Extreme — requires global data center infrastructure ($50B+/yr capex), enterprise sales force at scale, decade+ of trust in regulated industries, productivity suite with network effects, and AI model capabilities",
+      "barriers_to_entry": "Extreme \u2014 requires global data center infrastructure ($50B+/yr capex), enterprise sales force at scale, decade+ of trust in regulated industries, productivity suite with network effects, and AI model capabilities",
       "pricing_model": "subscription",
       "price_elasticity_estimate": -0.5
     },
     "operations": {
       "production_model": "digital_delivery",
       "key_inputs": [
-        { "name": "Data Center Infrastructure (servers, GPUs, networking)", "annual_cost": 32000000000, "pct_of_cogs": 0.388, "substitutability": "Low — Nvidia GPUs critical, diversifying to custom silicon" },
-        { "name": "Energy & Power (data centers)", "annual_cost": 6000000000, "pct_of_cogs": 0.073, "substitutability": "Medium — pursuing nuclear/renewable PPAs" },
-        { "name": "Cloud Network Bandwidth", "annual_cost": 5000000000, "pct_of_cogs": 0.061, "substitutability": "Medium — multiple ISP/transit providers" },
-        { "name": "OpenAI Partnership & AI Compute", "annual_cost": 8000000000, "pct_of_cogs": 0.097, "substitutability": "Low — deep integration, equity stake" },
-        { "name": "Content Licensing (Gaming/LinkedIn Learning)", "annual_cost": 6000000000, "pct_of_cogs": 0.073, "substitutability": "Medium — first-party studios reduce dependency" },
-        { "name": "Third-party Software & Services", "annual_cost": 4000000000, "pct_of_cogs": 0.049, "substitutability": "Medium — large vendor ecosystem" }
+        {
+          "name": "Data Center Infrastructure (servers, GPUs, networking)",
+          "annual_cost": 32000000000,
+          "pct_of_cogs": 0.388,
+          "substitutability": "Low \u2014 Nvidia GPUs critical, diversifying to custom silicon"
+        },
+        {
+          "name": "Energy & Power (data centers)",
+          "annual_cost": 6000000000,
+          "pct_of_cogs": 0.073,
+          "substitutability": "Medium \u2014 pursuing nuclear/renewable PPAs"
+        },
+        {
+          "name": "Cloud Network Bandwidth",
+          "annual_cost": 5000000000,
+          "pct_of_cogs": 0.061,
+          "substitutability": "Medium \u2014 multiple ISP/transit providers"
+        },
+        {
+          "name": "OpenAI Partnership & AI Compute",
+          "annual_cost": 8000000000,
+          "pct_of_cogs": 0.097,
+          "substitutability": "Low \u2014 deep integration, equity stake"
+        },
+        {
+          "name": "Content Licensing (Gaming/LinkedIn Learning)",
+          "annual_cost": 6000000000,
+          "pct_of_cogs": 0.073,
+          "substitutability": "Medium \u2014 first-party studios reduce dependency"
+        },
+        {
+          "name": "Third-party Software & Services",
+          "annual_cost": 4000000000,
+          "pct_of_cogs": 0.049,
+          "substitutability": "Medium \u2014 large vendor ecosystem"
+        }
       ],
       "supplier_concentration": 0.45,
       "capacity_utilization": 0.82,
@@ -326,20 +675,74 @@
         "Expand data center capacity to meet AI demand"
       ],
       "planned_initiatives": [
-        { "name": "Copilot Everywhere Strategy", "description": "Embed Copilot AI assistants across M365, Azure, Windows, Dynamics, GitHub, and LinkedIn. Drive $30/user/month M365 Copilot upsell across 400M seats.", "priority": 1 },
-        { "name": "Azure AI Infrastructure Buildout", "description": "Invest $55B+ in data center capex, deploy custom Maia AI chips, expand to 70+ Azure regions. Meet surging AI inference and training demand.", "priority": 2 },
-        { "name": "Gaming Platform Expansion", "description": "Integrate Activision Blizzard catalog into Game Pass, expand cloud gaming to more devices, build mobile gaming presence with King and ABK mobile titles.", "priority": 3 },
-        { "name": "Microsoft Security Suite Growth", "description": "Unify security products under Microsoft Security Copilot brand. Target $30B+ security revenue. Counter CrowdStrike, Palo Alto.", "priority": 4 },
-        { "name": "Custom Silicon Program", "description": "Develop Maia (AI accelerator) and Cobalt (Arm CPU) chips to reduce Nvidia GPU dependency and improve Azure margin at scale.", "priority": 5 },
-        { "name": "LinkedIn AI Transformation", "description": "Integrate AI across LinkedIn for recruitment (AI matching), content creation, learning recommendations, and premium features.", "priority": 6 }
+        {
+          "name": "Copilot Everywhere Strategy",
+          "description": "Embed Copilot AI assistants across M365, Azure, Windows, Dynamics, GitHub, and LinkedIn. Drive $30/user/month M365 Copilot upsell across 400M seats.",
+          "priority": 1
+        },
+        {
+          "name": "Azure AI Infrastructure Buildout",
+          "description": "Invest $55B+ in data center capex, deploy custom Maia AI chips, expand to 70+ Azure regions. Meet surging AI inference and training demand.",
+          "priority": 2
+        },
+        {
+          "name": "Gaming Platform Expansion",
+          "description": "Integrate Activision Blizzard catalog into Game Pass, expand cloud gaming to more devices, build mobile gaming presence with King and ABK mobile titles.",
+          "priority": 3
+        },
+        {
+          "name": "Microsoft Security Suite Growth",
+          "description": "Unify security products under Microsoft Security Copilot brand. Target $30B+ security revenue. Counter CrowdStrike, Palo Alto.",
+          "priority": 4
+        },
+        {
+          "name": "Custom Silicon Program",
+          "description": "Develop Maia (AI accelerator) and Cobalt (Arm CPU) chips to reduce Nvidia GPU dependency and improve Azure margin at scale.",
+          "priority": 5
+        },
+        {
+          "name": "LinkedIn AI Transformation",
+          "description": "Integrate AI across LinkedIn for recruitment (AI matching), content creation, learning recommendations, and premium features.",
+          "priority": 6
+        }
       ],
       "major_risks": [
-        { "name": "AI Investment ROI Uncertainty", "description": "$55B+ annual capex on AI infrastructure may not generate proportional returns if enterprise AI adoption is slower than projected", "likelihood": "medium", "impact": "high" },
-        { "name": "OpenAI Dependency & Partnership Risk", "description": "Deep reliance on OpenAI for frontier models; OpenAI's push to become a for-profit entity and potential competitive tensions", "likelihood": "medium", "impact": "high" },
-        { "name": "Antitrust & Regulatory Pressure", "description": "EU DMA, FTC scrutiny on Activision deal conditions, bundling concerns around Teams/M365, potential cloud market regulation", "likelihood": "high", "impact": "medium" },
-        { "name": "Security Reputation Risk", "description": "High-profile breaches (SolarWinds, Storm-0558) damaged trust; CISA criticism of security culture; must demonstrate measurable improvement", "likelihood": "medium", "impact": "high" },
-        { "name": "GPU Supply Constraints", "description": "Nvidia GPU allocation insufficient for Azure AI demand; custom silicon (Maia) still early; constraining Azure AI growth", "likelihood": "high", "impact": "high" },
-        { "name": "Gaming Profitability", "description": "Activision Blizzard $69B acquisition must demonstrate growth; Game Pass economics require scale to justify content investment", "likelihood": "medium", "impact": "medium" }
+        {
+          "name": "AI Investment ROI Uncertainty",
+          "description": "$55B+ annual capex on AI infrastructure may not generate proportional returns if enterprise AI adoption is slower than projected",
+          "likelihood": "medium",
+          "impact": "high"
+        },
+        {
+          "name": "OpenAI Dependency & Partnership Risk",
+          "description": "Deep reliance on OpenAI for frontier models; OpenAI's push to become a for-profit entity and potential competitive tensions",
+          "likelihood": "medium",
+          "impact": "high"
+        },
+        {
+          "name": "Antitrust & Regulatory Pressure",
+          "description": "EU DMA, FTC scrutiny on Activision deal conditions, bundling concerns around Teams/M365, potential cloud market regulation",
+          "likelihood": "high",
+          "impact": "medium"
+        },
+        {
+          "name": "Security Reputation Risk",
+          "description": "High-profile breaches (SolarWinds, Storm-0558) damaged trust; CISA criticism of security culture; must demonstrate measurable improvement",
+          "likelihood": "medium",
+          "impact": "high"
+        },
+        {
+          "name": "GPU Supply Constraints",
+          "description": "Nvidia GPU allocation insufficient for Azure AI demand; custom silicon (Maia) still early; constraining Azure AI growth",
+          "likelihood": "high",
+          "impact": "high"
+        },
+        {
+          "name": "Gaming Profitability",
+          "description": "Activision Blizzard $69B acquisition must demonstrate growth; Game Pass economics require scale to justify content investment",
+          "likelihood": "medium",
+          "impact": "medium"
+        }
       ],
       "moats": [
         "Enterprise ecosystem lock-in (Windows + Office + Azure + AD/Entra)",
@@ -372,11 +775,28 @@
       "depreciation_rate": 0.12,
       "reinvestment_rate": 0.45,
       "revenue_volatility": 0.05,
-      "demand_seasonality": [0.92, 0.88, 0.9, 0.95, 0.93, 1.08, 0.95, 0.92, 0.98, 1.05, 1.02, 1.42]
+      "demand_seasonality": [
+        0.92,
+        0.88,
+        0.9,
+        0.95,
+        0.93,
+        1.08,
+        0.95,
+        0.92,
+        0.98,
+        1.05,
+        1.02,
+        1.42
+      ]
     },
     "metadata": {
       "created_by": "Onyx Leopard Sample Data",
-      "source_documents": ["Microsoft 10-K FY2024", "Microsoft Q2 FY2025 Earnings", "Industry analyst estimates"],
+      "source_documents": [
+        "Microsoft 10-K FY2024",
+        "Microsoft Q2 FY2025 Earnings",
+        "Industry analyst estimates"
+      ],
       "completeness_score": 0.95,
       "last_modified": null,
       "notes": "Comprehensive Microsoft Corporation profile based on public financial filings. FY2024 ended June 2024; some figures use Q2 FY2025 run-rate estimates."
@@ -390,126 +810,260 @@
         "id": "node-cloud-ai",
         "label": "Cloud & AI Platform",
         "type": "department",
-        "metrics": { "headcount": 65000, "budget": 28000000000 },
+        "metrics": {
+          "headcount": 65000,
+          "budget": 28000000000
+        },
         "agent_prompt": "You manage Microsoft's Cloud & AI division including Azure, Copilot, GitHub, and developer tools. Drive Azure revenue growth (29% YoY), manage AI infrastructure scaling, and coordinate with OpenAI partnership. Balance massive capex investment with margin targets."
       },
       {
         "id": "node-productivity",
         "label": "Productivity & Business",
         "type": "department",
-        "metrics": { "headcount": 40000, "budget": 12000000000 },
+        "metrics": {
+          "headcount": 40000,
+          "budget": 12000000000
+        },
         "agent_prompt": "You run Microsoft 365, Dynamics 365, Teams, and Power Platform. Drive Copilot for M365 adoption at $30/user/month across 400M seats. Maintain 95%+ enterprise retention while expanding per-user revenue."
       },
       {
         "id": "node-personal-computing",
         "label": "More Personal Computing",
         "type": "department",
-        "metrics": { "headcount": 25000, "budget": 8000000000 },
+        "metrics": {
+          "headcount": 25000,
+          "budget": 8000000000
+        },
         "agent_prompt": "You manage Windows, Surface, Bing, and search advertising. Drive Copilot+ PC adoption, grow Bing/Edge market share through AI differentiation, and manage Windows OEM licensing in a post-PC era."
       },
       {
         "id": "node-gaming",
         "label": "Gaming",
         "type": "department",
-        "metrics": { "headcount": 22000, "budget": 9000000000 },
+        "metrics": {
+          "headcount": 22000,
+          "budget": 9000000000
+        },
         "agent_prompt": "You lead Microsoft Gaming including Xbox, Game Pass, and Activision Blizzard studios. Scale Game Pass to 50M+ subscribers, integrate ABK catalog, and build mobile gaming presence. Drive path to profitability for the gaming division."
       },
       {
         "id": "node-linkedin",
         "label": "LinkedIn",
         "type": "department",
-        "metrics": { "headcount": 20000, "budget": 5000000000, "revenue": 17000000000 },
+        "metrics": {
+          "headcount": 20000,
+          "budget": 5000000000,
+          "revenue": 17000000000
+        },
         "agent_prompt": "You run LinkedIn with 1B+ members. Grow Talent Solutions, Marketing Solutions, and Premium subscriptions. Integrate AI for better matching, content creation, and learning recommendations."
       },
       {
         "id": "node-research",
         "label": "Microsoft Research",
         "type": "department",
-        "metrics": { "headcount": 3000, "budget": 4000000000 },
+        "metrics": {
+          "headcount": 3000,
+          "budget": 4000000000
+        },
         "agent_prompt": "You lead Microsoft Research labs globally. Focus on foundational AI research, quantum computing, and applied research that feeds into Azure and product teams. Publish 1500+ papers per year."
       },
       {
         "id": "node-sales",
         "label": "Global Sales & Marketing",
         "type": "department",
-        "metrics": { "headcount": 30000, "budget": 22000000000 },
+        "metrics": {
+          "headcount": 30000,
+          "budget": 22000000000
+        },
         "agent_prompt": "You manage Microsoft's enterprise sales force and 400K+ partner ecosystem. Drive cloud consumption, Copilot upsell, and security product adoption across Fortune 500 and government customers."
       },
       {
         "id": "node-finance",
         "label": "Finance",
         "type": "department",
-        "metrics": { "headcount": 8000, "budget": 1800000000 },
+        "metrics": {
+          "headcount": 8000,
+          "budget": 1800000000
+        },
         "agent_prompt": "You manage Microsoft's financial operations, $75B+ cash position, $55B capex program, dividends, and buybacks. Optimize capital allocation between AI investment, M&A, and shareholder returns."
       },
       {
         "id": "node-rev-cloud",
         "label": "Intelligent Cloud Revenue",
         "type": "revenue_stream",
-        "metrics": { "annual_revenue": 106265000000, "growth_rate": 0.21, "margin": 0.42 },
+        "metrics": {
+          "annual_revenue": 106265000000,
+          "growth_rate": 0.21,
+          "margin": 0.42
+        },
         "agent_prompt": "Intelligent Cloud is Microsoft's largest segment at $97B. Azure drives growth at 29% YoY. Model AI workload growth, GPU capacity constraints, and competitive dynamics with AWS."
       },
       {
         "id": "node-rev-productivity",
         "label": "Productivity Revenue",
         "type": "revenue_stream",
-        "metrics": { "annual_revenue": 120810000000, "growth_rate": 0.13, "margin": 0.578 },
+        "metrics": {
+          "annual_revenue": 120810000000,
+          "growth_rate": 0.13,
+          "margin": 0.578
+        },
         "agent_prompt": "Productivity & Business Processes at $78B. M365 commercial is the core with Copilot as the growth lever. Model seat expansion, ARPU growth from Copilot, and Dynamics 365 competitive win rates."
       },
       {
         "id": "node-rev-computing",
         "label": "Personal Computing Revenue",
         "type": "revenue_stream",
-        "metrics": { "annual_revenue": 54649000000, "growth_rate": 0.06, "margin": 0.259 },
+        "metrics": {
+          "annual_revenue": 54649000000,
+          "growth_rate": 0.06,
+          "margin": 0.259
+        },
         "agent_prompt": "More Personal Computing at $56B including Windows OEM, search ads, and Surface. Model PC refresh cycle driven by Windows 11 and Copilot+ PCs, plus Bing/Edge AI-driven ad revenue growth."
       },
       {
         "id": "node-rev-gaming",
         "label": "Gaming Revenue",
         "type": "revenue_stream",
-        "metrics": { "annual_revenue": 22100000000, "growth_rate": 0.61, "margin": 0.18 },
+        "metrics": {
+          "annual_revenue": 22100000000,
+          "growth_rate": 0.61,
+          "margin": 0.18
+        },
         "agent_prompt": "Gaming revenue at $22B, boosted 61% by Activision Blizzard acquisition. Model Game Pass subscriber growth, content monetization, and mobile gaming revenue from King."
       },
       {
         "id": "node-cogs",
         "label": "Cost of Revenue",
         "type": "cost_center",
-        "metrics": { "annual_cost": 87831000000 },
+        "metrics": {
+          "annual_cost": 87831000000
+        },
         "agent_prompt": "Microsoft's cost of revenue at $82B primarily covers data center operations, content costs, and cloud infrastructure. Model impact of custom silicon (Maia/Cobalt), energy costs, and scale efficiencies."
       },
       {
         "id": "node-ext-openai",
         "label": "OpenAI (Strategic Partner)",
         "type": "external",
-        "metrics": { "investment": 13000000000, "annual_compute_cost": 8000000000 },
+        "metrics": {
+          "investment": 13000000000,
+          "annual_compute_cost": 8000000000
+        },
         "agent_prompt": "OpenAI is Microsoft's critical AI partner ($13B+ invested). Exclusive Azure hosting of GPT models. Model the partnership dynamics, competitive tensions, and compute cost trajectory."
       },
       {
         "id": "node-ext-nvidia",
         "label": "Nvidia (GPU Supplier)",
         "type": "external",
-        "metrics": { "annual_cost": 18000000000, "dependency_score": 0.8 },
+        "metrics": {
+          "annual_cost": 18000000000,
+          "dependency_score": 0.8
+        },
         "agent_prompt": "Nvidia supplies the majority of GPU compute for Azure AI. Allocation constraints limiting Azure growth. Model supply/demand dynamics and custom silicon transition timeline."
       }
     ],
     "edges": [
-      { "source": "node-cloud-ai", "target": "node-rev-cloud", "relationship": "funds", "label": "Azure & cloud revenue" },
-      { "source": "node-productivity", "target": "node-rev-productivity", "relationship": "funds", "label": "M365 & Dynamics revenue" },
-      { "source": "node-personal-computing", "target": "node-rev-computing", "relationship": "funds", "label": "Windows & search revenue" },
-      { "source": "node-gaming", "target": "node-rev-gaming", "relationship": "funds", "label": "Xbox & Game Pass revenue" },
-      { "source": "node-cloud-ai", "target": "node-productivity", "relationship": "supplies", "label": "Azure powers M365 & Copilot" },
-      { "source": "node-cloud-ai", "target": "node-gaming", "relationship": "supplies", "label": "Cloud gaming infrastructure" },
-      { "source": "node-research", "target": "node-cloud-ai", "relationship": "collaborates", "label": "AI research transfer" },
-      { "source": "node-sales", "target": "node-cloud-ai", "relationship": "serves", "label": "Enterprise cloud sales" },
-      { "source": "node-sales", "target": "node-productivity", "relationship": "serves", "label": "M365 enterprise sales" },
-      { "source": "node-ext-openai", "target": "node-cloud-ai", "relationship": "supplies", "label": "GPT models for Azure AI" },
-      { "source": "node-ext-nvidia", "target": "node-cloud-ai", "relationship": "supplies", "label": "GPU compute for AI workloads" },
-      { "source": "node-finance", "target": "node-cloud-ai", "relationship": "funds", "label": "$55B capex allocation" },
-      { "source": "node-linkedin", "target": "node-rev-productivity", "relationship": "funds", "label": "LinkedIn revenue contribution" },
-      { "source": "node-rev-cloud", "target": "node-finance", "relationship": "funds", "label": "Primary revenue driver" },
-      { "source": "node-rev-productivity", "target": "node-finance", "relationship": "funds", "label": "Highest-margin segment" },
-      { "source": "node-cloud-ai", "target": "node-cogs", "relationship": "funds", "label": "Infrastructure costs" },
-      { "source": "node-cloud-ai", "target": "node-personal-computing", "relationship": "collaborates", "label": "Copilot for Windows" }
+      {
+        "source": "node-cloud-ai",
+        "target": "node-rev-cloud",
+        "relationship": "funds",
+        "label": "Azure & cloud revenue"
+      },
+      {
+        "source": "node-productivity",
+        "target": "node-rev-productivity",
+        "relationship": "funds",
+        "label": "M365 & Dynamics revenue"
+      },
+      {
+        "source": "node-personal-computing",
+        "target": "node-rev-computing",
+        "relationship": "funds",
+        "label": "Windows & search revenue"
+      },
+      {
+        "source": "node-gaming",
+        "target": "node-rev-gaming",
+        "relationship": "funds",
+        "label": "Xbox & Game Pass revenue"
+      },
+      {
+        "source": "node-cloud-ai",
+        "target": "node-productivity",
+        "relationship": "supplies",
+        "label": "Azure powers M365 & Copilot"
+      },
+      {
+        "source": "node-cloud-ai",
+        "target": "node-gaming",
+        "relationship": "supplies",
+        "label": "Cloud gaming infrastructure"
+      },
+      {
+        "source": "node-research",
+        "target": "node-cloud-ai",
+        "relationship": "collaborates",
+        "label": "AI research transfer"
+      },
+      {
+        "source": "node-sales",
+        "target": "node-cloud-ai",
+        "relationship": "serves",
+        "label": "Enterprise cloud sales"
+      },
+      {
+        "source": "node-sales",
+        "target": "node-productivity",
+        "relationship": "serves",
+        "label": "M365 enterprise sales"
+      },
+      {
+        "source": "node-ext-openai",
+        "target": "node-cloud-ai",
+        "relationship": "supplies",
+        "label": "GPT models for Azure AI"
+      },
+      {
+        "source": "node-ext-nvidia",
+        "target": "node-cloud-ai",
+        "relationship": "supplies",
+        "label": "GPU compute for AI workloads"
+      },
+      {
+        "source": "node-finance",
+        "target": "node-cloud-ai",
+        "relationship": "funds",
+        "label": "$55B capex allocation"
+      },
+      {
+        "source": "node-linkedin",
+        "target": "node-rev-productivity",
+        "relationship": "funds",
+        "label": "LinkedIn revenue contribution"
+      },
+      {
+        "source": "node-rev-cloud",
+        "target": "node-finance",
+        "relationship": "funds",
+        "label": "Primary revenue driver"
+      },
+      {
+        "source": "node-rev-productivity",
+        "target": "node-finance",
+        "relationship": "funds",
+        "label": "Highest-margin segment"
+      },
+      {
+        "source": "node-cloud-ai",
+        "target": "node-cogs",
+        "relationship": "funds",
+        "label": "Infrastructure costs"
+      },
+      {
+        "source": "node-cloud-ai",
+        "target": "node-personal-computing",
+        "relationship": "collaborates",
+        "label": "Copilot for Windows"
+      }
     ],
     "global_metrics": {
       "annual_revenue": 281724000000,
@@ -522,5 +1076,5 @@
     }
   },
   "simulation_snapshot": null,
-  "checksum": ""
+  "checksum": "97716beba9e3f31187b0339af607064ac2cd7e04a26de9e7624096fb7d6f529e"
 }

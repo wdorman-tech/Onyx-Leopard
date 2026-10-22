@@ -37,6 +37,13 @@ const CATEGORY_COLORS: Record<NodeCategory, string> = {
   corporate: "#3b82f6",
   external: "#f59e0b",
   revenue: "#8b5cf6",
+  supplier: "#14b8a6",
+  ops: "#6366f1",
+  sales: "#06b6d4",
+  marketing: "#f97316",
+  finance: "#84cc16",
+  exec: "#0f172a",
+  cost: "#ef4444",
 };
 
 const CATEGORY_RADIUS: Record<NodeCategory, number> = {
@@ -45,6 +52,13 @@ const CATEGORY_RADIUS: Record<NodeCategory, number> = {
   corporate: 6,
   external: 5,
   revenue: 7,
+  supplier: 5,
+  ops: 6,
+  sales: 6,
+  marketing: 6,
+  finance: 6,
+  exec: 9,
+  cost: 5,
 };
 
 /* ── Node type for d3-force ── */
@@ -476,6 +490,7 @@ export function ForceGraph({
       ctx.restore();
     }
 
+    // eslint-disable-next-line react-hooks/immutability
     rafRef.current = requestAnimationFrame(draw);
   }, [selected]);
 
@@ -625,7 +640,7 @@ export function ForceGraph({
       }
       return prev;
     });
-  }, [graph, companyName, multiCompany]);
+  }, [graph, companyName, multiCompany, founderType]);
 
   /* ── Canvas sizing ── */
   useEffect(() => {
@@ -761,20 +776,27 @@ export function ForceGraph({
     if (canvasRef.current) canvasRef.current.style.cursor = hoveredRef.current ? "pointer" : "grab";
   }, []);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-
-    const t = transformRef.current;
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const newK = Math.max(0.3, Math.min(3, t.k * factor));
-
-    t.x = mx - (mx - t.x) * (newK / t.k);
-    t.y = my - (my - t.y) * (newK / t.k);
-    t.k = newK;
+  // Attached via native `addEventListener` with `{ passive: false }` in the
+  // effect below. React 19 registers `onWheel` as passive, which makes
+  // `preventDefault()` a no-op and spams the console — so we bypass React's
+  // synthetic event for wheel only.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const t = transformRef.current;
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      const newK = Math.max(0.3, Math.min(3, t.k * factor));
+      t.x = mx - (mx - t.x) * (newK / t.k);
+      t.y = my - (my - t.y) * (newK / t.k);
+      t.k = newK;
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
   }, []);
 
   const handleTooltipClose = useCallback(() => setSelected(null), []);
@@ -787,7 +809,6 @@ export function ForceGraph({
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
         className="block w-full h-full"
         style={{ cursor: "grab" }}
       />

@@ -67,7 +67,7 @@ class TestRevenueDynamics:
         engine = MarketEngine(default_params, max_ticks=300, seed=42)
         for _ in range(300):
             result = engine.tick()
-            for agent_data, agent_state in zip(result["agents"], engine.agents):
+            for agent_data, agent_state in zip(result["agents"], engine.agents, strict=True):
                 if agent_state.alive:
                     # Redistribution is capped by spare capacity so this holds
                     assert agent_state.revenue <= agent_state.capacity * 1.01, (
@@ -344,7 +344,7 @@ class TestDeterminism:
 
         assert r1["tam"] == r2["tam"]
         assert r1["hhi"] == r2["hhi"]
-        for a1, a2 in zip(r1["agents"], r2["agents"]):
+        for a1, a2 in zip(r1["agents"], r2["agents"], strict=True):
             assert a1["revenue"] == a2["revenue"]
             assert a1["cash"] == a2["cash"]
 
