@@ -12,7 +12,7 @@ cd Onyx-Leopard
 python start.py          # installs deps, asks for your OpenRouter key, launches both servers
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On first run `start.py` asks for an [OpenRouter key](https://openrouter.ai/keys), saves it to `backend/.env`, and checks it with OpenRouter. Press Enter to skip: the simulation still runs, with free rule-based CEOs.
+Open [http://localhost:3000](http://localhost:3000). On first run `start.py` asks for an [OpenRouter key](https://openrouter.ai/keys), saves it to `backend/.env`, and checks it with OpenRouter. Press Enter to skip: the simulation still runs with free rule-based CEOs, and you can add `OPENROUTER_API_KEY=...` to `backend/.env` later (reload the page, no restart).
 
 ## Using It
 

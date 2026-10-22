@@ -84,9 +84,12 @@ def setup_key() -> None:
     if not key:
         step("AI CEOs run on OpenRouter (cheap Chinese models by default, Claude optional).")
         print("    Get a key at https://openrouter.ai/keys")
-        key = input(f"    Paste your {KEY_NAME} (or press Enter to skip): ").strip()
+        try:
+            key = input(f"    Paste your {KEY_NAME} (or press Enter to skip): ").strip()
+        except EOFError:  # non-interactive launch
+            key = ""
         if not key:
-            print("    Skipped. Simulations will use the free heuristic CEOs only.")
+            print("    Skipped. Heuristic CEOs only until you add the key to backend/.env.")
             return
         save_env_key(key)
         print(f"    Saved to {ENV_FILE.relative_to(ROOT)}")

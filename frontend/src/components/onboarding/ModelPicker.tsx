@@ -130,9 +130,9 @@ export function ModelPicker({ onContinue }: ModelPickerProps) {
               <KeyRound size={18} className="text-warning flex-shrink-0 mt-0.5" />
               <div className="text-xs text-surface-700 leading-relaxed">
                 <div className="font-semibold text-surface-800 mb-0.5">No OpenRouter key yet</div>
-                Restart with <code className="font-mono">python start.py</code> and paste your{" "}
-                <code className="font-mono">{config.key_env}</code> when asked (get one at
-                openrouter.ai/keys). Until then CEOs run on free heuristics.
+                Add <code className="font-mono">{config.key_env}=sk-or-...</code> to{" "}
+                <code className="font-mono">backend/.env</code> (get one at openrouter.ai/keys)
+                and reload this page; no restart needed. Until then CEOs run on free heuristics.
               </div>
             </div>
           )}

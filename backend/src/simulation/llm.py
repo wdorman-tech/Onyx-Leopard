@@ -22,6 +22,7 @@ from typing import Any, Final
 
 import httpx
 import yaml
+from dotenv import dotenv_values
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ DEFAULT_BASE_URL: Final[str] = "https://openrouter.ai/api/v1"
 API_KEY_ENV: Final[str] = "OPENROUTER_API_KEY"
 APP_TITLE: Final[str] = "Onyx Leopard"
 MODELS_PATH: Final[Path] = Path(__file__).resolve().parent / "models.yaml"
+ENV_FILE: Final[Path] = Path(__file__).resolve().parents[2] / ".env"
 
 REQUEST_TIMEOUT_S: Final[float] = 120.0
 #: Attempts per call for transient failures (429, 5xx, timeouts).
@@ -56,8 +58,9 @@ def base_url() -> str:
 
 
 def api_key() -> str | None:
-    key = os.environ.get(API_KEY_ENV, "").strip()
-    return key or None
+    """Key from the environment, else read live from backend/.env (no restart needed)."""
+    key = os.environ.get(API_KEY_ENV) or dotenv_values(ENV_FILE).get(API_KEY_ENV) or ""
+    return key.strip() or None
 
 
 # ─── Model catalog ──────────────────────────────────────────────────────────

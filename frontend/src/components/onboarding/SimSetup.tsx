@@ -223,7 +223,7 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
                   <div className="text-[11px] text-surface-500">
                     {config.ai_available
                       ? `${model.name} decides monthly for every company`
-                      : `Needs ${config.key_env}; rerun start.py to add it`}
+                      : `Needs ${config.key_env} in backend/.env, then reload`}
                   </div>
                 </div>
               </div>

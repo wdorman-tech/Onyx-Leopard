@@ -172,3 +172,10 @@ def test_catalog_offline_falls_back_to_static_list() -> None:
     assert catalog["live"] is False
     assert len(catalog["tiers"]) == 4
     assert any(m["id"].startswith("anthropic/") for m in catalog["anthropic"])
+
+
+def test_api_key_is_read_live_from_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    assert llm.api_key() is None
+    llm.ENV_FILE.write_text("OTHER=1\nOPENROUTER_API_KEY=sk-or-pasted-later\n")
+    assert llm.api_key() == "sk-or-pasted-later"

@@ -98,3 +98,11 @@ def make_llm(router: FakeRouter, *, budget: float = 1.0, model: ModelInfo = GLM_
     return OpenRouterClient(
         api_key="sk-or-test", model=model, budget=Budget(ceiling_usd=budget), http=router.client()
     )
+
+
+@pytest.fixture(autouse=True)
+def isolated_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Keep the developer's real backend/.env key out of tests."""
+    from src.simulation import llm
+
+    monkeypatch.setattr(llm, "ENV_FILE", tmp_path / ".env")
