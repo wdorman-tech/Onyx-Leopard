@@ -87,7 +87,7 @@ export function NodeTooltip({ label, type, category, metrics, x, y, onClose }: N
           <div className="border-t border-surface-200 pt-1.5 space-y-0.5">
             {metricEntries.map(([key, val]) => (
               <div key={key} className="flex items-center justify-between text-[10px]">
-                <span className="text-surface-500 capitalize">{key}</span>
+                <span className="text-surface-500 capitalize">{key.replace(/_/g, " ")}</span>
                 <span className="text-surface-800 font-mono">
                   {key === "satisfaction"
                     ? `${Math.round(val * 100)}%`

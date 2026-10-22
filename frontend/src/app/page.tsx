@@ -1,114 +1,52 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { ModeSelector } from "@/components/modes/ModeSelector";
-import { UnifiedSetup } from "@/components/modes/UnifiedSetup";
-import { UnifiedSimView } from "@/components/modes/UnifiedSimView";
-import { useUnifiedSimulation } from "@/hooks/useUnifiedSimulation";
-import type { ImportedCompany } from "@/lib/apiV2";
+import { useCallback, useState } from "react";
+import { ModelPicker } from "@/components/onboarding/ModelPicker";
+import { SimSetup } from "@/components/onboarding/SimSetup";
+import { SimView } from "@/components/sim/SimView";
+import { useSimulation } from "@/hooks/useSimulation";
+import type { AppConfig, ModelOption, StartRequest } from "@/lib/api";
 
-type AppMode = "mode-select" | "unified-pick" | "unified-sim";
+type Screen = "model" | "setup" | "sim";
 
 export default function Home() {
-  const unified = useUnifiedSimulation();
+  const sim = useSimulation();
+  const [screen, setScreen] = useState<Screen>("model");
+  const [model, setModel] = useState<ModelOption | null>(null);
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [aiRun, setAiRun] = useState(false);
 
-  const [mode, setMode] = useState<AppMode>("mode-select");
-  const [unifiedStartMode, setUnifiedStartMode] = useState("identical");
-  const [unifiedCompanyCount, setUnifiedCompanyCount] = useState(4);
-  const [aiCeoEnabled, setAiCeoEnabled] = useState(true);
-  const [durationYears, setDurationYears] = useState(5);
-  const [companyStrategies, setCompanyStrategies] = useState<Record<number, string>>({});
-  const [selectedCompany, setSelectedCompany] = useState<ImportedCompany | null>(null);
+  const start = useCallback(
+    (req: StartRequest) => {
+      setAiRun(req.ai_enabled);
+      setScreen("sim");
+      void sim.start(req);
+    },
+    [sim],
+  );
 
-  const stageLabels = useMemo<Record<number, string>>(() => {
-    const labels: Record<number, string> = {};
-    if (!unified.specDisplay?.stage_labels) return labels;
-    for (const [k, v] of Object.entries(unified.specDisplay.stage_labels)) {
-      labels[Number(k)] = v;
-    }
-    return labels;
-  }, [unified.specDisplay]);
-  void stageLabels;
+  const backToSetup = useCallback(() => {
+    void sim.stop();
+    setScreen("setup");
+  }, [sim]);
 
-  const durationOptions = unified.specDisplay?.duration_options ?? [1, 5, 10, 20];
-
-  const handleBack = useCallback(() => {
-    setMode("mode-select");
-  }, []);
-
-  const handleStartUnified = useCallback(() => {
-    setMode("unified-sim");
-    unified.start(
-      unifiedStartMode,
-      unifiedCompanyCount,
-      aiCeoEnabled,
-      durationYears,
-      companyStrategies,
-      selectedCompany?.seed,
-    );
-  }, [
-    unified,
-    unifiedStartMode,
-    unifiedCompanyCount,
-    aiCeoEnabled,
-    durationYears,
-    companyStrategies,
-    selectedCompany,
-  ]);
-
-  if (mode === "mode-select") {
-    return <ModeSelector onSelectUnified={() => setMode("unified-pick")} />;
-  }
-
-  if (mode === "unified-pick") {
+  if (screen === "model" || !model || !config) {
     return (
-      <UnifiedSetup
-        startMode={unifiedStartMode}
-        companyCount={unifiedCompanyCount}
-        aiCeoEnabled={aiCeoEnabled}
-        durationYears={durationYears}
-        durationOptions={durationOptions}
-        companyStrategies={companyStrategies}
-        selectedCompany={selectedCompany}
-        onSetStartMode={setUnifiedStartMode}
-        onSetCompanyCount={setUnifiedCompanyCount}
-        onSetAiCeoEnabled={setAiCeoEnabled}
-        onSetDurationYears={setDurationYears}
-        onSetCompanyStrategies={setCompanyStrategies}
-        onSetSelectedCompany={setSelectedCompany}
-        onStart={handleStartUnified}
-        onBack={() => setMode("mode-select")}
+      <ModelPicker
+        onContinue={(m, cfg) => {
+          setModel(m);
+          setConfig(cfg);
+          setScreen("setup");
+        }}
       />
     );
   }
 
-  return (
-    <UnifiedSimView
-      subtitle="Unified Compete"
-      sessionId={unified.sessionId}
-      playing={unified.playing}
-      speed={unified.speed}
-      tick={unified.tick}
-      isComplete={unified.isComplete}
-      ceoThinking={unified.ceoThinking}
-      tam={unified.tam}
-      captured={unified.captured}
-      hhi={unified.hhi}
-      agentCount={unified.agentCount}
-      agents={unified.agents}
-      focusedCompanyId={unified.focusedCompanyId}
-      mergedGraph={unified.mergedGraph}
-      founderType={unified.founderType ?? undefined}
-      status={unified.status}
-      history={unified.history}
-      eventLog={unified.eventLog}
-      reports={unified.reports}
-      durationYears={aiCeoEnabled ? durationYears : undefined}
-      onPlay={unified.play}
-      onPause={unified.pause}
-      onSetSpeed={unified.setSpeed}
-      onFocusCompany={unified.setFocusedCompany}
-      onBack={handleBack}
-    />
-  );
+  if (screen === "setup") {
+    return (
+      <SimSetup model={model} config={config} onBack={() => setScreen("model")} onStart={start} />
+    );
+  }
+
+  return <SimView sim={sim} modelName={aiRun ? model.name : null} onBack={backToSetup} />;
 }

@@ -1,33 +1,33 @@
 "use client";
 
-import { Play, Pause } from "@/components/ui/icons";
+import { Pause, Play } from "lucide-react";
+
+// Days per real second. 365× plays a year per second.
+const SPEEDS = [1, 5, 25, 100, 365];
 
 interface TimeControlsProps {
   playing: boolean;
   speed: number;
   tick: number;
+  maxTicks: number;
   isComplete: boolean;
-  durationYears?: number;
   onPlay: () => void;
   onPause: () => void;
   onSetSpeed: (speed: number) => void;
 }
 
-const SPEEDS = [1, 2, 5, 10, 50, 100];
-
 export function TimeControls({
   playing,
   speed,
   tick,
+  maxTicks,
   isComplete,
-  durationYears,
   onPlay,
   onPause,
   onSetSpeed,
 }: TimeControlsProps) {
-  const maxTicks = durationYears != null ? durationYears * 365 : 0;
-  const hasProgress = maxTicks > 0;
-  const progress = hasProgress ? Math.min(tick / maxTicks, 1) : 0;
+  const progress = maxTicks > 0 ? Math.min(tick / maxTicks, 1) : 0;
+  const year = Math.max(1, Math.ceil(tick / 365));
 
   return (
     <div className="flex items-center gap-2 bg-surface-50/80 backdrop-blur border border-surface-200 rounded-xl px-3 py-1.5">
@@ -52,7 +52,7 @@ export function TimeControls({
           <button
             key={s}
             onClick={() => onSetSpeed(s)}
-            data-tooltip={`${s}x speed`}
+            data-tooltip={`${s} days / second`}
             data-tooltip-pos="below"
             className={`text-[10px] font-medium px-2 py-1 rounded-md transition-all active:scale-[0.97] ${
               speed === s
@@ -68,31 +68,24 @@ export function TimeControls({
       <div className="h-4 w-px bg-surface-200" />
 
       <div className="flex items-center gap-1.5 px-1">
-        <div className={`w-1.5 h-1.5 rounded-full ${playing ? "bg-accent animate-pulse" : isComplete ? "bg-complete" : "bg-surface-400"}`} />
+        <div
+          className={`w-1.5 h-1.5 rounded-full ${playing ? "bg-accent animate-pulse" : isComplete ? "bg-complete" : "bg-surface-400"}`}
+        />
         <span className="text-xs text-surface-600">
-          Day <span className="text-surface-800 font-mono font-medium">{tick}</span>
+          Year <span className="text-surface-800 font-mono font-medium">{year}</span> · Day{" "}
+          <span className="text-surface-800 font-mono font-medium">{tick}</span>
         </span>
       </div>
 
-      {hasProgress && (
-        <>
-          <div className="w-24 h-1.5 bg-surface-200 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${isComplete ? "bg-complete" : "bg-accent"}`}
-              style={{ width: `${progress * 100}%` }}
-            />
-          </div>
-          <span className="text-[10px] font-mono text-surface-500 w-8 text-right">
-            {Math.round(progress * 100)}%
-          </span>
-        </>
-      )}
-
-      {isComplete && (
-        <span className="text-[10px] font-medium text-complete bg-complete/10 px-2 py-0.5 rounded-md">
-          Done
-        </span>
-      )}
+      <div className="w-24 h-1.5 bg-surface-200 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ${isComplete ? "bg-complete" : "bg-accent"}`}
+          style={{ width: `${progress * 100}%` }}
+        />
+      </div>
+      <span className="text-[10px] font-mono text-surface-500 w-8 text-right">
+        {Math.round(progress * 100)}%
+      </span>
     </div>
   );
 }

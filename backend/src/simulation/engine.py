@@ -160,6 +160,7 @@ class Company:
 
         # Last-tick metrics.
         self.daily_revenue = 0.0
+        self.core_revenue = 0.0  # served × price, before revenue-stream uplift
         self.daily_costs = 0.0
         self.fixed_burn = 0.0
         self.market_share = 0.0
@@ -306,7 +307,8 @@ class Company:
         )
         variable = self.served * self.seed.base_unit_cost * env.get("supply_cost_mult", 1.0)
 
-        self.daily_revenue = self.served * price * revenue_mult
+        self.core_revenue = self.served * price
+        self.daily_revenue = self.core_revenue * revenue_mult
         self.daily_costs = variable + self.fixed_burn + marketing_spend
         self.cash += self.daily_revenue - self.daily_costs
 
@@ -428,6 +430,7 @@ class Company:
             "alive": self.alive,
             "cash": self.cash,
             "daily_revenue": self.daily_revenue if self.alive else 0.0,
+            "core_revenue": self.core_revenue if self.alive else 0.0,
             "daily_costs": self.daily_costs if self.alive else 0.0,
             "market_share": self.market_share if self.alive else 0.0,
             "price": self.price,

@@ -13,8 +13,8 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Onyx Leopard — Business Strategy Simulator",
-  description: "AI-powered business strategy simulation",
+  title: "Onyx Leopard",
+  description: "Business simulation where AI CEOs compete in a shared market",
 };
 
 export default function RootLayout({

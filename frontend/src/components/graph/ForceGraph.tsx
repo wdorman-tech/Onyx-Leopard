@@ -8,6 +8,8 @@ import {
   forceCenter,
   forceCollide,
   forceRadial,
+  forceX,
+  forceY,
   type Simulation,
   type SimulationNodeDatum,
   type SimulationLinkDatum,
@@ -30,6 +32,12 @@ const MINIMAP_BG = "rgba(248, 250, 252, 0.92)";
 const MINIMAP_BORDER = "rgba(148, 163, 184, 0.4)";
 const MINIMAP_VIEWPORT = "rgba(59, 130, 246, 0.25)";
 const MINIMAP_VIEWPORT_STROKE = "rgba(59, 130, 246, 0.6)";
+
+/* Multi-company: pull on company roots toward the center. forceCenter only
+   re-centers the layout's mean, so without this the -600 root repulsion
+   pushes clusters out of view a little more every time the graph changes. */
+const ROOT_GRAVITY = 0.03;
+const rootGravity = (d: { category: NodeCategory }) => (d.category === "root" ? ROOT_GRAVITY : 0);
 
 const CATEGORY_COLORS: Record<NodeCategory, string> = {
   root: "#ec4899",
@@ -169,7 +177,7 @@ function injectMultiRoots(graph: GraphData, founderType = "owner_operator"): { n
     const rootNode: SimNode = {
       id: rootId,
       type: "company_root",
-      label: companyId,
+      label: sample.companyName ?? companyId,
       category: "root",
       spawned_at: 0,
       metrics: {},
@@ -617,6 +625,8 @@ export function ForceGraph({
           .force("center", forceCenter(cx, cy).strength(0.02))
           .force("collide", forceCollide<ForceNode>().radius((d) => d.radius + 3))
           .force("cluster", forceCluster(0.12))
+          .force("x", forceX<ForceNode>(cx).strength(rootGravity))
+          .force("y", forceY<ForceNode>(cy).strength(rootGravity))
           .alphaDecay(0.05)
           .velocityDecay(0.5);
       } else {
@@ -671,6 +681,8 @@ export function ForceGraph({
           ).strength(0.25));
         } else {
           simRef.current.force("center", forceCenter(cx, cy).strength(0.02));
+          simRef.current.force("x", forceX<ForceNode>(cx).strength(rootGravity));
+          simRef.current.force("y", forceY<ForceNode>(cy).strength(rootGravity));
         }
       }
       if (!multiCompanyRef.current) {

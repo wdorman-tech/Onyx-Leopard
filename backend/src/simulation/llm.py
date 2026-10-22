@@ -68,6 +68,7 @@ class ModelInfo:
     supported_parameters: frozenset[str] = frozenset()
     reasoning_efforts: tuple[str, ...] = ()
     intelligence_index: float | None = None
+    created: int = 0  # unix seconds; newest models list first
 
     @classmethod
     def from_openrouter(cls, m: dict[str, Any]) -> ModelInfo:
@@ -83,6 +84,7 @@ class ModelInfo:
             supported_parameters=frozenset(m.get("supported_parameters") or ()),
             reasoning_efforts=tuple(reasoning.get("supported_efforts") or ()),
             intelligence_index=bench.get("intelligence_index"),
+            created=int(m.get("created") or 0),
         )
 
     def public(self) -> dict[str, Any]:
@@ -149,7 +151,7 @@ async def load_catalog(http: httpx.AsyncClient | None = None) -> Catalog:
     if live:
         anthropic = sorted(
             (m for mid, m in models.items() if mid.startswith(prefix) and ":" not in mid),
-            key=lambda m: m.id,
+            key=lambda m: (-m.created, m.id),
         )
     else:
         anthropic = [ModelInfo(id=mid, name=mid) for mid in config["anthropic_fallback"]]

@@ -20,6 +20,7 @@ export interface SimNode {
   spawned_at: number;
   metrics: Record<string, number>;
   companyId?: string;
+  companyName?: string;
   companyColor?: string;
   alive?: boolean;
 }
@@ -33,13 +34,4 @@ export interface SimEdge {
 export interface GraphData {
   nodes: SimNode[];
   edges: SimEdge[];
-}
-
-export interface TickData {
-  tick: number;
-  stage: number;
-  status: string;
-  metrics: Record<string, number>;
-  events: string[];
-  graph: GraphData;
 }

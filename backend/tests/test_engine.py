@@ -171,3 +171,9 @@ def test_lotka_volterra_coexistence_for_similar_firms() -> None:
     for _ in range(2000):
         pops = dynamics.lotka_volterra_step(pops, np.full(3, 0.05), k, alpha)
     assert pops == pytest.approx(100 / (1 + 0.3 * 2), rel=1e-3)
+
+
+def test_core_sales_never_exceed_market_spend() -> None:
+    for p in run(sim_for(days=365, shocks_enabled=False))[::7]:
+        core = sum(c["core_revenue"] for c in p["companies"])
+        assert core <= p["tam"] / 365 * (1 + 1e-9)

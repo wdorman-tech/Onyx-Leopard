@@ -145,19 +145,27 @@ def _user_prompt(company: Company) -> str:
     )
 
 
+def _money(n: float) -> str:
+    for scale, suffix in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "k")):
+        if abs(n) >= scale:
+            return f"${n / scale:,.1f}{suffix}"
+    return f"${n:,.0f}"
+
+
 def heuristic_report(company: Company) -> CeoReport:
     monthly = company.daily_revenue * DAYS_PER_MONTH
     archetype = company.stance.archetype.replace("_", " ")
     if company.alive:
         summary = (
-            f"{company.name} survived with ${company.cash:,.0f} cash, ${monthly:,.0f}/mo revenue "
+            f"{company.name} survived with {_money(company.cash)} cash, "
+            f"{_money(monthly)}/mo revenue "
             f"and {company.market_share:.1%} market share."
         )
-        well = f"Stayed solvent with {company.locations} locations and {company.employees} staff."
+        well = f"Stayed solvent with {company.locations} locations and {company.employees:,} staff."
         wrong = "No collapse; a detailed narrative needs the AI CEO path."
         verdict = f"The {archetype} stance held a defensible position."
     else:
-        summary = f"{company.name} went bankrupt with ${company.cash:,.0f} cash."
+        summary = f"{company.name} went bankrupt with {_money(company.cash)} cash."
         well = f"Reached {company.locations} locations before cash ran out."
         wrong = "Burn outran revenue for a month straight."
         verdict = f"The {archetype} stance could not stabilize unit economics in time."
