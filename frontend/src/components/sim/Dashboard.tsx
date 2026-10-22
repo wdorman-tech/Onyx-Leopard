@@ -11,8 +11,25 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Activity, AlertTriangle, Bot, Cog, Target, TrendingUp } from "lucide-react";
-import type { CeoDecision, CeoReport, CompanyState, TickEvent } from "@/lib/api";
+import {
+  Activity,
+  AlertTriangle,
+  Bot,
+  Cog,
+  FileDown,
+  FileText,
+  Scale,
+  Target,
+  TrendingUp,
+} from "lucide-react";
+import {
+  type CeoDecision,
+  type CeoReport,
+  type CompanyState,
+  type SavedRun,
+  type TickEvent,
+  runFileUrl,
+} from "@/lib/api";
 import { COMPANY_COLORS, type FeedItem, type HistoryPoint } from "@/hooks/useSimulation";
 
 const CHART_POINTS = 300;
@@ -89,8 +106,57 @@ interface DashboardProps {
   feed: FeedItem[];
   events: string[];
   reports: CeoReport[] | null;
+  savedRun: SavedRun | null;
   focusedId: string;
   onFocus: (companyId: string) => void;
+}
+
+const SOURCE_BADGE: Record<string, { label: string; className: string; icon: typeof Bot }> = {
+  ai: { label: "AI", className: "text-accent bg-accent/10", icon: Bot },
+  heuristic: { label: "Rule", className: "text-surface-500 bg-surface-100", icon: Cog },
+  jev_ok: { label: "Jev ok", className: "text-positive bg-positive/10", icon: Scale },
+  jev_veto: { label: "Jev veto", className: "text-negative bg-negative/10", icon: Scale },
+};
+
+function badgeFor(d: CeoDecision) {
+  if (d.source === "jev") return SOURCE_BADGE[d.jev_approved ? "jev_ok" : "jev_veto"];
+  return SOURCE_BADGE[d.source];
+}
+
+function RunFiles({ savedRun }: { savedRun: SavedRun }) {
+  if (savedRun.error) {
+    return <p className="text-[11px] text-negative">{savedRun.error}</p>;
+  }
+  const files = savedRun.files ?? {};
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {files["report.pdf"] && (
+        <a
+          href={runFileUrl(files["report.pdf"])}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-primary !px-3 !py-1.5 text-xs flex items-center gap-1.5"
+        >
+          <FileText size={13} /> Open PDF report
+        </a>
+      )}
+      {(["timeseries.csv", "run.json"] as const).map(
+        (name) =>
+          files[name] && (
+            <a
+              key={name}
+              href={runFileUrl(files[name])}
+              className="btn-secondary !px-3 !py-1.5 text-xs flex items-center gap-1.5"
+            >
+              <FileDown size={13} /> {name}
+            </a>
+          ),
+      )}
+      <span className="text-[10px] font-mono text-surface-400 truncate">
+        backend/runs/{savedRun.run_id}
+      </span>
+    </div>
+  );
 }
 
 export function Dashboard({
@@ -100,6 +166,7 @@ export function Dashboard({
   feed,
   events,
   reports,
+  savedRun,
   focusedId,
   onFocus,
 }: DashboardProps) {
@@ -170,7 +237,7 @@ export function Dashboard({
         ))}
       </div>
 
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-1.5">
         {[
           { icon: Target, label: "TAM / yr", value: fmt$(tam) },
           { icon: TrendingUp, label: "Captured", value: pct(captured) },
@@ -332,16 +399,18 @@ export function Dashboard({
                   />
                   <span className="font-medium text-surface-700">{name}</span>
                   <span className="text-surface-400">day {decision.day}</span>
-                  <span
-                    className={`ml-auto flex items-center gap-1 px-1.5 rounded ${
-                      decision.source === "ai"
-                        ? "text-accent bg-accent/10"
-                        : "text-surface-500 bg-surface-100"
-                    }`}
-                  >
-                    {decision.source === "ai" ? <Bot size={9} /> : <Cog size={9} />}
-                    {decision.source === "ai" ? "AI" : "Rule"}
-                  </span>
+                  {(() => {
+                    const badge = badgeFor(decision);
+                    const Icon = badge.icon;
+                    return (
+                      <span
+                        className={`ml-auto flex items-center gap-1 px-1.5 rounded ${badge.className}`}
+                      >
+                        <Icon size={9} />
+                        {badge.label}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className="text-[10px] font-mono text-surface-600">
                   {actionSummary(decision)}
@@ -365,6 +434,14 @@ export function Dashboard({
         </Panel>
       )}
 
+      {savedRun && (
+        <Panel title="Run report">
+          <div className="p-3">
+            <RunFiles savedRun={savedRun} />
+          </div>
+        </Panel>
+      )}
+
       {reports && !showReports && (
         <button
           onClick={() => setShowReports(true)}
@@ -374,7 +451,12 @@ export function Dashboard({
         </button>
       )}
       {reports && showReports && (
-        <ReportsModal reports={reports} color={color} onClose={() => setShowReports(false)} />
+        <ReportsModal
+          reports={reports}
+          color={color}
+          savedRun={savedRun}
+          onClose={() => setShowReports(false)}
+        />
       )}
     </div>
   );
@@ -383,10 +465,12 @@ export function Dashboard({
 function ReportsModal({
   reports,
   color,
+  savedRun,
   onClose,
 }: {
   reports: CeoReport[];
   color: Record<string, string>;
+  savedRun: SavedRun | null;
   onClose: () => void;
 }) {
   const [active, setActive] = useState(0);
@@ -396,6 +480,16 @@ function ReportsModal({
       <div className="bg-surface-0 rounded-2xl shadow-2xl w-full max-w-[640px] max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b border-surface-200/50">
           <h2 className="text-sm font-bold text-surface-900">CEO post-mortems</h2>
+          {savedRun?.files?.["report.pdf"] && (
+            <a
+              href={runFileUrl(savedRun.files["report.pdf"])}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto mr-3 text-xs text-accent hover:text-accent-dim flex items-center gap-1"
+            >
+              <FileText size={13} /> Full PDF report
+            </a>
+          )}
           <button onClick={onClose} className="text-surface-400 hover:text-surface-600 text-lg">
             &times;
           </button>

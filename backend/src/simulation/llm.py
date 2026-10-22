@@ -36,9 +36,13 @@ REQUEST_TIMEOUT_S: Final[float] = 120.0
 #: Attempts per call for transient failures (429, 5xx, timeouts).
 MAX_ATTEMPTS: Final[int] = 3
 RETRY_BACKOFF_S: Final[float] = 2.0
-#: Output ceiling per call. Reasoning tokens count against it, so it is
-#: generous; billing is on tokens actually produced.
-MAX_OUTPUT_TOKENS: Final[int] = 4096
+#: Output ceiling per call. Reasoning tokens count against it and some
+#: providers ignore the requested effort (seen: GLM-5.3 Flash reasoning past
+#: 4k tokens), so it is generous; billing is on tokens actually produced.
+MAX_OUTPUT_TOKENS: Final[int] = 12_000
+#: Extra attempts when reasoning ate the whole budget (empty content,
+#: finish_reason="length"). A retry usually routes to another provider.
+LENGTH_RETRIES: Final[int] = 1
 CATALOG_TTL_S: Final[float] = 3600.0
 #: HTTP statuses that mean retrying this run is pointless (bad key, no credit).
 FATAL_STATUSES: Final[frozenset[int]] = frozenset({401, 402, 403})
@@ -243,15 +247,32 @@ class OpenRouterClient:
         if self.budget.exhausted:
             raise LlmError(f"budget of ${self.budget.ceiling_usd:.2f} exhausted")
 
+        for attempt in range(LENGTH_RETRIES + 1):
+            data = await self._post_with_fallback(system, user, schema_name, schema)
+            self._record_cost(data)
+            choice = (data.get("choices") or [{}])[0]
+            content = (choice.get("message") or {}).get("content")
+            if content:
+                return parse_json_object(content)
+            finish = choice.get("finish_reason")
+            if finish != "length" or attempt == LENGTH_RETRIES or self.budget.exhausted:
+                raise LlmError(f"empty completion (finish_reason={finish})")
+            log.info("%s spent its output on reasoning; retrying once", self.model.id)
+        raise AssertionError("unreachable")
+
+    async def _post_with_fallback(
+        self, system: str, user: str, schema_name: str, schema: dict[str, Any]
+    ) -> dict[str, Any]:
         try:
-            data = await self._post(self._body(system, user, schema_name, schema))
+            return await self._post(self._body(system, user, schema_name, schema))
         except LlmError as exc:
             if not (self._structured and _unsupported_structured(str(exc))):
                 raise
             log.info("%s has no structured-output provider; using prompt JSON", self.model.id)
             self._structured = False
-            data = await self._post(self._body(system, user, schema_name, schema))
+            return await self._post(self._body(system, user, schema_name, schema))
 
+    def _record_cost(self, data: dict[str, Any]) -> None:
         usage = data.get("usage") or {}
         cost = usage.get("cost")
         if cost is None:
@@ -260,12 +281,6 @@ class OpenRouterClient:
                 + usage.get("completion_tokens", 0) * self.model.completion_price
             )
         self.budget.record(float(cost))
-
-        choice = (data.get("choices") or [{}])[0]
-        content = (choice.get("message") or {}).get("content")
-        if not content:
-            raise LlmError(f"empty completion (finish_reason={choice.get('finish_reason')})")
-        return parse_json_object(content)
 
     def _body(
         self, system: str, user: str, schema_name: str, schema: dict[str, Any]

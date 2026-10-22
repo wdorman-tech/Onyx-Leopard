@@ -33,6 +33,7 @@ from src.simulation.stance import RAISE_ALLOWED_ARCHETYPES, CeoStance
 
 if TYPE_CHECKING:
     from src.simulation.ceo import AiCeo, CeoDecision, HeuristicCeo
+    from src.simulation.jev import JevJudge
     from src.simulation.llm import OpenRouterClient
 
 log = logging.getLogger(__name__)
@@ -86,6 +87,9 @@ ATTRITION_DAILY_PROBABILITY: float = 0.005
 #: History snapshots for the AI CEO prompt: one per month, last N months.
 HISTORY_EVERY_DAYS: int = 30
 HISTORY_LEN: int = 12
+#: Whole-run time series for the run report: at most this many samples per
+#: company (daily for runs up to this length, evenly spaced beyond it).
+MAX_SERIES_POINTS: int = 1000
 
 # ─── Lotka-Volterra market strength ────────────────────────────────────────
 LV_GROWTH_RATE: float = 0.02
@@ -172,6 +176,14 @@ class Company:
         self.binding = "demand"
         self.env: dict[str, float] = {}
 
+        # Whole-run record for the run report.
+        self.total_revenue = 0.0
+        self.total_costs = 0.0
+        self.peak_cash = self.cash
+        self.died_on: int | None = None
+        self.series: list[dict[str, Any]] = []
+        self.log: list[dict[str, Any]] = []  # structured shocks and bankruptcy
+
         self.shocks: list[Shock] = []  # active company-scope shocks
         self.history: deque[Snapshot] = deque(maxlen=HISTORY_LEN)
         self.decisions: list[CeoDecision] = []  # full run log, for the post-mortem
@@ -255,6 +267,7 @@ class Company:
         for shock in self.shock_scheduler.arrivals(tick):
             self.shocks.append(shock)
             self.events.append(f"Day {tick}: {self.name}: {shock.description}")
+            self.log.append(shock_record(shock, self.company_id))
             self._apply_one_shot(shock)
         self.shocks = [s for s in self.shocks if s.active_at(tick)]
 
@@ -311,6 +324,8 @@ class Company:
         self.daily_revenue = self.core_revenue * revenue_mult
         self.daily_costs = variable + self.fixed_burn + marketing_spend
         self.cash += self.daily_revenue - self.daily_costs
+        self.total_revenue += self.daily_revenue
+        self.total_costs += self.daily_costs
 
         financing = max(0.0, env.get("financing_availability_mult", 1.0))
         if self.stance.archetype in RAISE_ALLOWED_ARCHETYPES and mods.capital:
@@ -325,7 +340,9 @@ class Company:
         self.insolvent_days = self.insolvent_days + 1 if self.cash < 0 else 0
         if self.insolvent_days >= INSOLVENT_DAYS_TO_DEATH:
             self.alive = False
+            self.died_on = tick
             self.events.append(f"Day {tick}: {self.name} went bankrupt.")
+            self.log.append({"day": tick, "kind": "bankruptcy", "company_id": self.company_id})
 
         if tick % HISTORY_EVERY_DAYS == 0:
             self.history.append(
@@ -394,6 +411,33 @@ class Company:
 
     # ── Output ──
 
+    def close_day(self, tick: int, sample: bool) -> None:
+        """End-of-day bookkeeping after decisions; appends a series row when sampled."""
+        self.peak_cash = max(self.peak_cash, self.cash)
+        if not (sample or self.died_on == tick):
+            return
+        runway = self.runway_months()
+        self.series.append(
+            {
+                "day": tick,
+                "alive": self.alive,
+                "cash": self.cash,
+                "revenue": self.daily_revenue if self.alive else 0.0,
+                "core_revenue": self.core_revenue if self.alive else 0.0,
+                "costs": self.daily_costs if self.alive else 0.0,
+                "profit": (self.daily_revenue - self.daily_costs) if self.alive else 0.0,
+                "market_share": self.market_share if self.alive else 0.0,
+                "price": self.price,
+                "marketing_intensity": self.marketing_intensity,
+                "satisfaction": self.satisfaction,
+                "utilization": self.utilization,
+                "employees": self.employees,
+                "locations": self.locations,
+                "runway_months": None if math.isinf(runway) else runway,
+                "binding": self.binding,
+            }
+        )
+
     def graph(self) -> dict[str, Any]:
         nodes = []
         edges = []
@@ -460,6 +504,9 @@ class MarketSim:
     heuristic: dict[str, HeuristicCeo]
     ai: dict[str, AiCeo] = field(default_factory=dict)
     llm: OpenRouterClient | None = None
+    jev: JevJudge | None = None
+    #: Run settings echoed into the saved run (model, budget, toggles).
+    settings: dict[str, Any] = field(default_factory=dict)
     lv_seed: int = 0
     tick: int = 0
     active_market_shocks: list[Shock] = field(default_factory=list)
@@ -474,6 +521,9 @@ class MarketSim:
         )
         self._severe_seen: set[tuple[str, str, int]] = set()
         self._ai_stop_reported = False
+        self.sample_every = max(1, math.ceil(self.max_ticks / MAX_SERIES_POINTS))
+        self.market_series: list[dict[str, Any]] = []
+        self.log: list[dict[str, Any]] = []  # structured market shocks
 
     @property
     def alive(self) -> list[Company]:
@@ -501,6 +551,7 @@ class MarketSim:
         for shock in self.market_shocks.arrivals(tick):
             self.active_market_shocks.append(shock)
             self.events.append(f"Day {tick}: Market: {shock.description}")
+            self.log.append(shock_record(shock, None))
         self.active_market_shocks = [s for s in self.active_market_shocks if s.active_at(tick)]
         market_env = environment(self.active_market_shocks)
 
@@ -541,11 +592,39 @@ class MarketSim:
 
         await self._decide(tick, survivors)
 
+        sample = tick % self.sample_every == 0 or self.is_complete
+        for company in alive:
+            company.close_day(tick, sample)
+        if sample:
+            self.market_series.append(
+                {
+                    "day": tick,
+                    "tam": self.tam,
+                    "alive": len(self.alive),
+                    "shocks": [s.name for s in self.active_market_shocks],
+                }
+            )
+
     async def _decide(self, tick: int, companies: list[Company]) -> None:
+        # Weekly rule CEO: Python proposes; Jev, when on, approves or vetoes.
+        proposals = []
         for company in companies:
-            decision = self.heuristic[company.company_id].decide(company, tick)
-            if decision is not None:
-                company.apply(decision)
+            ceo = self.heuristic[company.company_id]
+            proposal = ceo.propose(company, tick)
+            if proposal is not None:
+                proposals.append((company, ceo, proposal))
+        if proposals and self.jev is not None and self.jev.available:
+            verdicts = await asyncio.gather(
+                *(self.jev.review(c, proposal, tick) for c, _, proposal in proposals)
+            )
+        else:
+            verdicts = [None] * len(proposals)
+        for (company, ceo, proposal), verdict in zip(proposals, verdicts, strict=True):
+            if verdict is None or verdict.approved:
+                ceo.commit(company, proposal)
+            else:
+                ceo.defer()
+            company.apply(proposal if verdict is None else verdict.decision)
 
         # AI CEOs wake monthly, and early on the first tick of a severe shock
         # that hits them (market-wide or their own).
@@ -604,5 +683,19 @@ class MarketSim:
             "market_shocks": [s.name for s in self.active_market_shocks],
             "events": events,
             "ai": self.ai_status(),
+            "jev": self.jev.status() if self.jev is not None else None,
             "companies": [c.payload() for c in self.companies],
         }
+
+
+def shock_record(shock: Shock, company_id: str | None) -> dict[str, Any]:
+    return {
+        "day": shock.tick_started,
+        "kind": "shock",
+        "company_id": company_id,
+        "name": shock.name,
+        "scope": shock.scope,
+        "severity": shock.severity,
+        "duration_days": shock.duration_ticks,
+        "description": shock.description,
+    }

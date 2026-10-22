@@ -28,6 +28,7 @@ Open [http://localhost:3000](http://localhost:3000). On first run `start.py` ask
    Edit `backend/src/simulation/models.yaml` to change the tiers; any OpenRouter model id works.
 2. **Set up the run.** Use a bundled company (Amazon, Apple, Microsoft, SpaceX) or sample one, give each competitor a CEO archetype (founder-operator, venture growth, bootstrapper, consolidator, turnaround), and pick a duration, a hard dollar budget, and whether market shocks fire.
 3. **Watch.** Each company is a cluster in the force graph; nodes appear as CEOs hire, open locations and add revenue streams. The dashboard shows share, cash, every CEO decision with its reasoning, and AI spend. Each CEO writes a post-mortem at the end.
+4. **Study the run.** Every finished run is saved to `backend/runs/<run>/`: an in-theme **PDF report** (leaderboard, finance charts for every company, each CEO's post-mortem and decision log, market events), `timeseries.csv` (every metric, every company, across the whole run) and `run.json` (everything, including every decision). The dashboard links straight to them.
 
 ## How a Day Works
 
@@ -37,7 +38,7 @@ Open [http://localhost:3000](http://localhost:3000). On first run `start.py` ask
 2. Share of customer spend per company: multinomial logit over satisfaction, marketing reach, price (elasticity 1.5) and Lotka-Volterra market strength.
 3. Each company serves `min(demand, physical capacity, Cobb-Douglas production)`, books revenue and costs, and updates cash. A month of negative cash is bankruptcy.
 4. Market strength evolves under N-species Lotka-Volterra competition.
-5. CEOs decide. The heuristic CEO acts weekly: it cuts costs in a cash crisis, expands when capacity binds, and hires when production binds. The AI CEO acts monthly, and early on severe shocks: it spawns or retires nodes, opens locations, and moves price, marketing and capital. Every decision is sanitized against the node library and engine bounds.
+5. CEOs decide. The heuristic CEO acts weekly: it cuts costs in a cash crisis, expands when capacity binds, and hires when production binds. With a TypeSafe key, [Jev](https://typesafe.ai) judges each of those weekly moves before it happens (Python detects the setup, Jev approves or vetoes it, gated on a rolling per-company baseline). The AI CEO acts monthly, and early on severe shocks: it spawns or retires nodes, opens locations, and moves price, marketing and capital. Every decision is sanitized against the node library and engine bounds.
 
 AI calls use strict JSON-schema output (node keys are enums, so weak models can't invent them), low reasoning effort, and a compact prompt of about 1.5k tokens. Spend is tracked from OpenRouter's reported cost; when the budget runs out, CEOs fall back to heuristics.
 
@@ -52,7 +53,10 @@ backend/
     dynamics.py               # pure math: Cobb-Douglas, LV, logit share, relaxation ODE
     ceo.py                    # HeuristicCeo, AiCeo, decision sanitizer
     llm.py                    # OpenRouter client, model catalog, run budget
+    jev.py                    # Jev judge for the weekly rule CEO (TypeSafe)
     report.py                 # end-of-run CEO post-mortems
+    export.py                 # saves runs: run.json, timeseries.csv, report.pdf
+    report_pdf.py             # the in-theme PDF run report
     library.py                # node library loader + modifier buckets
     seed.py / stance.py       # company seeds, CEO personas
     shocks.py                 # shock types + Poisson scheduler
@@ -75,6 +79,8 @@ start.py                      # one-command setup and launch
 |----------|-------|---------|
 | `OPENROUTER_API_KEY` | `backend/.env` | Enables AI CEOs. `start.py` writes it. |
 | `OPENROUTER_BASE_URL` | env or `backend/.env` | Optional: point at a proxy or local stand-in. |
+| `TYPESAFE_API_KEY` | `backend/.env` | Optional: enables the Jev weekly judge. Without it, rules act alone. |
+| `BACKEND_URL` / `NEXT_PUBLIC_API_URL` | frontend env | Optional: run a second copy on other ports (default `http://localhost:8000`). |
 
 ## Development
 

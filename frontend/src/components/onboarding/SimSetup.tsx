@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, Building2, Cpu, Plus, Shuffle, X } from "lucide-react";
+import { ArrowLeft, Building2, Cpu, Plus, Scale, Shuffle, X } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { COMPANY_COLORS } from "@/hooks/useSimulation";
 import {
@@ -65,6 +65,7 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
   const [aiEnabled, setAiEnabled] = useState(config.ai_available);
   const [budget, setBudget] = useState(DEFAULT_BUDGET_USD);
   const [shocks, setShocks] = useState(true);
+  const [jevEnabled, setJevEnabled] = useState(config.jev_available);
 
   useEffect(() => {
     getArchetypes().then(setArchetypes).catch(() => setArchetypes({ ceo: [], company: [] }));
@@ -85,6 +86,7 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
       model: aiEnabled ? model.id : undefined,
       budget_usd: budget,
       shocks_enabled: shocks,
+      jev_enabled: jevEnabled,
     });
 
   return (
@@ -252,6 +254,25 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
                 </label>
               </div>
             )}
+          </div>
+
+          <div className="p-4 rounded-xl border border-surface-200 flex items-center justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <Scale size={16} className="text-surface-500 mt-0.5" />
+              <div>
+                <div className="text-sm font-medium text-surface-800">Jev weekly judge</div>
+                <div className="text-[11px] text-surface-500">
+                  {config.jev_available
+                    ? "Jev approves or vetoes each weekly rule-based move"
+                    : "Needs TYPESAFE_API_KEY in backend/.env, then reload"}
+                </div>
+              </div>
+            </div>
+            <Toggle
+              on={jevEnabled}
+              onClick={() => setJevEnabled((v) => !v)}
+              disabled={!config.jev_available}
+            />
           </div>
 
           <div className="p-4 rounded-xl border border-surface-200 flex items-center justify-between gap-3">

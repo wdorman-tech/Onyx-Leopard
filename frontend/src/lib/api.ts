@@ -51,6 +51,7 @@ export interface ModelCatalog {
 export interface AppConfig {
   ai_available: boolean;
   key_env: string;
+  jev_available: boolean;
 }
 
 export const getConfig = () => request<AppConfig>("/api/config");
@@ -121,6 +122,7 @@ export interface StartRequest {
   model?: string;
   budget_usd: number;
   shocks_enabled: boolean;
+  jev_enabled: boolean;
   rng_seed?: number;
 }
 
@@ -149,7 +151,8 @@ export const openStream = (sessionId: string) =>
 
 export interface CeoDecision {
   day: number;
-  source: "heuristic" | "ai";
+  /** "jev" = a weekly rule proposal Jev approved, or vetoed into a hold. */
+  source: "heuristic" | "ai" | "jev";
   spawn: string[];
   retire: string[];
   open_locations: number;
@@ -158,6 +161,8 @@ export interface CeoDecision {
   raise_amount: number | null;
   reasoning: string;
   references_stance: string[];
+  jev_p: number | null;
+  jev_approved: boolean | null;
 }
 
 export interface GraphPayload {
@@ -204,6 +209,26 @@ export interface AiStatus {
   error: string | null;
 }
 
+export interface JevStatus {
+  model: string;
+  calls: number;
+  approved: number;
+  vetoed: number;
+  errors: number;
+  cost_usd: number;
+  error: string | null;
+}
+
+export interface SavedRun {
+  run_id: string;
+  /** File name → API path, e.g. "report.pdf" → "/api/runs/<id>/report.pdf". */
+  files?: Record<string, string>;
+  error?: string;
+}
+
+/** Saved-run files are served through the same-origin rewrite. */
+export const runFileUrl = (path: string) => `${API_BASE}${path}`;
+
 export interface TickEvent {
   type: "tick";
   tick: number;
@@ -213,6 +238,7 @@ export interface TickEvent {
   market_shocks: string[];
   events: string[];
   ai: AiStatus | null;
+  jev: JevStatus | null;
   companies: CompanyState[];
 }
 
@@ -232,5 +258,6 @@ export type StreamEvent =
   | TickEvent
   | { type: "thinking"; tick: number }
   | { type: "reports"; reports: CeoReport[] }
+  | ({ type: "saved" } & SavedRun)
   | { type: "complete"; tick: number; ai: AiStatus | null }
   | { type: "stopped" };

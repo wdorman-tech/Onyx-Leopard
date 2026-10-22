@@ -52,7 +52,9 @@ Concrete pointers so future instances don't have to crawl the tree to find the l
 - **API entry:** `backend/src/main.py` — FastAPI app with CORS for `localhost:3000`. Routes: `/api/config`, `/api/models`, `/api/archetypes`, `/api/companies`, `/api/seed/sample/{archetype}`, `/api/simulate/start|stream/{id}|control/{id}` (SSE stream).
 - **Engine:** `backend/src/simulation/engine.py` — `MarketSim` ticks N `Company` instances (one tick = one day) in a shared market. All companies in a run share one `CompanySeed`; they differ by CEO stance.
 - **Inputs:** `seed.py` (`CompanySeed`, archetype sampler that derives a coherent seed from the library, `.oleo` profile conversion), `stance.py` (`CeoStance`, locked persona + archetype profiles), `library.py` (`NodeLibrary` from `node_library.yaml`, plus the suffix-based modifier buckets), `shocks.py` (table-driven shock types; market-scope shocks hit every company, company-scope shocks one).
-- **CEOs** (`backend/src/simulation/ceo.py`): `HeuristicCeo` (free, weekly) and `AiCeo` (OpenRouter, monthly + on severe shocks). `sanitize()` enforces prerequisites, caps and engine bounds on every decision. `report.py` writes end-of-run post-mortems.
+- **CEOs** (`backend/src/simulation/ceo.py`): `HeuristicCeo` (free, weekly; `propose` → `commit`/`defer`) and `AiCeo` (OpenRouter, monthly + on severe shocks). `sanitize()` enforces prerequisites, caps and engine bounds on every decision. `report.py` writes end-of-run post-mortems.
+- **Jev** (`backend/src/simulation/jev.py`): optional TypeSafe System One judge for the weekly heuristic proposals only. One Noul per proposal, all numbers precomputed, gate on a rolling per-company baseline (EMA), not 0.5. Needs `TYPESAFE_API_KEY`.
+- **Run record + report:** `Company.series` / `MarketSim.market_series` hold the whole-run time series (≤ `MAX_SERIES_POINTS` samples); `export.py` saves each finished run to `backend/runs/<run_id>/` (`run.json`, `timeseries.csv`, `report.pdf`) and `report_pdf.py` renders the in-theme PDF from `run.json` alone. Served at `/api/runs/{run_id}/{file}`.
 - **OpenRouter client** (`backend/src/simulation/llm.py`): strict JSON-schema output routed to providers that support it (falls back to prompt-JSON), low reasoning effort, cost from `usage.cost`, a per-run `Budget`; fatal errors (bad key, no credit) disable AI for the run. Model tiers live in `models.yaml`; prices and benchmark scores are fetched live from `/models`.
 - **Pure math layer:** `backend/src/simulation/dynamics.py` — Cobb-Douglas, exact relaxation ODE, N-species Lotka-Volterra (RK45 → BDF → Euler), multinomial-logit share with price elasticity. No business logic.
 - **Company profiles:** `backend/companies/*.oleo`.
@@ -215,7 +217,7 @@ Any new feature that adds nodes, edges, or visual state must integrate into this
 
 ## Tech Stack
 
-- **Backend:** Python >=3.12, FastAPI, Pydantic 2, httpx (OpenRouter), NumPy 2, SciPy, PyYAML
+- **Backend:** Python >=3.12, FastAPI, Pydantic 2, httpx (OpenRouter), typesafe-sdk (Jev), NumPy 2, SciPy, PyYAML, matplotlib + reportlab (PDF run report)
 - **Frontend:** Next.js 16, React 19, d3-force (canvas-rendered), Recharts, TailwindCSS 4, TypeScript (strict). Note: Next.js 16 has breaking changes — see `frontend/AGENTS.md`.
 - **AI:** OpenRouter — cheap Chinese open-weight models by default, any Claude model optional. The heuristic tier needs no key.
 - **Configuration:** Universal `node_library.yaml`, `models.yaml` (CEO model tiers), JSON company profiles (`.oleo`), `CompanySeed` + `CeoStance` Pydantic models.
@@ -229,6 +231,9 @@ backend/src/simulation/engine.py         # Company + MarketSim (tick loop)
 backend/src/simulation/dynamics.py       # Pure math layer
 backend/src/simulation/ceo.py            # HeuristicCeo, AiCeo, sanitize
 backend/src/simulation/llm.py            # OpenRouter client, catalog, budget
+backend/src/simulation/jev.py            # Jev judge for weekly rule moves
+backend/src/simulation/export.py         # Saves runs (json, csv, pdf)
+backend/src/simulation/report_pdf.py     # In-theme PDF run report
 backend/src/simulation/report.py         # End-of-run CEO post-mortems
 backend/src/simulation/library.py        # Node library + modifier buckets
 backend/src/simulation/seed.py           # CompanySeed, sampler, .oleo import
@@ -237,6 +242,7 @@ backend/src/simulation/shocks.py         # Shock types + Poisson scheduler
 backend/src/simulation/node_library.yaml # Universal node taxonomy
 backend/src/simulation/models.yaml       # AI CEO model tiers
 backend/companies/                       # Bundled .oleo profiles
+backend/runs/                            # Saved runs (gitignored)
 backend/tests/                           # pytest: engine, ceo, llm, api
 frontend/src/app/page.tsx                # Model picker → setup → run
 frontend/src/components/onboarding/      # ModelPicker, SimSetup

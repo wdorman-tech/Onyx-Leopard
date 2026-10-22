@@ -32,3 +32,6 @@ backend/src/simulation/industries/adaptive_*.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# Saved simulation runs (report.pdf, timeseries.csv, run.json)
+backend/runs/

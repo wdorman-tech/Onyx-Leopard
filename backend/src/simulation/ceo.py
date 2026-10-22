@@ -57,7 +57,8 @@ class CeoDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     day: int
-    source: Literal["heuristic", "ai"]
+    #: "jev" = a heuristic proposal Jev approved (or vetoed into a hold).
+    source: Literal["heuristic", "ai", "jev"]
     spawn: list[str] = Field(default_factory=list)
     retire: list[str] = Field(default_factory=list)
     open_locations: int = 0
@@ -66,6 +67,8 @@ class CeoDecision(BaseModel):
     raise_amount: float | None = None
     reasoning: str
     references_stance: list[str] = Field(default_factory=list)
+    jev_p: float | None = None
+    jev_approved: bool | None = None
 
 
 def sanitize(
@@ -168,7 +171,12 @@ def sanitize(
 
 
 class HeuristicCeo:
-    """Rule-based operator. Free, deterministic, and always on."""
+    """Rule-based operator. Free, deterministic, and always on.
+
+    `propose` detects a setup and returns one action without committing to it;
+    the caller either `commit`s it (rule or Jev approved) or `defer`s it (Jev
+    vetoed), so a veto leaves no side effects behind.
+    """
 
     def __init__(self) -> None:
         self._binding: deque[str] = deque(maxlen=PERSIST_CHECKS)
@@ -179,6 +187,26 @@ class HeuristicCeo:
         return len(self._binding) == PERSIST_CHECKS and all(b == constraint for b in self._binding)
 
     def decide(self, company: Company, day: int) -> CeoDecision | None:
+        """Propose and commit in one step (no judge)."""
+        proposal = self.propose(company, day)
+        if proposal is not None:
+            self.commit(company, proposal)
+        return proposal
+
+    def commit(self, company: Company, decision: CeoDecision) -> None:
+        lib = company.library
+        if decision.open_locations or decision.spawn:
+            self._binding.clear()
+        self._hires += [k for k in decision.spawn if lib.nodes[k].category == "ops"]
+        for key in decision.retire:
+            if key in self._hires:
+                self._hires.remove(key)
+
+    def defer(self) -> None:
+        """A vetoed setup must persist for a full window again before it is re-proposed."""
+        self._binding.clear()
+
+    def propose(self, company: Company, day: int) -> CeoDecision | None:
         if day % HEURISTIC_CADENCE_DAYS:
             return None
         self._binding.append(company.binding)
@@ -209,7 +237,6 @@ class HeuristicCeo:
         if self._persistent("capacity") and loc is not None:
             cost = lib.nodes[loc].hire_cost * company.env.get("hire_cost_mult", 1.0)
             if company.cash - cost > reserve:
-                self._binding.clear()
                 return sanitize(
                     company,
                     day=day,
@@ -225,8 +252,6 @@ class HeuristicCeo:
         if self._persistent("production"):
             hire = self._cheapest_ops(company)
             if hire is not None and company.cash - lib.nodes[hire].hire_cost > reserve:
-                self._binding.clear()
-                self._hires.append(hire)
                 return sanitize(
                     company,
                     day=day,
@@ -239,20 +264,20 @@ class HeuristicCeo:
                     references_stance=["hiring_bias"],
                 )
 
-        if self._persistent("demand") and all(self._low_util) and self._hires:
-            key = self._hires.pop()
-            if company.spawned.get(key, 0) > 0:
-                return sanitize(
-                    company,
-                    day=day,
-                    source="heuristic",
-                    retire=[key],
-                    reasoning=(
-                        f"Utilization under {LOW_UTILIZATION:.0%} with demand binding. Releasing "
-                        f"the most recent ops hire ({lib.nodes[key].label})."
-                    ),
-                    references_stance=["cash_comfort"],
-                )
+        hires = [k for k in self._hires if company.spawned.get(k, 0) > 0]
+        if self._persistent("demand") and all(self._low_util) and hires:
+            key = hires[-1]
+            return sanitize(
+                company,
+                day=day,
+                source="heuristic",
+                retire=[key],
+                reasoning=(
+                    f"Utilization under {LOW_UTILIZATION:.0%} with demand binding. Releasing "
+                    f"the most recent ops hire ({lib.nodes[key].label})."
+                ),
+                references_stance=["cash_comfort"],
+            )
         return None
 
     @staticmethod

@@ -179,3 +179,21 @@ def test_api_key_is_read_live_from_env_file(monkeypatch: pytest.MonkeyPatch) -> 
     assert llm.api_key() is None
     llm.ENV_FILE.write_text("OTHER=1\nOPENROUTER_API_KEY=sk-or-pasted-later\n")
     assert llm.api_key() == "sk-or-pasted-later"
+
+
+def test_reasoning_that_eats_the_budget_is_retried_once(router: FakeRouter) -> None:
+    exhausted = completion("", cost=0.0003)
+    exhausted["choices"][0]["finish_reason"] = "length"
+    router.push(body=exhausted)
+    router.push(body=completion({"answer": "second try"}, cost=0.0001))
+    client = make_llm(router)
+
+    assert call(client) == {"answer": "second try"}
+    assert client.budget.calls == 2
+    assert client.budget.spent_usd == pytest.approx(0.0004)
+
+    router.push(body=exhausted)
+    router.push(body=exhausted)
+    with pytest.raises(LlmError, match="finish_reason=length"):
+        call(client)
+    assert len(router.requests) == 4
