@@ -55,6 +55,19 @@ export interface AppConfig {
 }
 
 export const getConfig = () => request<AppConfig>("/api/config");
+
+export interface SavedKey {
+  ai_available: boolean;
+  verified: boolean;
+  credit_remaining: number | null;
+}
+
+/** Onboarding: store an OpenRouter key in backend/.env (only when none is set). */
+export const saveOpenRouterKey = (key: string) =>
+  request<SavedKey>("/api/config/openrouter-key", {
+    method: "POST",
+    body: JSON.stringify({ key }),
+  });
 export const getModels = () => request<ModelCatalog>("/api/models");
 
 // Measured averages per AI CEO call (prompt ≈ 1.2–1.7k tokens; output includes
