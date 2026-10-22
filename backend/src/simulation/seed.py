@@ -1,280 +1,152 @@
-"""Business seed model for Onyx Leopard v2.
+"""Company seed: everything that describes a company at t=0.
 
-`CompanySeed` is the ~30-field input that fully describes a company at t=0
-for the v2 stance-driven orchestrator. It replaces the per-industry YAML
-`IndustrySpec` from v1. Cross-validation against `node_library.yaml` (i.e.
-that `initial_supplier_types` etc. reference real node keys) happens in
-`library_loader.py` to avoid a circular import.
-
-Archetype samplers (`sample_seed_for_archetype`) draw realistic-range values
-for Monte Carlo sweeps. Priors are anchored to the v1 industry YAMLs
-(restaurant, saas_startup, adaptive_*) so a sampled `small_team` seed lands in
-the same value space as the hand-tuned restaurant config.
+`CompanySeed` holds only fields the engine reads. Seeds come from three
+places: archetype sampling (`sample_seed`), `.oleo` company profiles
+(`seed_from_oleo`), or a client-supplied JSON body. Node references are
+cross-validated against the node library in `library.py`.
 """
 
 from __future__ import annotations
 
 import random
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    from src.simulation.library import NodeLibrary
 
 EconomicsModel = Literal["physical", "subscription", "service"]
 Archetype = Literal["solo_founder", "small_team", "venture_funded", "enterprise"]
 
-ARCHETYPES: tuple[Archetype, ...] = (
-    "solo_founder",
-    "small_team",
-    "venture_funded",
-    "enterprise",
-)
+ARCHETYPES: tuple[Archetype, ...] = ("solo_founder", "small_team", "venture_funded", "enterprise")
 
-#: Maximum margin spread sampled per archetype. Used by the seed sampler
-#: to add a small downward perturbation to `1 - cost_ratio` so two seeds
-#: with the same economics model don't always produce identical margins.
-#: Kept small (10%) to preserve the cost_ratio relationship.
-MARGIN_SPREAD_MAX: float = 0.10
-
-# Default node-library keys used by the archetype samplers. These are
-# placeholders; library_loader.py validates them against the real
-# node_library.yaml at runtime via `validate_seed`. Kept here as a contract:
-# the seed knows what kinds of slots it wants filled, even if the library
-# hasn't loaded yet. Renaming a node in node_library.yaml without updating
-# these tables produces a hard failure at seed validation, not silent drift.
-# The `test_seed_defaults_match_production_library` test asserts the
-# alignment.
-_DEFAULT_SUPPLIERS: dict[EconomicsModel, list[str]] = {
-    "physical": ["produce_supplier", "payment_processor"],
-    "subscription": ["cloud_provider", "payment_processor"],
-    "service": ["ai_tooling_stack", "ai_platform_partner"],
-}
-_DEFAULT_REVENUE_STREAMS: dict[EconomicsModel, list[str]] = {
-    "physical": ["delivery_partnership", "loyalty_program"],
-    "subscription": ["subscription_revenue", "usage_based_billing"],
-    "service": ["professional_services", "retainer_contracts"],
-}
-_DEFAULT_COST_CENTERS: dict[EconomicsModel, list[str]] = {
-    "physical": ["owner_operator", "training_program"],
-    "subscription": ["it_support", "founder_engineer"],
-    "service": ["it_support", "training_program"],
-}
-
-_LOCATION_LABELS: dict[EconomicsModel, str] = {
-    "physical": "Location",
-    "subscription": "Product",
-    "service": "Engagement",
-}
-_CUSTOMER_UNITS: dict[EconomicsModel, str] = {
-    "physical": "diners",
-    "subscription": "subscribers",
-    "service": "engagements",
-}
+#: Cobb-Douglas returns-to-scale ceiling: α + β may exceed 1 (increasing
+#: returns) but not past this.
+MAX_RETURNS_TO_SCALE: float = 1.5
 
 
 class CompanySeed(BaseModel):
-    """The 30-field company seed for v2 simulations.
+    model_config = ConfigDict(extra="forbid")
 
-    Numeric fields are bounded for realism; out-of-range values are rejected
-    at construction time. Reference fields (`initial_supplier_types`,
-    `initial_revenue_streams`, `initial_cost_centers`) are typed as
-    `list[str]` here — cross-validation against `node_library.yaml` is the
-    job of `library_loader.validate_seed_against_library()`.
-    """
-
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-    # ── Identity (5) ──
     name: str = Field(..., min_length=1, max_length=120)
     niche: str = Field(..., min_length=1, max_length=400)
-    archetype: Archetype
-    industry_keywords: list[str] = Field(..., min_length=1, max_length=12)
-    location_label: str = Field(..., min_length=1, max_length=40)
 
-    # ── Economics (8) ──
-    # Note: spec §2 lists 8 economics fields but enumerates only 7 named
-    # entries (economics_model, starting_price, base_unit_cost, daily_fixed_costs,
-    # starting_cash, starting_employees, base_capacity_per_location,
-    # margin_target). The 8th is `revenue_per_employee_target` — added so the
-    # CEO orchestrator has a productivity yardstick when evaluating hires.
     economics_model: EconomicsModel
     starting_price: float = Field(..., gt=0.0, le=10_000_000.0)
     base_unit_cost: float = Field(..., ge=0.0, le=10_000_000.0)
-    daily_fixed_costs: float = Field(..., ge=0.0, le=1_000_000.0)
-    starting_cash: float = Field(..., ge=0.0, le=1_000_000_000.0)
-    starting_employees: int = Field(..., ge=1, le=100_000)
-    base_capacity_per_location: int = Field(..., ge=1, le=1_000_000)
-    margin_target: float = Field(..., ge=0.0, le=1.0)
-    revenue_per_employee_target: float = Field(..., gt=0.0, le=10_000_000.0)
+    daily_fixed_costs: float = Field(..., ge=0.0, le=1_000_000_000.0)
+    starting_cash: float = Field(..., ge=0.0, le=1e12)
+    starting_employees: int = Field(..., ge=1, le=10_000_000)
+    #: Customers (units) per day one location can serve. Fractional is fine for
+    #: high-ticket businesses (a consultancy closes ~0.05 engagements a day).
+    base_capacity_per_location: float = Field(..., gt=0.0, le=1e8)
+    initial_locations: int = Field(default=1, ge=1, le=1_000)
 
-    # ── Market (5) ──
+    #: Annual total addressable market, in dollars of customer spend.
     tam: float = Field(..., gt=0.0, le=1e15)
-    competitor_density: int = Field(..., ge=0, le=10)
+    #: Annual TAM growth rate (0.05 = 5%/yr).
     market_growth_rate: float = Field(..., ge=-0.5, le=2.0)
-    customer_unit_label: str = Field(..., min_length=1, max_length=40)
-    seasonality_amplitude: float = Field(..., ge=0.0, le=1.0)
 
-    # ── Initial Setup (12) ──
-    # Spec §2 calls for 12 initial-setup fields. The three list fields are
-    # the primary content; the remaining 9 wire in the engine-knobs the
-    # orchestrator uses on tick 0 (so the company isn't defined solely by
-    # node-library refs — it has explicit starting positions too).
     initial_supplier_types: list[str] = Field(..., min_length=1, max_length=3)
     initial_revenue_streams: list[str] = Field(..., min_length=1, max_length=3)
     initial_cost_centers: list[str] = Field(..., min_length=1, max_length=3)
-    initial_locations: int = Field(..., ge=1, le=1_000)
-    initial_marketing_intensity: float = Field(..., ge=0.0, le=1.0)
-    initial_quality_target: float = Field(..., ge=0.0, le=1.0)
-    initial_price_position: Literal["discount", "mid", "premium"] = "mid"
-    initial_capital_runway_months: float = Field(..., gt=0.0, le=120.0)
-    initial_hiring_pace: Literal["frozen", "slow", "steady", "aggressive"] = "steady"
-    initial_geographic_scope: Literal["local", "regional", "national", "global"] = "local"
-    initial_revenue_concentration: float = Field(..., ge=0.0, le=1.0)
-    initial_customer_acquisition_channel: Literal[
-        "word_of_mouth", "outbound_sales", "paid_ads", "content", "partnerships"
-    ] = "word_of_mouth"
 
-    # ── Production function (2) ──
-    # Cobb-Douglas exponents Y = A * K^α * L^β. Vary per archetype so a
-    # capital-intensive bootstrap and a labor-intensive consultancy have
-    # different production curves. Constraint α + β ∈ (0, 1.5] allows
-    # decreasing/constant returns to scale with up to 1.5× increasing
-    # returns ceiling. P-MATH-5 fix.
     cobb_douglas_alpha: float = Field(..., gt=0.0, le=1.0)
     cobb_douglas_beta: float = Field(..., gt=0.0, le=1.0)
 
-    # ── Validators ──
-    @field_validator(
-        "initial_supplier_types",
-        "initial_revenue_streams",
-        "initial_cost_centers",
-        "industry_keywords",
-    )
-    @classmethod
-    def _no_blank_entries(cls, v: list[str]) -> list[str]:
-        cleaned = [s.strip() for s in v]
-        if any(not s for s in cleaned):
-            raise ValueError("list entries must be non-empty strings")
-        return cleaned
-
-    @field_validator("base_unit_cost")
-    @classmethod
-    def _cost_below_price(cls, v: float, info) -> float:  # type: ignore[no-untyped-def]
-        # base_unit_cost == starting_price means zero gross margin, which is
-        # legal for a loss-leader stance but a strict "cost > price" seed is
-        # never economically coherent — reject it.
-        price = info.data.get("starting_price")
-        if price is not None and v > price:
-            raise ValueError(
-                f"base_unit_cost ({v}) cannot exceed starting_price ({price}) — "
-                "negative gross margin is not a valid starting position"
-            )
-        return v
-
-    @field_validator("cobb_douglas_beta")
-    @classmethod
-    def _alpha_plus_beta_in_range(cls, v: float, info) -> float:  # type: ignore[no-untyped-def]
-        # CLAUDE.md mandates Cobb-Douglas Y = A * K^α * L^β. Allow returns to
-        # scale up to 1.5× (increasing returns) but reject sub-zero or extreme
-        # values. α is validated by Field(gt=0, le=1); this validator catches
-        # the joint constraint that requires both fields.
-        alpha = info.data.get("cobb_douglas_alpha")
-        if alpha is None:
-            return v  # alpha validation already failed; skip joint check
-        total = alpha + v
-        if not (0.0 < total <= 1.5):
-            raise ValueError(
-                f"cobb_douglas_alpha + cobb_douglas_beta must be in (0, 1.5], "
-                f"got {total:.3f} (alpha={alpha}, beta={v})"
-            )
-        return v
+    @model_validator(mode="after")
+    def _economically_coherent(self) -> CompanySeed:
+        if self.base_unit_cost > self.starting_price:
+            raise ValueError("base_unit_cost cannot exceed starting_price (negative gross margin)")
+        if self.cobb_douglas_alpha + self.cobb_douglas_beta > MAX_RETURNS_TO_SCALE:
+            raise ValueError(f"cobb_douglas_alpha + beta must be <= {MAX_RETURNS_TO_SCALE}")
+        return self
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Archetype sampling — Monte Carlo entry point
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Defaults per economics model ───────────────────────────────────────────
 
-
-# Per-archetype value bands. Tuples are (low, high) ranges sampled uniformly
-# unless noted. Anchored to v1 YAML values:
-#   solo_founder    - consultancy YAMLs (28k-94k cash, $12k-$28k engagements)
-#   small_team      - restaurant.yaml ($50k cash, $14 plate)
-#   venture_funded  - saas_startup.yaml + analytics ($50k-$80k cash, $49-$299 sub)
-#   enterprise      - multi-product/multi-location mature businesses
-_ARCHETYPE_BANDS: dict[Archetype, dict[str, tuple[float, float]]] = {
-    "solo_founder": {
-        "starting_cash": (15_000.0, 100_000.0),
-        "starting_employees_int": (1, 3),
-        "daily_fixed_costs": (40.0, 250.0),
-        "tam": (1e6, 5e7),
-        "initial_capital_runway_months": (3.0, 12.0),
-        "revenue_per_employee_target": (100_000.0, 250_000.0),
-    },
-    "small_team": {
-        "starting_cash": (40_000.0, 200_000.0),
-        "starting_employees_int": (3, 15),
-        "daily_fixed_costs": (150.0, 800.0),
-        "tam": (1e7, 5e8),
-        "initial_capital_runway_months": (6.0, 18.0),
-        "revenue_per_employee_target": (120_000.0, 300_000.0),
-    },
-    "venture_funded": {
-        "starting_cash": (500_000.0, 15_000_000.0),
-        "starting_employees_int": (5, 50),
-        "daily_fixed_costs": (1_000.0, 12_000.0),
-        "tam": (1e8, 1e10),
-        "initial_capital_runway_months": (12.0, 36.0),
-        "revenue_per_employee_target": (150_000.0, 400_000.0),
-    },
-    "enterprise": {
-        "starting_cash": (10_000_000.0, 500_000_000.0),
-        "starting_employees_int": (200, 10_000),
-        "daily_fixed_costs": (15_000.0, 500_000.0),
-        "tam": (1e9, 1e12),
-        "initial_capital_runway_months": (18.0, 60.0),
-        "revenue_per_employee_target": (200_000.0, 600_000.0),
-    },
-}
-
-# Per-economics-model price/cost/capacity bands - pulled from the v1 YAMLs:
-#   physical:     restaurant ($14 plate, $1.50 cost, 80-cap)
-#   subscription: saas/analytics ($49-$850 sub, $2-$55 cost, 200-500 seats)
-#   service:      consulting ($12k-$28k engagement, $1.8k-$4.2k cost, 4-6 cap)
-_ECONOMICS_BANDS: dict[EconomicsModel, dict[str, tuple[float, float]]] = {
+_DEFAULT_REFS: dict[EconomicsModel, dict[str, list[str]]] = {
     "physical": {
-        "starting_price": (5.0, 60.0),
-        "cost_ratio": (0.20, 0.55),  # base_unit_cost = starting_price * ratio
-        "base_capacity_per_location_int": (40, 250),
+        "initial_supplier_types": ["produce_supplier", "payment_processor"],
+        "initial_revenue_streams": ["delivery_partnership", "loyalty_program"],
+        "initial_cost_centers": ["owner_operator", "training_program"],
     },
     "subscription": {
-        "starting_price": (15.0, 1_500.0),
-        "cost_ratio": (0.05, 0.30),
-        "base_capacity_per_location_int": (100, 5_000),
+        "initial_supplier_types": ["cloud_provider", "payment_processor"],
+        "initial_revenue_streams": ["subscription_revenue", "usage_based_billing"],
+        "initial_cost_centers": ["it_support", "founder_engineer"],
     },
     "service": {
-        "starting_price": (3_000.0, 80_000.0),
-        "cost_ratio": (0.15, 0.45),
-        "base_capacity_per_location_int": (3, 30),
+        "initial_supplier_types": ["ai_tooling_stack", "ai_platform_partner"],
+        "initial_revenue_streams": ["professional_services", "retainer_contracts"],
+        "initial_cost_centers": ["it_support", "training_program"],
     },
 }
 
-# Cobb-Douglas exponent bands per archetype. Y = A * K^α * L^β, where K is
-# capital and L is labor. Different archetypes have meaningfully different
-# production curves:
-#   solo_founder    — pure labor (consultancy): tiny α, large β
-#   small_team      — mixed (restaurant/local biz): balanced
-#   venture_funded  — capital-light SaaS: software scales but humans build it
-#   enterprise      — mature, capital-intensive: heavier α
-# Worst-case sums (α_max + β_max) all stay ≤ 1.5, satisfying the joint validator.
-_COBB_DOUGLAS_BANDS: dict[Archetype, dict[str, tuple[float, float]]] = {
-    "solo_founder":   {"alpha": (0.10, 0.25), "beta": (0.55, 0.80)},
-    "small_team":     {"alpha": (0.25, 0.45), "beta": (0.45, 0.65)},
-    "venture_funded": {"alpha": (0.20, 0.40), "beta": (0.50, 0.75)},
-    "enterprise":     {"alpha": (0.35, 0.55), "beta": (0.40, 0.60)},
+_DEFAULT_NICHE: dict[EconomicsModel, str] = {
+    "physical": "Regional fast-casual chain serving a single signature menu category.",
+    "subscription": "B2B SaaS platform sold per-seat to mid-market operations teams.",
+    "service": "Boutique consultancy delivering AI automation to industrial SMBs.",
 }
 
-# Probability weights for economics_model per archetype. Solo founders skew
-# service (consultancies); venture-funded skews subscription (SaaS); small_team
-# is balanced; enterprise can be anything.
+_NAME_PREFIXES = (
+    "Onyx", "Apex", "Crest", "Nimbus", "Quill", "Helix", "Pivot", "Forge", "Lattice",
+    "Echo", "Harbor", "Northwind", "Bright", "Anvil", "Sable", "Cinder", "Verge", "Mosaic",
+)  # fmt: skip
+_NAME_SUFFIXES: dict[EconomicsModel, tuple[str, ...]] = {
+    "physical": ("Eats", "Kitchen", "Foods", "Co.", "Goods", "Market"),
+    "subscription": ("Cloud", "Labs", "AI", "Data", "Platform", "Stack"),
+    "service": ("Group", "Partners", "Advisory", "Consulting", "Studio", "Works"),
+}
+
+# ─── Archetype sampling ─────────────────────────────────────────────────────
+#
+# Sampled seeds are internally coherent: a revenue target (headcount × revenue
+# per employee) fixes capacity, overhead, cash and market size, so a sampled
+# company starts near profitable in a contested market at any scale.
+
+_ARCHETYPE_BANDS: dict[Archetype, dict[str, tuple[float, float]]] = {
+    "solo_founder": {
+        "starting_employees": (1, 3),
+        "revenue_per_employee": (100_000.0, 250_000.0),
+        "cash_to_revenue": (0.05, 0.30),
+        "initial_locations": (1, 1),
+        "alpha": (0.10, 0.25),
+        "beta": (0.55, 0.80),
+    },
+    "small_team": {
+        "starting_employees": (3, 15),
+        "revenue_per_employee": (120_000.0, 300_000.0),
+        "cash_to_revenue": (0.05, 0.30),
+        "initial_locations": (1, 3),
+        "alpha": (0.25, 0.45),
+        "beta": (0.45, 0.65),
+    },
+    "venture_funded": {
+        "starting_employees": (5, 50),
+        "revenue_per_employee": (150_000.0, 400_000.0),
+        "cash_to_revenue": (0.50, 3.00),
+        "initial_locations": (1, 5),
+        "alpha": (0.20, 0.40),
+        "beta": (0.50, 0.75),
+    },
+    "enterprise": {
+        "starting_employees": (200, 10_000),
+        "revenue_per_employee": (200_000.0, 600_000.0),
+        "cash_to_revenue": (0.10, 0.30),
+        "initial_locations": (5, 50),
+        "alpha": (0.35, 0.55),
+        "beta": (0.40, 0.60),
+    },
+}
+
+_ECONOMICS_BANDS: dict[EconomicsModel, dict[str, tuple[float, float]]] = {
+    "physical": {"price": (5.0, 60.0), "cost_ratio": (0.20, 0.55)},
+    "subscription": {"price": (15.0, 1_500.0), "cost_ratio": (0.05, 0.30)},
+    "service": {"price": (3_000.0, 80_000.0), "cost_ratio": (0.15, 0.45)},
+}
+
 _ECONOMICS_WEIGHTS: dict[Archetype, dict[EconomicsModel, float]] = {
     "solo_founder": {"physical": 0.15, "subscription": 0.20, "service": 0.65},
     "small_team": {"physical": 0.45, "subscription": 0.30, "service": 0.25},
@@ -282,230 +154,147 @@ _ECONOMICS_WEIGHTS: dict[Archetype, dict[EconomicsModel, float]] = {
     "enterprise": {"physical": 0.40, "subscription": 0.40, "service": 0.20},
 }
 
-
-def _weighted_choice(rng: random.Random, weights: dict[str, float]) -> str:
-    keys = list(weights.keys())
-    vals = list(weights.values())
-    return rng.choices(keys, weights=vals, k=1)[0]
-
-
-def _sample_uniform(rng: random.Random, lo: float, hi: float) -> float:
-    return rng.uniform(lo, hi)
-
-
-def _sample_int(rng: random.Random, lo: float, hi: float) -> int:
-    return rng.randint(int(lo), int(hi))
+#: Physical capacity relative to the revenue target (room to grow into).
+CAPACITY_HEADROOM: float = 1.2
+#: Operating margin (before marketing) at target revenue on day 0.
+STARTING_OPERATING_MARGIN_BAND: tuple[float, float] = (0.08, 0.20)
+#: Target revenue as a share of TAM. Several rivals at this share make a
+#: market where capacity and demand are both in play.
+INITIAL_MARKET_SHARE_BAND: tuple[float, float] = (0.10, 0.25)
+#: Annual market growth band.
+MARKET_GROWTH_BAND: tuple[float, float] = (-0.05, 0.40)
 
 
-def sample_seed_for_archetype(
+def company_name(economics: EconomicsModel, rng: random.Random) -> str:
+    return f"{rng.choice(_NAME_PREFIXES)} {rng.choice(_NAME_SUFFIXES[economics])}"
+
+
+def sample_seed(
     archetype: Archetype,
-    *,
-    rng: random.Random | None = None,
-    name: str | None = None,
-    niche: str | None = None,
-    industry_keywords: list[str] | None = None,
+    rng: random.Random,
+    library: NodeLibrary,
     economics_model: EconomicsModel | None = None,
 ) -> CompanySeed:
-    """Sample a realistic `CompanySeed` for the given archetype.
-
-    Pass `rng` (a seeded `random.Random`) for reproducibility. Optional
-    overrides let callers pin specific fields while randomizing the rest —
-    useful for "same niche, vary capital" Monte Carlo sweeps.
-    """
+    """Sample a coherent seed: day-0 revenue covers the library cost of its starting nodes."""
     if archetype not in ARCHETYPES:
-        raise ValueError(f"unknown archetype {archetype!r}; expected one of {ARCHETYPES}")
-    rng = rng or random.Random()
-
+        raise ValueError(f"unknown seed archetype {archetype!r}; expected one of {ARCHETYPES}")
     bands = _ARCHETYPE_BANDS[archetype]
-    chosen_economics: EconomicsModel = (
-        economics_model
-        if economics_model is not None
-        else _weighted_choice(rng, _ECONOMICS_WEIGHTS[archetype])  # type: ignore[arg-type]
+    weights = _ECONOMICS_WEIGHTS[archetype]
+    economics: EconomicsModel = (
+        economics_model or rng.choices(list(weights), weights=list(weights.values()))[0]
     )
-    econ_bands = _ECONOMICS_BANDS[chosen_economics]
+    econ = _ECONOMICS_BANDS[economics]
+    refs = _DEFAULT_REFS[economics]
 
-    starting_price = round(_sample_uniform(rng, *econ_bands["starting_price"]), 2)
-    cost_ratio = _sample_uniform(rng, *econ_bands["cost_ratio"])
-    base_unit_cost = round(starting_price * cost_ratio, 2)
-    margin_target = round(1.0 - cost_ratio - rng.uniform(0.0, MARGIN_SPREAD_MAX), 3)
-    margin_target = max(0.05, min(0.85, margin_target))
-
-    starting_cash = round(_sample_uniform(rng, *bands["starting_cash"]), 2)
-    starting_employees = _sample_int(rng, *bands["starting_employees_int"])
-    daily_fixed = round(_sample_uniform(rng, *bands["daily_fixed_costs"]), 2)
-    capacity = _sample_int(rng, *econ_bands["base_capacity_per_location_int"])
-
-    runway = round(_sample_uniform(rng, *bands["initial_capital_runway_months"]), 1)
-    revenue_per_emp = round(_sample_uniform(rng, *bands["revenue_per_employee_target"]), 2)
-
-    tam = round(_sample_uniform(rng, *bands["tam"]), 2)
-    competitor_density = rng.randint(0, 10)
-    market_growth_rate = round(rng.uniform(-0.05, 0.40), 3)
-    seasonality_amplitude = round(rng.uniform(0.0, 0.40), 3)
-
-    initial_locations = _initial_locations_for(archetype, rng)
-    marketing_intensity = round(rng.uniform(0.10, 0.80), 3)
-    quality_target = round(rng.uniform(0.50, 0.95), 3)
-    price_position = rng.choice(["discount", "mid", "mid", "premium"])  # mid-biased
-    hiring_pace = _hiring_pace_for(archetype, rng)
-    geographic_scope = _geographic_scope_for(archetype, rng)
-    revenue_concentration = round(rng.uniform(0.10, 0.90), 3)
-    acquisition_channel = _acquisition_channel_for(chosen_economics, rng)
-
-    cd_bands = _COBB_DOUGLAS_BANDS[archetype]
-    cobb_douglas_alpha = round(_sample_uniform(rng, *cd_bands["alpha"]), 3)
-    cobb_douglas_beta = round(_sample_uniform(rng, *cd_bands["beta"]), 3)
-
-    fallback_name = name or _default_name_for(archetype, chosen_economics, rng)
-    fallback_niche = niche or _default_niche_for(chosen_economics)
-    fallback_keywords = industry_keywords or _default_keywords_for(chosen_economics)
+    price = round(rng.uniform(*econ["price"]), 2)
+    cost_ratio = rng.uniform(*econ["cost_ratio"])
+    employees = rng.randint(*map(int, bands["starting_employees"]))
+    locations = rng.randint(*map(int, bands["initial_locations"]))
+    # Fixed costs must leave the sampled operating margin at target revenue:
+    # R * (1 - cost_ratio - margin) = node costs + overhead.
+    fixed_share = 1.0 - cost_ratio - rng.uniform(*STARTING_OPERATING_MARGIN_BAND)
+    node_burn = library.daily_cost(
+        library.starting_nodes([k for ks in refs.values() for k in ks], economics, locations)
+    )
+    target = employees * rng.uniform(*bands["revenue_per_employee"]) / 365.0
+    daily_revenue = max(target, node_burn / fixed_share)
+    annual_revenue = daily_revenue * 365.0
 
     return CompanySeed(
-        name=fallback_name,
-        niche=fallback_niche,
-        archetype=archetype,
-        industry_keywords=fallback_keywords,
-        location_label=_LOCATION_LABELS[chosen_economics],
-        economics_model=chosen_economics,
-        starting_price=starting_price,
-        base_unit_cost=base_unit_cost,
-        daily_fixed_costs=daily_fixed,
-        starting_cash=starting_cash,
-        starting_employees=starting_employees,
-        base_capacity_per_location=capacity,
-        margin_target=margin_target,
-        revenue_per_employee_target=revenue_per_emp,
-        tam=tam,
-        competitor_density=competitor_density,
-        market_growth_rate=market_growth_rate,
-        customer_unit_label=_CUSTOMER_UNITS[chosen_economics],
-        seasonality_amplitude=seasonality_amplitude,
-        initial_supplier_types=list(_DEFAULT_SUPPLIERS[chosen_economics]),
-        initial_revenue_streams=list(_DEFAULT_REVENUE_STREAMS[chosen_economics]),
-        initial_cost_centers=list(_DEFAULT_COST_CENTERS[chosen_economics]),
-        initial_locations=initial_locations,
-        initial_marketing_intensity=marketing_intensity,
-        initial_quality_target=quality_target,
-        initial_price_position=price_position,
-        initial_capital_runway_months=runway,
-        initial_hiring_pace=hiring_pace,
-        initial_geographic_scope=geographic_scope,
-        initial_revenue_concentration=revenue_concentration,
-        initial_customer_acquisition_channel=acquisition_channel,
-        cobb_douglas_alpha=cobb_douglas_alpha,
-        cobb_douglas_beta=cobb_douglas_beta,
+        name=company_name(economics, rng),
+        niche=_DEFAULT_NICHE[economics],
+        economics_model=economics,
+        starting_price=price,
+        base_unit_cost=round(price * cost_ratio, 2),
+        daily_fixed_costs=round(daily_revenue * fixed_share - node_burn, 2),
+        starting_cash=round(annual_revenue * rng.uniform(*bands["cash_to_revenue"]), 2),
+        starting_employees=employees,
+        base_capacity_per_location=max(
+            1e-4, round(daily_revenue / price * CAPACITY_HEADROOM / locations, 4)
+        ),
+        initial_locations=locations,
+        tam=round(annual_revenue / rng.uniform(*INITIAL_MARKET_SHARE_BAND), 2),
+        market_growth_rate=round(rng.uniform(*MARKET_GROWTH_BAND), 3),
+        cobb_douglas_alpha=round(rng.uniform(*bands["alpha"]), 3),
+        cobb_douglas_beta=round(rng.uniform(*bands["beta"]), 3),
+        **refs,
     )
 
 
-def _initial_locations_for(archetype: Archetype, rng: random.Random) -> int:
-    if archetype == "solo_founder":
-        return 1
-    if archetype == "small_team":
-        return rng.randint(1, 3)
-    if archetype == "venture_funded":
-        return rng.randint(1, 5)
-    return rng.randint(5, 50)  # enterprise
+# ─── .oleo company profiles ─────────────────────────────────────────────────
 
-
-def _hiring_pace_for(
-    archetype: Archetype, rng: random.Random
-) -> Literal["frozen", "slow", "steady", "aggressive"]:
-    weights: dict[Archetype, dict[str, float]] = {
-        "solo_founder": {"frozen": 0.2, "slow": 0.5, "steady": 0.25, "aggressive": 0.05},
-        "small_team": {"frozen": 0.05, "slow": 0.30, "steady": 0.50, "aggressive": 0.15},
-        "venture_funded": {"frozen": 0.05, "slow": 0.10, "steady": 0.35, "aggressive": 0.50},
-        "enterprise": {"frozen": 0.10, "slow": 0.30, "steady": 0.45, "aggressive": 0.15},
-    }
-    return _weighted_choice(rng, weights[archetype])  # type: ignore[return-value]
-
-
-def _geographic_scope_for(
-    archetype: Archetype, rng: random.Random
-) -> Literal["local", "regional", "national", "global"]:
-    weights: dict[Archetype, dict[str, float]] = {
-        "solo_founder": {"local": 0.65, "regional": 0.30, "national": 0.05, "global": 0.0},
-        "small_team": {"local": 0.45, "regional": 0.40, "national": 0.13, "global": 0.02},
-        "venture_funded": {"local": 0.05, "regional": 0.20, "national": 0.50, "global": 0.25},
-        "enterprise": {"local": 0.0, "regional": 0.10, "national": 0.45, "global": 0.45},
-    }
-    return _weighted_choice(rng, weights[archetype])  # type: ignore[return-value]
-
-
-def _acquisition_channel_for(
-    economics: EconomicsModel, rng: random.Random
-) -> Literal["word_of_mouth", "outbound_sales", "paid_ads", "content", "partnerships"]:
-    weights: dict[EconomicsModel, dict[str, float]] = {
-        "physical": {
-            "word_of_mouth": 0.40,
-            "outbound_sales": 0.05,
-            "paid_ads": 0.30,
-            "content": 0.10,
-            "partnerships": 0.15,
-        },
-        "subscription": {
-            "word_of_mouth": 0.10,
-            "outbound_sales": 0.25,
-            "paid_ads": 0.30,
-            "content": 0.25,
-            "partnerships": 0.10,
-        },
-        "service": {
-            "word_of_mouth": 0.30,
-            "outbound_sales": 0.35,
-            "paid_ads": 0.05,
-            "content": 0.10,
-            "partnerships": 0.20,
-        },
-    }
-    return _weighted_choice(rng, weights[economics])  # type: ignore[return-value]
-
-
-_NAME_PREFIXES = (
-    "Onyx",
-    "Apex",
-    "Crest",
-    "Nimbus",
-    "Quill",
-    "Helix",
-    "Pivot",
-    "Forge",
-    "Lattice",
-    "Echo",
-    "Harbor",
-    "Northwind",
-    "Bright",
-    "Anvil",
-    "Sable",
-    "Cinder",
-    "Verge",
-    "Mosaic",
-)
-_NAME_SUFFIXES_BY_ECON: dict[EconomicsModel, tuple[str, ...]] = {
-    "physical": ("Eats", "Kitchen", "Foods", "Co.", "Goods", "Market"),
-    "subscription": ("Cloud", "Labs", "AI", "Data", "Platform", "Stack"),
-    "service": ("Group", "Partners", "Advisory", "Consulting", "Studio", "Works"),
+#: Representative unit price per economics model when a profile has none.
+_OLEO_UNIT_PRICE: dict[EconomicsModel, float] = {
+    "physical": 50.0,
+    "subscription": 120.0,
+    "service": 25_000.0,
 }
+#: Fraction of annual revenue held as starting cash when the profile omits cash.
+_OLEO_CASH_FRACTION_OF_REVENUE: float = 0.15
+#: Share of non-COGS daily revenue treated as fixed overhead.
+_OLEO_FIXED_COST_SHARE: float = 0.35
+#: Headcount per location used to infer a location count from org size.
+_OLEO_EMPLOYEES_PER_LOCATION: int = 5_000
 
 
-def _default_name_for(archetype: Archetype, economics: EconomicsModel, rng: random.Random) -> str:
-    return f"{rng.choice(_NAME_PREFIXES)} {rng.choice(_NAME_SUFFIXES_BY_ECON[economics])}"
+def _num(value: Any, fallback: float) -> float:
+    return float(value) if isinstance(value, int | float) and value == value else fallback
 
 
-_DEFAULT_NICHE_BY_ECON: dict[EconomicsModel, str] = {
-    "physical": "Regional fast-casual chain serving a single signature menu category.",
-    "subscription": "B2B SaaS platform sold per-seat to mid-market operations teams.",
-    "service": "Boutique consultancy delivering AI automation to industrial SMBs.",
-}
-_DEFAULT_KEYWORDS_BY_ECON: dict[EconomicsModel, list[str]] = {
-    "physical": ["restaurant", "fast-casual", "food-service"],
-    "subscription": ["saas", "b2b", "platform"],
-    "service": ["consulting", "ai", "professional-services"],
-}
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
 
 
-def _default_niche_for(economics: EconomicsModel) -> str:
-    return _DEFAULT_NICHE_BY_ECON[economics]
+def _oleo_economics(identity: dict[str, Any]) -> EconomicsModel:
+    text = f"{identity.get('business_model', '')} {identity.get('industry', '')}".lower()
+    if any(word in text for word in ("saas", "software", "cloud")):
+        return "subscription"
+    if "service" in text or "consulting" in text:
+        return "service"
+    return "physical"
 
 
-def _default_keywords_for(economics: EconomicsModel) -> list[str]:
-    return list(_DEFAULT_KEYWORDS_BY_ECON[economics])
+def seed_from_oleo(data: dict[str, Any]) -> CompanySeed:
+    """Convert an `.oleo` company profile export into a `CompanySeed`."""
+    profile = data.get("profile", {})
+    identity = profile.get("identity", {})
+    org = profile.get("organization", {})
+    fin = profile.get("financials", {})
+    market = profile.get("market", {})
+
+    name = str(identity.get("name") or "Imported Company")
+    economics = _oleo_economics(identity)
+    price = _OLEO_UNIT_PRICE[economics]
+    headcount = int(_clamp(_num(org.get("total_headcount"), 10), 1, 10_000_000))
+    revenue = _num(fin.get("annual_revenue"), 1_000_000.0)
+    margin = _clamp(_num(fin.get("gross_margin"), 0.55), 0.05, 0.85)
+    share = _clamp(_num(market.get("market_share"), 0.05), 0.001, 0.95)
+    daily_revenue = revenue / 365.0
+    cash = _num(fin.get("cash"), revenue * _OLEO_CASH_FRACTION_OF_REVENUE)
+    locations = int(_clamp(-(-headcount // _OLEO_EMPLOYEES_PER_LOCATION), 1, 1_000))
+
+    return CompanySeed(
+        name=name,
+        niche=str(identity.get("description") or f"{name} in {identity.get('industry', '')}")[:400],
+        economics_model=economics,
+        starting_price=price,
+        base_unit_cost=round(price * (1.0 - margin), 2),
+        daily_fixed_costs=round(
+            _clamp(daily_revenue * (1.0 - margin) * _OLEO_FIXED_COST_SHARE, 1, 1e9), 2
+        ),
+        starting_cash=_clamp(cash, 1_000, 1e12),
+        starting_employees=headcount,
+        base_capacity_per_location=round(
+            _clamp(daily_revenue / price * CAPACITY_HEADROOM / locations, 1e-4, 1e8), 4
+        ),
+        initial_locations=locations,
+        tam=_clamp(_num(market.get("tam"), revenue / share), 1, 1e15),
+        market_growth_rate=_clamp(
+            _num(fin.get("revenue_growth_rate"), _num(market.get("market_growth_rate"), 0.08)),
+            -0.5,
+            2.0,
+        ),
+        cobb_douglas_alpha=0.45 if economics == "physical" else 0.35,
+        cobb_douglas_beta=0.55 if economics == "physical" else 0.65,
+        **_DEFAULT_REFS[economics],
+    )

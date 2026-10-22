@@ -1,0 +1,38 @@
+# AI CEO model catalog. Every call goes through OpenRouter, so any model id
+# from https://openrouter.ai/models works. Prices, context length and
+# benchmark scores are fetched live from OpenRouter's /models endpoint.
+#
+# tiers: the curated picks on the onboarding screen, cheapest Chinese models
+#        first. Ordered by Artificial Analysis intelligence index (Oct 2026).
+# anthropic_prefix: every live model under this prefix is listed as well.
+# reasoning_effort: how hard reasoning models think per decision. "low" keeps
+#        decisions cheap and fast; raise it for slower, more deliberate CEOs.
+
+default: z-ai/glm-5.3-flash
+reasoning_effort: low
+anthropic_prefix: anthropic/
+
+tiers:
+  - tier: bad
+    label: Bad
+    model: qwen/qwen3.5-9b
+    blurb: Tiny 9B model. Nearly free and confidently wrong. Fun to watch go bankrupt.
+  - tier: mediocre
+    label: Mediocre
+    model: deepseek/deepseek-v4-flash
+    blurb: Fast and cheap. Follows the persona, misses second-order effects.
+  - tier: good
+    label: Good
+    model: z-ai/glm-5.3-flash
+    blurb: Recommended. Near-frontier reasoning for a fraction of a cent per decision.
+  - tier: super
+    label: Super good
+    model: xiaomi/mimo-v2.6-pro
+    blurb: Strongest open-weight model available. Still cheap.
+
+# Used only when OpenRouter's catalog can't be reached.
+anthropic_fallback:
+  - anthropic/claude-haiku-5.5
+  - anthropic/claude-sonnet-5.5
+  - anthropic/claude-opus-5.5
+  - anthropic/claude-fable-5.1

@@ -1,48 +1,302 @@
+"""Onyx Leopard API: start a run, stream it over SSE, control playback."""
+
+from __future__ import annotations
+
+import asyncio
+import json
 import logging
-import traceback
+import random
+import uuid
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from starlette.responses import StreamingResponse
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+from src.simulation.ceo import AiCeo, HeuristicCeo
+from src.simulation.engine import Company, MarketSim
+from src.simulation.library import LibraryValidationError, get_library
+from src.simulation.llm import API_KEY_ENV, Budget, OpenRouterClient, api_key, load_catalog
+from src.simulation.report import write_report
+from src.simulation.seed import (
+    ARCHETYPES as COMPANY_ARCHETYPES,
+)
+from src.simulation.seed import (
+    Archetype,
+    CompanySeed,
+    company_name,
+    sample_seed,
+    seed_from_oleo,
+)
+from src.simulation.shocks import ShockScheduler
+from src.simulation.stance import ARCHETYPES as CEO_ARCHETYPES
+from src.simulation.stance import PROFILES, sample_stance
 
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BACKEND_DIR / ".env")
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
-from src.routes.simulation_v2 import router as simulation_v2_router
+COMPANIES_DIR = BACKEND_DIR / "companies"
+MAX_COMPANIES = 10
+#: Target SSE frame interval; above 60 ticks/s, ticks are batched per frame.
+FRAME_SECONDS = 1 / 60
+MIN_SPEED = 0.1
 
-app = FastAPI(title="Onyx Leopard", version="0.3.0")
-
+app = FastAPI(title="Onyx Leopard", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(simulation_v2_router)
+
+# ─── Sessions ───────────────────────────────────────────────────────────────
 
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # HTTPException carries an intentionally crafted message and status, pass it
-    # through so route-level 400/404 still surface usable client errors.
-    if isinstance(exc, HTTPException):
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    # Everything else is logged with full traceback server-side and returned
-    # with a generic message so we never leak file paths, ORM internals,
-    # or vendor stack details to the client.
-    tb = traceback.format_exception(exc)
-    logging.error("Unhandled error on %s:\n%s", request.url, "".join(tb))
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"},
-    )
+@dataclass
+class Session:
+    sim: MarketSim
+    speed: float = 1.0
+    stopped: bool = False
+    running: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def __post_init__(self) -> None:
+        self.running.set()
+
+
+_sessions: dict[str, Session] = {}
+
+
+def _session(session_id: str) -> Session:
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return session
+
+
+# ─── Models ────────────────────────────────────────────────────────────────
+
+
+class StartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Explicit company seed (e.g. an imported profile). Sampled when omitted.
+    seed: CompanySeed | None = None
+    company_archetype: Archetype = "small_team"
+    #: One CEO archetype per company; every company shares the seed.
+    ceo_archetypes: list[str] = Field(..., min_length=1, max_length=MAX_COMPANIES)
+    duration_days: int = Field(default=5 * 365, ge=30, le=100 * 365)
+    ai_enabled: bool = True
+    model: str | None = None
+    budget_usd: float = Field(default=1.0, gt=0.0, le=500.0)
+    shocks_enabled: bool = True
+    rng_seed: int | None = None
+
+    @field_validator("ceo_archetypes")
+    @classmethod
+    def _known_archetypes(cls, v: list[str]) -> list[str]:
+        unknown = sorted(set(v) - set(CEO_ARCHETYPES))
+        if unknown:
+            raise ValueError(f"unknown CEO archetypes {unknown}; valid: {list(CEO_ARCHETYPES)}")
+        return v
+
+
+class ControlRequest(BaseModel):
+    action: Literal["play", "pause", "stop", "set_speed"]
+    speed: float | None = None
+
+
+# ─── Routes ────────────────────────────────────────────────────────────────
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+async def config() -> dict[str, Any]:
+    return {"ai_available": api_key() is not None, "key_env": API_KEY_ENV}
+
+
+@app.get("/api/models")
+async def models() -> dict[str, Any]:
+    return (await load_catalog()).public()
+
+
+@app.get("/api/archetypes")
+async def archetypes() -> dict[str, Any]:
+    return {
+        "ceo": [
+            {"id": k, "label": p["label"], "summary": p["summary"]} for k, p in PROFILES.items()
+        ],
+        "company": list(COMPANY_ARCHETYPES),
+    }
+
+
+@app.get("/api/companies")
+async def companies() -> list[dict[str, Any]]:
+    """Bundled `.oleo` company profiles, converted to seeds."""
+    library = get_library()
+    out = []
+    for path in sorted(COMPANIES_DIR.glob("*.oleo")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            seed = seed_from_oleo(data)
+            library.validate_seed(seed)
+        except (ValueError, LibraryValidationError) as exc:
+            log.warning("skipping %s: %s", path.name, exc)
+            continue
+        identity = data.get("profile", {}).get("identity", {})
+        out.append(
+            {
+                "filename": path.name,
+                "name": seed.name,
+                "industry": identity.get("industry", ""),
+                "seed": seed.model_dump(),
+            }
+        )
+    return out
+
+
+@app.post("/api/seed/sample/{archetype}")
+async def sample(archetype: Archetype, rng_seed: int | None = None) -> dict[str, Any]:
+    return sample_seed(archetype, random.Random(rng_seed), get_library()).model_dump()
+
+
+@app.post("/api/simulate/start")
+async def start(req: StartRequest) -> dict[str, Any]:
+    sim = await build_sim(req)
+    session_id = str(uuid.uuid4())
+    _sessions[session_id] = Session(sim=sim)
+    return {
+        "session_id": session_id,
+        "max_ticks": sim.max_ticks,
+        "model": sim.llm.model.id if sim.llm else None,
+        "companies": [
+            {"company_id": c.company_id, "name": c.name, "archetype": c.stance.archetype}
+            for c in sim.companies
+        ],
+    }
+
+
+async def build_sim(req: StartRequest) -> MarketSim:
+    rng = random.Random(req.rng_seed)
+    library = get_library()
+    seed = req.seed or sample_seed(req.company_archetype, rng, library)
+    try:
+        library.validate_seed(seed)
+    except LibraryValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    llm: OpenRouterClient | None = None
+    if req.ai_enabled:
+        key = api_key()
+        if key is None:
+            raise HTTPException(
+                400, f"AI CEOs need {API_KEY_ENV} in backend/.env. Rerun `python start.py`."
+            )
+        catalog = await load_catalog()
+        llm = OpenRouterClient(
+            api_key=key,
+            model=catalog.info(req.model or catalog.default_model),
+            budget=Budget(ceiling_usd=req.budget_usd),
+            reasoning_effort=catalog.reasoning_effort,
+        )
+
+    shock_rate = 1.0 if req.shocks_enabled else 0.0
+    names = [seed.name]
+    while len(names) < len(req.ceo_archetypes):
+        candidate = company_name(seed.economics_model, rng)
+        if candidate not in names:
+            names.append(candidate)
+
+    companies = [
+        Company(
+            company_id=f"co-{i}",
+            name=names[i],
+            seed=seed,
+            stance=sample_stance(archetype, rng),
+            library=library,
+            rng=random.Random(rng.getrandbits(32)),
+            shock_scheduler=ShockScheduler("company", rng.getrandbits(32), shock_rate),
+        )
+        for i, archetype in enumerate(req.ceo_archetypes)
+    ]
+    return MarketSim(
+        sim_id=str(uuid.uuid4()),
+        companies=companies,
+        max_ticks=req.duration_days,
+        tam=seed.tam,
+        market_growth_rate=seed.market_growth_rate,
+        market_shocks=ShockScheduler("market", rng.getrandbits(32), shock_rate),
+        heuristic={c.company_id: HeuristicCeo() for c in companies},
+        ai={c.company_id: AiCeo(llm, c) for c in companies} if llm else {},
+        llm=llm,
+        lv_seed=rng.getrandbits(32),
+    )
+
+
+def _sse(data: dict[str, Any]) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
+@app.get("/api/simulate/stream/{session_id}")
+async def stream(session_id: str) -> StreamingResponse:
+    session = _session(session_id)
+    return StreamingResponse(_run(session_id, session), media_type="text/event-stream")
+
+
+async def _run(session_id: str, session: Session) -> AsyncIterator[str]:
+    sim = session.sim
+    try:
+        while not sim.is_complete:
+            await session.running.wait()
+            if session.stopped:
+                yield _sse({"type": "stopped"})
+                return
+            batch = max(1, int(session.speed * FRAME_SECONDS))
+            ran = 0
+            for _ in range(batch):
+                if sim.is_complete:
+                    break
+                if sim.ai_due(sim.tick + 1):
+                    if ran:  # flush progress before the AI round blocks
+                        yield _sse(sim.payload())
+                    yield _sse({"type": "thinking", "tick": sim.tick + 1})
+                await sim.step()
+                ran += 1
+            yield _sse(sim.payload())
+            await asyncio.sleep(ran / max(MIN_SPEED, session.speed))
+
+        reports = await asyncio.gather(*(write_report(c, sim.llm) for c in sim.companies))
+        yield _sse({"type": "reports", "reports": [r.model_dump() for r in reports]})
+        yield _sse({"type": "complete", "tick": sim.tick, "ai": sim.ai_status()})
+    finally:
+        if sim.llm is not None:
+            await sim.llm.aclose()
+        _sessions.pop(session_id, None)
+
+
+@app.post("/api/simulate/control/{session_id}")
+async def control(session_id: str, req: ControlRequest) -> dict[str, Any]:
+    session = _session(session_id)
+    if req.action == "play":
+        session.running.set()
+    elif req.action == "pause":
+        session.running.clear()
+    elif req.action == "stop":
+        session.stopped = True
+        session.running.set()
+    else:
+        if req.speed is None:
+            raise HTTPException(400, "speed is required for set_speed")
+        session.speed = max(MIN_SPEED, req.speed)
+    return {"paused": not session.running.is_set(), "speed": session.speed}

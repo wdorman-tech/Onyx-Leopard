@@ -1,38 +1,30 @@
 [project]
-name = "black-jaguar-backend"
-version = "0.1.0"
-description = "Business Strategy Simulator — backend"
+name = "onyx-leopard-backend"
+version = "0.4.0"
+description = "Onyx Leopard business simulation — backend"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi[standard]>=0.115",
-    "uvicorn>=0.34",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
     "pydantic>=2",
-    "pydantic-settings>=2",
-    "anthropic>=0.40",
-    "camel-ai[anthropic]>=0.2",
-    "python-multipart>=0.0.9",
-    "openpyxl>=3.1",
-    "edgartools>=3",
-    "packaging>=24",
-    "scipy>=1.14",
+    "httpx>=0.27",
+    "python-dotenv>=1",
     "numpy>=2",
+    "scipy>=1.14",
     "pyyaml>=6",
-    "pymupdf>=1.25",
-    "networkx>=3.6.1",
-    "mesa>=3.0",
 ]
 
 [dependency-groups]
 dev = [
     "ruff>=0.9",
     "pytest>=8",
-    "pytest-asyncio>=0.25",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "slow: long-running test (e.g. multi-year sim); deselect with `-m \"not slow\"`",
 ]
