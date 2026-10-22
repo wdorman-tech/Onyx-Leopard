@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """Onyx Leopard - one-command setup and launch."""
 
-import socket
+import json
+import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
-ENV_EXAMPLE = ROOT / ".env.example"
 ENV_FILE = BACKEND / ".env"
+KEY_NAME = "OPENROUTER_API_KEY"
+KEY_CHECK_URL = "https://openrouter.ai/api/v1/key"
 WIN = sys.platform == "win32"
+USE_UV = shutil.which("uv") is not None
 
 
 def fail(msg: str) -> None:
@@ -26,88 +32,99 @@ def step(msg: str) -> None:
 
 
 def check_prerequisites() -> None:
-    if sys.version_info < (3, 12):
-        fail(f"Python 3.12+ required (you have {sys.version})")
+    if sys.version_info < (3, 12):  # noqa: UP036 -- this guard is the point
+        fail(f"Python 3.12+ required (you have {sys.version.split()[0]})")
     if not shutil.which("node"):
         fail("Node.js not found. Download it from https://nodejs.org/")
     if not shutil.which("pnpm"):
-        fail(
-            "pnpm not found.\n"
-            "    Install it with:  npm install -g pnpm\n"
-            "    Or see: https://pnpm.io/installation"
-        )
+        fail("pnpm not found. Install it with:  npm install -g pnpm")
 
 
-def setup_env() -> None:
-    import os
-
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return
-
-    # Check .env file
+def read_env_key() -> str:
+    if os.environ.get(KEY_NAME):
+        return os.environ[KEY_NAME].strip()
     if ENV_FILE.exists():
-        for line in ENV_FILE.read_text().splitlines():
-            if line.strip().startswith("ANTHROPIC_API_KEY=") and line.split("=", 1)[1].strip():
-                return
+        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+            name, _, value = line.partition("=")
+            if name.strip() == KEY_NAME and value.strip():
+                return value.strip()
+    return ""
 
-    step("AI CEO agents require an Anthropic API key.")
-    key = input("    Enter your ANTHROPIC_API_KEY (or press Enter to skip): ").strip()
-    if key:
-        os.environ["ANTHROPIC_API_KEY"] = key
-        # Persist to .env so it's available on next run
-        lines = ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []
-        lines = [l for l in lines if not l.strip().startswith("ANTHROPIC_API_KEY=")]
-        lines.append(f"ANTHROPIC_API_KEY={key}")
-        ENV_FILE.write_text("\n".join(lines) + "\n")
-        print("    Saved to backend/.env")
-    else:
-        print("    Skipped. AI CEO mode will not be available.")
+
+def save_env_key(key: str) -> None:
+    lines = ENV_FILE.read_text(encoding="utf-8").splitlines() if ENV_FILE.exists() else []
+    lines = [line for line in lines if line.partition("=")[0].strip() != KEY_NAME]
+    lines.append(f"{KEY_NAME}={key}")
+    ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def check_key(key: str) -> None:
+    """Ask OpenRouter about the key. Warns only, so offline launches still work."""
+    request = urllib.request.Request(KEY_CHECK_URL, headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as resp:
+            data = json.load(resp).get("data", {})
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            print("    WARNING: OpenRouter rejected this key. AI CEOs will fail until it is fixed.")
+            print(f"    Edit {ENV_FILE} or delete the {KEY_NAME} line and rerun start.py.")
+        else:
+            print(f"    Could not verify the key (HTTP {exc.code}); continuing.")
+        return
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        print("    Could not reach OpenRouter to verify the key; continuing.")
+        return
+    remaining = data.get("limit_remaining")
+    credit = f"${remaining:,.2f} credit left" if isinstance(remaining, int | float) else "no limit"
+    print(f"    OpenRouter key OK ({credit}).")
+
+
+def setup_key() -> None:
+    key = read_env_key()
+    if not key:
+        step("AI CEOs run on OpenRouter (cheap Chinese models by default, Claude optional).")
+        print("    Get a key at https://openrouter.ai/keys")
+        key = input(f"    Paste your {KEY_NAME} (or press Enter to skip): ").strip()
+        if not key:
+            print("    Skipped. Simulations will use the free heuristic CEOs only.")
+            return
+        save_env_key(key)
+        print(f"    Saved to {ENV_FILE.relative_to(ROOT)}")
+    check_key(key)
 
 
 def install_backend() -> None:
-    check = subprocess.run(
-        [sys.executable, "-m", "pip", "show", "black-jaguar-backend"],
-        capture_output=True,
-    )
-    if check.returncode == 0:
+    if USE_UV:  # idempotent and fast; keeps the venv in sync with uv.lock
+        step("Syncing backend dependencies (uv)...")
+        subprocess.run(["uv", "sync", "--quiet"], cwd=BACKEND, check=True)
         return
-    step("Installing backend dependencies...")
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-e", str(BACKEND)],
-        check=True,
+    installed = subprocess.run(
+        [sys.executable, "-m", "pip", "show", "onyx-leopard-backend"], capture_output=True
     )
+    if installed.returncode != 0:
+        step("Installing backend dependencies (pip)...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(BACKEND)], check=True)
 
 
 def install_frontend() -> None:
     if (FRONTEND / "node_modules").exists():
         return
     step("Installing frontend dependencies...")
-    subprocess.run(
-        ["pnpm", "install"],
-        cwd=str(FRONTEND),
-        check=True,
-        shell=WIN,
-    )
+    subprocess.run(["pnpm", "install"], cwd=FRONTEND, check=True, shell=WIN)
 
 
 def free_port(port: int) -> None:
-    """Kill whatever is occupying a port so servers start cleanly."""
+    """Kill whatever holds a port so the servers start cleanly."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         if s.connect_ex(("127.0.0.1", port)) != 0:
-            return  # Port is free
-    step(f"Port {port} is already in use -- freeing it...")
+            return
+    step(f"Port {port} is in use -- freeing it...")
     if WIN:
-        # netstat to find PID, then taskkill
         out = subprocess.run(
-            f'netstat -ano | findstr ":{port} "',
-            capture_output=True, text=True, shell=True,
+            f'netstat -ano | findstr ":{port} "', capture_output=True, text=True, shell=True
         )
-        pids: set[str] = set()
-        for line in out.stdout.splitlines():
-            parts = line.split()
-            if parts and parts[-1].isdigit():
-                pids.add(parts[-1])
-        for pid in pids:
+        pids = {parts[-1] for line in out.stdout.splitlines() if (parts := line.split())}
+        for pid in {p for p in pids if p.isdigit()} - {"0"}:
             subprocess.run(f"taskkill /PID {pid} /F", shell=True, capture_output=True)
     else:
         subprocess.run(f"lsof -ti:{port} | xargs kill -9", shell=True, capture_output=True)
@@ -120,20 +137,12 @@ def start_servers() -> None:
     step("Starting servers...\n")
     print("    Backend  : http://localhost:8000")
     print("    Frontend : http://localhost:3000")
-    print()
-    print("    Open http://localhost:3000 in your browser.")
-    print("    Press Ctrl+C to stop.\n")
+    print("\n    Open http://localhost:3000 in your browser. Press Ctrl+C to stop.\n")
 
-    backend = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "src.main:app", "--reload", "--port", "8000"],
-        cwd=str(BACKEND),
-    )
-    frontend = subprocess.Popen(
-        ["pnpm", "dev"],
-        cwd=str(FRONTEND),
-        shell=WIN,
-    )
-
+    uvicorn = ["uvicorn", "src.main:app", "--reload", "--port", "8000"]
+    backend_cmd = ["uv", "run", *uvicorn] if USE_UV else [sys.executable, "-m", *uvicorn]
+    backend = subprocess.Popen(backend_cmd, cwd=BACKEND)
+    frontend = subprocess.Popen(["pnpm", "dev"], cwd=FRONTEND, shell=WIN)
     try:
         while backend.poll() is None and frontend.poll() is None:
             time.sleep(1)
@@ -144,7 +153,7 @@ def start_servers() -> None:
     except KeyboardInterrupt:
         print("\n  Shutting down...")
     finally:
-        for proc in [backend, frontend]:
+        for proc in (backend, frontend):
             try:
                 proc.terminate()
                 proc.wait(timeout=5)
@@ -153,13 +162,11 @@ def start_servers() -> None:
 
 
 def main() -> None:
-    print()
-    print("  ========================================")
+    print("\n  ========================================")
     print("     Onyx Leopard -- Setup & Launch")
     print("  ========================================")
-
     check_prerequisites()
-    setup_env()
+    setup_key()
     install_backend()
     install_frontend()
     start_servers()
