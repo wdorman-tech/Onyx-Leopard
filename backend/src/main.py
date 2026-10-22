@@ -16,13 +16,15 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from starlette.responses import StreamingResponse
+from starlette.responses import FileResponse, StreamingResponse
 
+from src.simulation import export
 from src.simulation.ceo import AiCeo, HeuristicCeo
 from src.simulation.engine import Company, MarketSim
+from src.simulation.jev import JevJudge, jev_key
 from src.simulation.library import LibraryValidationError, get_library
 from src.simulation.llm import API_KEY_ENV, Budget, OpenRouterClient, api_key, load_catalog
-from src.simulation.report import write_report
+from src.simulation.report import CeoReport, write_report
 from src.simulation.seed import (
     ARCHETYPES as COMPANY_ARCHETYPES,
 )
@@ -51,7 +53,8 @@ MIN_SPEED = 0.1
 app = FastAPI(title="Onyx Leopard", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    # Local-only app: any localhost port (lets a second checkout run side by side).
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -97,6 +100,8 @@ class StartRequest(BaseModel):
     model: str | None = None
     budget_usd: float = Field(default=1.0, gt=0.0, le=500.0)
     shocks_enabled: bool = True
+    #: Let Jev approve or veto the weekly rule CEO (needs TYPESAFE_API_KEY).
+    jev_enabled: bool = True
     rng_seed: int | None = None
 
     @field_validator("ceo_archetypes")
@@ -123,7 +128,11 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/config")
 async def config() -> dict[str, Any]:
-    return {"ai_available": api_key() is not None, "key_env": API_KEY_ENV}
+    return {
+        "ai_available": api_key() is not None,
+        "key_env": API_KEY_ENV,
+        "jev_available": jev_key() is not None,
+    }
 
 
 @app.get("/api/models")
@@ -211,6 +220,7 @@ async def build_sim(req: StartRequest) -> MarketSim:
             reasoning_effort=catalog.reasoning_effort,
         )
 
+    jev = JevJudge.from_env() if req.jev_enabled and jev_key() is not None else None
     shock_rate = 1.0 if req.shocks_enabled else 0.0
     names = [seed.name]
     while len(names) < len(req.ceo_archetypes):
@@ -240,6 +250,17 @@ async def build_sim(req: StartRequest) -> MarketSim:
         heuristic={c.company_id: HeuristicCeo() for c in companies},
         ai={c.company_id: AiCeo(llm, c) for c in companies} if llm else {},
         llm=llm,
+        jev=jev,
+        settings={
+            "ai_enabled": llm is not None,
+            "model": llm.model.id if llm else None,
+            "budget_usd": req.budget_usd if llm else None,
+            "jev_enabled": jev is not None,
+            "shocks_enabled": req.shocks_enabled,
+            "duration_days": req.duration_days,
+            "company_archetype": None if req.seed else req.company_archetype,
+            "rng_seed": req.rng_seed,
+        },
         lv_seed=rng.getrandbits(32),
     )
 
@@ -278,11 +299,43 @@ async def _run(session_id: str, session: Session) -> AsyncIterator[str]:
 
         reports = await asyncio.gather(*(write_report(c, sim.llm) for c in sim.companies))
         yield _sse({"type": "reports", "reports": [r.model_dump() for r in reports]})
+        yield _sse(await _save(sim, list(reports)))
         yield _sse({"type": "complete", "tick": sim.tick, "ai": sim.ai_status()})
     finally:
         if sim.llm is not None:
             await sim.llm.aclose()
+        if sim.jev is not None:
+            await sim.jev.aclose()
         _sessions.pop(session_id, None)
+
+
+async def _save(sim: MarketSim, reports: list[CeoReport]) -> dict[str, Any]:
+    """Write the run to disk (JSON, CSV, PDF) off the event loop; report where it went."""
+    data = export.run_data(sim, reports)
+    try:
+        run_dir = await asyncio.to_thread(export.save_run, data)
+    except Exception as exc:
+        log.exception("saving run %s failed", data["run_id"])
+        return {"type": "saved", "run_id": data["run_id"], "error": f"Saving the run failed: {exc}"}
+    run_id = run_dir.name
+    return {
+        "type": "saved",
+        "run_id": run_id,
+        "files": {name: f"/api/runs/{run_id}/{name}" for name in export.RUN_FILES},
+    }
+
+
+@app.get("/api/runs/{run_id}/{filename}")
+async def run_file(run_id: str, filename: str) -> FileResponse:
+    path = export.run_file(run_id, filename)
+    if path is None:
+        raise HTTPException(404, "run file not found")
+    disposition = "inline" if filename.endswith(".pdf") else "attachment"
+    return FileResponse(
+        path,
+        media_type=export.RUN_FILES[filename],
+        headers={"Content-Disposition": f'{disposition}; filename="{run_id}-{filename}"'},
+    )
 
 
 @app.post("/api/simulate/control/{session_id}")

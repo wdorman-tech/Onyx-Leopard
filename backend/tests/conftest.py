@@ -106,3 +106,11 @@ def isolated_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # typ
     from src.simulation import llm
 
     monkeypatch.setattr(llm, "ENV_FILE", tmp_path / ".env")
+
+
+@pytest.fixture(autouse=True)
+def isolated_runs_dir(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Saved runs go to a temp dir, never backend/runs."""
+    from src.simulation import export
+
+    monkeypatch.setattr(export, "RUNS_DIR", tmp_path / "runs")

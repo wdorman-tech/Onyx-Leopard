@@ -58,9 +58,20 @@ def test_heuristic_run_streams_ticks_reports_and_complete() -> None:
     ticks = [e for e in stream if e["type"] == "tick"]
     assert ticks[-1]["tick"] == 90
     assert len(ticks[-1]["companies"]) == 3
-    assert stream[-2]["type"] == "reports"
-    assert {r["source"] for r in stream[-2]["reports"]} == {"heuristic"}
-    assert stream[-1]["type"] == "complete"
+    assert [e["type"] for e in stream[-3:]] == ["reports", "saved", "complete"]
+    assert {r["source"] for r in stream[-3]["reports"]} == {"heuristic"}
+
+    saved = stream[-2]
+    pdf = client.get(saved["files"]["report.pdf"])
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF")
+    csv_text = client.get(saved["files"]["timeseries.csv"]).text
+    assert csv_text.splitlines()[0].startswith("day,company_id,company,ceo,alive,cash")
+    assert len(csv_text.splitlines()) == 1 + 3 * 90  # daily samples for every company
+    run = client.get(saved["files"]["run.json"]).json()
+    assert run["run_id"] == saved["run_id"]
+    assert {c["report"]["source"] for c in run["companies"]} == {"heuristic"}
     gone = client.post(f"/api/simulate/control/{start['session_id']}", json={"action": "play"})
     assert gone.status_code == 404
 
@@ -162,3 +173,23 @@ def test_ai_run_end_to_end_with_mocked_openrouter(
     assert {r["source"] for r in reports} == {"ai"}
     assert stream[-1]["ai"]["calls"] == 6
     assert stream[-1]["ai"]["spent_usd"] == pytest.approx(0.006)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/runs/..%2F..%2Fsecrets/run.json",
+        "/api/runs/abc/../../.env",
+        "/api/runs/abc/notes.txt",
+        "/api/runs/does-not-exist/report.pdf",
+    ],
+)
+def test_run_files_are_whitelisted(path: str) -> None:
+    assert client.get(path).status_code == 404
+
+
+def test_config_reports_jev_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    assert client.get("/api/config").json()["jev_available"] is False
+    monkeypatch.setenv("TYPESAFE_API_KEY", "ts-test")
+    assert client.get("/api/config").json()["jev_available"] is True

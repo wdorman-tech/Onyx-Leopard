@@ -12,6 +12,9 @@ dependencies = [
     "numpy>=2",
     "scipy>=1.14",
     "pyyaml>=6",
+    "reportlab>=5.0.1",
+    "matplotlib>=3.11.2",
+    "typesafe-sdk>=0.7.5",
 ]
 
 [dependency-groups]
