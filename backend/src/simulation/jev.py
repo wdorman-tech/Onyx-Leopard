@@ -2,15 +2,22 @@
 
 Python detects; Jev rules. The heuristic CEO still finds every setup
 mechanically (cash crisis, capacity or production binding, idle capacity) and
-proposes one action. Jev answers a single Noul about that proposal and the
-action goes ahead only if the answer clears the company's own baseline.
+proposes one action. Jev answers a single Noul about that proposal and vetoes
+it only when the answer is clearly low for that kind of action.
 
 Design follows the Jev 1.13 guidance proven in alpaca-jev:
   * every number is computed and rounded in Python; Jev never does arithmetic,
-  * the state carries only what the question needs,
-  * the question names the exact fields it refers to,
-  * the gate pivots on a rolling per-company baseline, not 0.5, because Jev's
-    Noul answers sit at a model-specific level and the signal is the deviation.
+  * the state carries only what the question needs, including both sides of
+    the call (acting vs holding off) projected over the horizon,
+  * the question names the exact fields it refers to and judges the company's
+    outcome, not a CEO persona's tastes,
+  * the gate pivots on a rolling baseline per company *and* action kind, not
+    0.5, because Noul answers sit at a model- and question-specific level and
+    the signal is the deviation. A veto needs the answer to fall
+    `VETO_Z` standard deviations below that baseline (EWMA mean and variance),
+    so repeats of the same proposal, which score alike, are not a coin flip.
+  * a cost cut is not optional when the company would run out of cash inside
+    the horizon by holding off: such a cut skips Jev and the rule acts.
 
 The AI CEO (OpenRouter) is untouched; Jev only judges the small weekly calls.
 """
@@ -26,6 +33,7 @@ from typing import TYPE_CHECKING, Any, Final
 from dotenv import dotenv_values
 
 from src.simulation import llm
+from src.simulation.engine import DAYS_PER_MONTH
 
 if TYPE_CHECKING:
     from src.simulation.ceo import CeoDecision
@@ -41,12 +49,23 @@ INPUT_PRICE_PER_MTOK: Final[float] = 0.042
 REQUEST_TIMEOUT_S: Final[float] = 10.0
 #: Horizon the proposal is judged over, in days.
 HORIZON_DAYS: Final[int] = 90
-#: EMA weight of each new answer in the per-company baseline.
+#: EWMA weight of each new answer in the per-(company, kind) baseline.
 BASELINE_ALPHA: Final[float] = 0.12
-#: Approve when the answer sits at least this far above the updated baseline.
-EDGE_THRESHOLD: Final[float] = 0.0
+#: Veto only when the answer is this many baseline standard deviations low:
+#: the one-sided 5% level, so a repeat of a proposal Jev rated before, which
+#: scores within its usual spread, is vetoed about 1 time in 20.
+VETO_Z: Final[float] = 1.645
+#: Variance the baseline starts from: that of an answer uniform on [0, 1].
+#: Until Jev's own spread is observed, only a far-below-baseline answer vetoes.
+PRIOR_VARIANCE: Final[float] = 1.0 / 12.0
 
 QUESTION_NAME: Final[str] = "stronger"
+QUESTION: Final[str] = (
+    "Taking the action in `proposal.action` now leaves this company more likely to be "
+    f"solvent and competitive {HORIZON_DAYS} days from now than holding off. Compare "
+    "`if_it_acts` with `if_it_holds`; their projections leave out any revenue the action "
+    "itself would win or lose, which `company.binding_constraint` bears on."
+)
 
 
 def jev_key() -> str | None:
@@ -68,6 +87,8 @@ class JevStats:
     calls: int = 0
     approved: int = 0
     vetoed: int = 0
+    #: Survival cuts that skipped Jev (holding off would run out of cash).
+    forced: int = 0
     errors: int = 0
     input_tokens: int = 0
 
@@ -83,7 +104,8 @@ class JevJudge:
     client: Any
     model: str = DEFAULT_MODEL
     stats: JevStats = field(default_factory=JevStats)
-    baselines: dict[str, float] = field(default_factory=dict)
+    #: (company_id, action kind) → (EWMA mean, EWMA variance) of past answers.
+    baselines: dict[tuple[str, str], tuple[float, float]] = field(default_factory=dict)
     #: Set after an auth/permission failure; the rule CEO then acts alone.
     disabled_reason: str | None = None
 
@@ -105,6 +127,7 @@ class JevJudge:
             "calls": self.stats.calls,
             "approved": self.stats.approved,
             "vetoed": self.stats.vetoed,
+            "forced": self.stats.forced,
             "errors": self.stats.errors,
             "cost_usd": self.stats.cost_usd,
             "error": self.disabled_reason,
@@ -116,13 +139,10 @@ class JevJudge:
 
         if not self.available:
             return None
-        question = Noul(
-            instructions=(
-                "Taking the action in `proposal.action` now will leave this company in a "
-                f"stronger position {HORIZON_DAYS} days from now than holding off, judged by "
-                "the priorities of the CEO described in `ceo`."
-            )
-        )
+        if is_forced(company, proposal):
+            self.stats.forced += 1
+            return None
+        question = Noul(instructions=QUESTION)
         try:
             response = await self.client.system_one(
                 state=build_state(company, proposal), questions={QUESTION_NAME: question}
@@ -141,13 +161,16 @@ class JevJudge:
         self.stats.input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
         p = float(response.answers[QUESTION_NAME].noul)
 
-        # Update the baseline before gating so the first answer has a pivot.
-        prev = self.baselines.get(company.company_id, p)
-        baseline = (1 - BASELINE_ALPHA) * prev + BASELINE_ALPHA * p
-        self.baselines[company.company_id] = baseline
-        approved = p - baseline >= EDGE_THRESHOLD
+        # Gate on the answers that came before this one; the first answer of a
+        # kind is its own pivot (z = 0) and goes ahead.
+        key = (company.company_id, action_kind(proposal))
+        mean, variance = self.baselines.get(key, (p, PRIOR_VARIANCE))
+        z = (p - mean) / math.sqrt(variance) if variance > 0 else 0.0
+        approved = z >= -VETO_Z
+        self.baselines[key] = ewma_update(mean, variance, p, BASELINE_ALPHA)
+        baseline = mean
 
-        verdict = f"Jev p={p:.2f} vs baseline {baseline:.2f}"
+        verdict = f"Jev p={p:.2f} vs baseline {baseline:.2f} (z={z:+.1f})"
         if approved:
             self.stats.approved += 1
             decision = proposal.model_copy(
@@ -206,7 +229,7 @@ def describe_action(company: Company, proposal: CeoDecision) -> str:
 
 
 def _action_costs(company: Company, proposal: CeoDecision) -> tuple[float, float]:
-    """(one-time cost, change in daily fixed cost) of the proposal."""
+    """(one-time cost, change in daily fixed cost) of the proposal, at today's cost levels."""
     lib = company.library
     hire_mult = company.env.get("hire_cost_mult", 1.0)
     added = list(proposal.spawn)
@@ -216,31 +239,46 @@ def _action_costs(company: Company, proposal: CeoDecision) -> tuple[float, float
     daily = sum(lib.nodes[k].daily_fixed_costs for k in added) - sum(
         lib.nodes[k].daily_fixed_costs for k in proposal.retire
     )
-    return one_time, daily
+    return one_time, daily * company.fixed_cost_mult
+
+
+def action_kind(proposal: CeoDecision) -> str:
+    """Baselines are kept per kind: Jev rates growth moves and cuts on different levels."""
+    return "grow" if proposal.spawn or proposal.open_locations else "cut"
+
+
+def ewma_update(mean: float, variance: float, x: float, alpha: float) -> tuple[float, float]:
+    """Exponentially weighted mean and variance after observing `x` (RiskMetrics form)."""
+    delta = x - mean
+    return mean + alpha * delta, (1.0 - alpha) * (variance + alpha * delta * delta)
+
+
+def is_forced(company: Company, proposal: CeoDecision) -> bool:
+    """A cut is not optional when holding off runs out of cash inside the horizon."""
+    _, daily = _action_costs(company, proposal)
+    runway = company.runway_months()
+    return action_kind(proposal) == "cut" and daily < 0 and runway * DAYS_PER_MONTH < HORIZON_DAYS
+
+
+def _outlook(cash: float, daily_profit: float) -> dict[str, Any]:
+    burn = -daily_profit
+    return {
+        "cash_now": _r(cash),
+        "daily_profit": _r(daily_profit),
+        f"cash_in_{HORIZON_DAYS}_days": _r(cash + HORIZON_DAYS * daily_profit),
+        "runway_months": (
+            "unlimited, profitable" if burn <= 0 else _r(max(0.0, cash) / (burn * DAYS_PER_MONTH))
+        ),
+    }
 
 
 def build_state(company: Company, proposal: CeoDecision) -> dict[str, Any]:
-    stance = company.stance
-    runway = company.runway_months()
     one_time, daily = _action_costs(company, proposal)
     history = list(company.history)
     share_then = history[-4].market_share if len(history) >= 4 else None
     profit = company.daily_revenue - company.daily_costs
     return {
-        "ceo": {
-            "archetype": stance.archetype.replace("_", " "),
-            "risk_tolerance": stance.risk_tolerance,
-            "growth_obsession": stance.growth_obsession,
-            "quality_floor": stance.quality_floor,
-            "hiring_bias": stance.hiring_bias,
-            "time_horizon": stance.time_horizon,
-            "gets_nervous_below_months_of_runway": stance.cash_comfort,
-            "signature_moves": stance.signature_moves,
-        },
         "company": {
-            "cash": _r(company.cash),
-            "daily_profit": _r(profit),
-            "runway_months": "unlimited, profitable" if math.isinf(runway) else _r(runway),
             "market_share": _r(company.market_share),
             "market_share_3_months_ago": None if share_then is None else _r(share_then),
             "binding_constraint": company.binding,
@@ -254,9 +292,10 @@ def build_state(company: Company, proposal: CeoDecision) -> dict[str, Any]:
             "why_the_rule_fired": proposal.reasoning,
             "one_time_cost": _r(one_time),
             "change_in_daily_costs": _r(daily),
-            "cash_after_one_time_cost": _r(company.cash - one_time),
             "one_time_cost_as_share_of_cash": (
                 _r(one_time / company.cash) if company.cash > 0 else None
             ),
         },
+        "if_it_holds": _outlook(company.cash, profit),
+        "if_it_acts": _outlook(company.cash - one_time, profit - daily),
     }

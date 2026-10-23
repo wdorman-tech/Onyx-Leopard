@@ -47,6 +47,11 @@ class CompanySeed(BaseModel):
     tam: float = Field(..., gt=0.0, le=1e15)
     #: Annual TAM growth rate (0.05 = 5%/yr).
     market_growth_rate: float = Field(..., ge=-0.5, le=2.0)
+    #: Category price elasticity of demand (positive magnitude): how total
+    #: customer spend responds to the market's average price. Below 1, an
+    #: industry-wide price cut shrinks total spend; above 1, it grows it. The
+    #: default of 1 keeps spend independent of price.
+    market_price_elasticity: float = Field(default=1.0, gt=0.0, le=5.0)
 
     initial_supplier_types: list[str] = Field(..., min_length=1, max_length=3)
     initial_revenue_streams: list[str] = Field(..., min_length=1, max_length=3)
@@ -141,10 +146,22 @@ _ARCHETYPE_BANDS: dict[Archetype, dict[str, tuple[float, float]]] = {
     },
 }
 
+#: `market_elasticity` is the category (not single-firm) price elasticity.
+#: Category demand is usually inelastic: food away from home ≈ 0.8 (Andreyeva
+#: et al. 2010), business software and professional services lower still, as
+#: firms buy them for a job that has to get done.
 _ECONOMICS_BANDS: dict[EconomicsModel, dict[str, tuple[float, float]]] = {
-    "physical": {"price": (5.0, 60.0), "cost_ratio": (0.20, 0.55)},
-    "subscription": {"price": (15.0, 1_500.0), "cost_ratio": (0.05, 0.30)},
-    "service": {"price": (3_000.0, 80_000.0), "cost_ratio": (0.15, 0.45)},
+    "physical": {"price": (5.0, 60.0), "cost_ratio": (0.20, 0.55), "market_elasticity": (0.6, 1.2)},
+    "subscription": {
+        "price": (15.0, 1_500.0),
+        "cost_ratio": (0.05, 0.30),
+        "market_elasticity": (0.4, 0.9),
+    },
+    "service": {
+        "price": (3_000.0, 80_000.0),
+        "cost_ratio": (0.15, 0.45),
+        "market_elasticity": (0.3, 0.8),
+    },
 }
 
 _ECONOMICS_WEIGHTS: dict[Archetype, dict[EconomicsModel, float]] = {
@@ -217,6 +234,7 @@ def sample_seed(
         market_growth_rate=round(rng.uniform(*MARKET_GROWTH_BAND), 3),
         cobb_douglas_alpha=round(rng.uniform(*bands["alpha"]), 3),
         cobb_douglas_beta=round(rng.uniform(*bands["beta"]), 3),
+        market_price_elasticity=round(rng.uniform(*econ["market_elasticity"]), 2),
         **refs,
     )
 
@@ -235,6 +253,8 @@ _OLEO_CASH_FRACTION_OF_REVENUE: float = 0.15
 _OLEO_FIXED_COST_SHARE: float = 0.35
 #: Headcount per location used to infer a location count from org size.
 _OLEO_EMPLOYEES_PER_LOCATION: int = 5_000
+#: Bounds on an imported `market.price_elasticity_estimate` (magnitude).
+_OLEO_ELASTICITY_BOUNDS: tuple[float, float] = (0.1, 5.0)
 
 
 def _num(value: Any, fallback: float) -> float:
@@ -296,5 +316,8 @@ def seed_from_oleo(data: dict[str, Any]) -> CompanySeed:
         ),
         cobb_douglas_alpha=0.45 if economics == "physical" else 0.35,
         cobb_douglas_beta=0.55 if economics == "physical" else 0.65,
+        market_price_elasticity=_clamp(
+            abs(_num(market.get("price_elasticity_estimate"), 1.0)), *_OLEO_ELASTICITY_BOUNDS
+        ),
         **_DEFAULT_REFS[economics],
     )

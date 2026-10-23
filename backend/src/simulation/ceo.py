@@ -30,7 +30,6 @@ from src.simulation.engine import (
     MAX_LOCATIONS_PER_DECISION,
     MAX_SPAWNS_PER_DECISION,
     PRICE_BOUNDS_FACTOR,
-    PRICE_ELASTICITY,
     RAISE_CAP_MONTHS_OF_REVENUE,
     Company,
 )
@@ -38,7 +37,9 @@ from src.simulation.llm import LlmError, OpenRouterClient
 from src.simulation.stance import RAISE_ALLOWED_ARCHETYPES, STANCE_FIELDS, to_system_prompt
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
+
+    from src.simulation.shocks import Shock
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +124,18 @@ def sanitize(
     else:
         cap = lib.nodes[company.primary_location].category_caps.hard_cap
         locations = min(locations, max(0, cap - projected.get(company.primary_location, 0)))
+
+    # Adding and closing the same node in one decision is churn: the count ends
+    # where it started but every addition still pays its hire cost. Net it out.
+    for key in list(kept_retire):
+        if key in kept_spawn:
+            kept_spawn.remove(key)
+        elif key == company.primary_location and locations:
+            locations -= 1
+        else:
+            continue
+        kept_retire.remove(key)
+        notes.append(f"netted an add against a close of {key}")
 
     if price is not None:
         lo, hi = (seed.starting_price * f for f in PRICE_BOUNDS_FACTOR)
@@ -336,17 +349,32 @@ def _key_array(options: list[str]) -> dict[str, Any]:
     return {"type": "array", "items": {"type": "string", "enum": options}}
 
 
-def decision_schema(spawnable: list[str], spawned: list[str]) -> dict[str, Any]:
-    """Strict JSON schema; node enums keep weak models from inventing keys."""
+def decision_schema(spawnable: list[str], spawned: list[str], locations: int = 0) -> dict[str, Any]:
+    """Strict JSON schema; node enums keep weak models from inventing keys.
+
+    Every lever is a change, not a target, and the descriptions say so: weak
+    models otherwise send the location count they want to end up with.
+    """
     properties: dict[str, Any] = {
         "reasoning": {"type": "string", "description": "2-4 sentences citing the numbers."},
         "references_stance": {
             "type": "array",
             "items": {"type": "string", "enum": list(STANCE_FIELDS)},
         },
-        "spawn": _key_array(spawnable),
-        "retire": _key_array(spawned),
-        "open_locations": {"type": "integer", "description": f"0-{MAX_LOCATIONS_PER_DECISION}"},
+        "spawn": {
+            **_key_array(spawnable),
+            "description": "Nodes to add now, one entry each. [] = add nothing.",
+        },
+        "retire": {
+            **_key_array(spawned),
+            "description": "Nodes to close now, one entry each (repeat a key to close several). "
+            "[] = close nothing.",
+        },
+        "open_locations": {
+            "type": "integer",
+            "description": f"How many NEW locations to open now, on top of the {locations} you "
+            f"run. 0 = open none. At most {MAX_LOCATIONS_PER_DECISION}.",
+        },
         "price": {"type": ["number", "null"], "description": "New unit price, null = keep."},
         "marketing_intensity": {
             "type": ["number", "null"],
@@ -374,7 +402,12 @@ class AiCeo:
         return self.client.available
 
     async def decide(
-        self, company: Company, day: int, companies: list[Company], tam: float
+        self,
+        company: Company,
+        day: int,
+        companies: list[Company],
+        tam: float,
+        market_shocks: Sequence[Shock] = (),
     ) -> CeoDecision | None:
         if not self.client.available:
             return None
@@ -382,9 +415,9 @@ class AiCeo:
         try:
             raw = await self.client.complete_json(
                 system=self.system_prompt,
-                user=self._user_prompt(company, day, companies, tam, spawnable),
+                user=self._user_prompt(company, day, companies, tam, spawnable, market_shocks),
                 schema_name="ceo_decision",
-                schema=decision_schema(spawnable, sorted(company.spawned)),
+                schema=decision_schema(spawnable, sorted(company.spawned), company.locations),
             )
             out = _AiOutput.model_validate(raw)
         except (LlmError, ValidationError) as exc:
@@ -405,23 +438,36 @@ class AiCeo:
         return (
             f"{to_system_prompt(company.stance)}\n\n"
             f"You run {company.name} ({company.seed.niche}) in a daily simulation, competing "
-            f"with other companies for one shared market. You decide every {AI_CADENCE_DAYS} "
-            "days, and early when a severe shock hits.\n"
+            "with other companies for one shared market. Every rival started from the same "
+            "seed as you: same unit cost, same starting price. You decide about every "
+            f"{AI_CADENCE_DAYS} days (less often when the AI budget is tight), and early when "
+            "a severe shock hits.\n"
             "How the world works:\n"
-            "- Market share is a multinomial logit of customer satisfaction, marketing reach "
-            f"and price (price elasticity {PRICE_ELASTICITY}: undercutting rivals wins share).\n"
+            "- Total customer spend follows the market's average price with elasticity "
+            "`market.category_price_elasticity`: below 1, prices falling across the market "
+            "shrink total spend; above 1, they grow it.\n"
+            "- Customers drift toward the best mix of satisfaction, marketing reach and price. "
+            "`you.target_share` is where your current offer settles; `you.market_share` is "
+            "where you are now. Customers move over weeks, not overnight. A price cut that "
+            "rivals match puts shares back where they were, at lower margins for everyone.\n"
+            "- `you.price_elasticity` is how much your unit sales respond to your own price "
+            "once customers settle. Gross profit is highest when gross_margin is about "
+            "1 / price_elasticity.\n"
             "- Customers served = min(demand, physical capacity, production capacity). "
             "`binding` tells you which one limits you. Capacity grows with locations "
-            f"(each open_locations adds one {loc_label}) and infrastructure nodes; production "
-            "follows Cobb-Douglas in capital "
-            "and headcount, so hire when production binds.\n"
-            "- Revenue = served × price. Costs = unit cost × served + every node's daily cost "
-            f"+ marketing ({MARKETING_SPEND_FRACTION:.0%} of revenue × marketing_intensity). "
-            "Spawning a node costs its hire_cost once.\n"
+            f"(`open_locations` opens that many NEW {loc_label}s, each paying its hire_cost; "
+            "close one by putting its key in retire) and infrastructure nodes; production "
+            "follows Cobb-Douglas in capital and headcount. Headcount raises how much demand "
+            "you can serve, not how much demand you get.\n"
+            "- Revenue = served × price. gross_margin = (price - unit_cost) / price. Costs = "
+            "unit_cost × served + every node's daily cost + marketing "
+            f"({MARKETING_SPEND_FRACTION:.0%} of revenue × marketing_intensity). Spawning a "
+            "node costs its hire_cost once.\n"
             f"- Negative cash for {INSOLVENT_DAYS_TO_DEATH} straight days is bankruptcy.\n"
             f"- Raising capital is {'allowed' if can_raise else 'NOT allowed'} for you.\n"
-            "Pick spawn keys only from can_spawn and retire keys only from spawned. Use null "
-            "or empty lists for levers you leave alone. Put your reasoning first."
+            "Pick spawn keys only from can_spawn and retire keys only from spawned. Every "
+            "lever is a change from today, not a target: null, [] or 0 leaves it alone. Put "
+            "your reasoning first."
         )
 
     @staticmethod
@@ -437,23 +483,36 @@ class AiCeo:
 
     @staticmethod
     def _user_prompt(
-        company: Company, day: int, companies: list[Company], tam: float, spawnable: list[str]
+        company: Company,
+        day: int,
+        companies: list[Company],
+        tam: float,
+        spawnable: list[str],
+        market_shocks: Sequence[Shock] = (),
     ) -> str:
         lib = company.library
         runway = company.runway_months()
         recent = [d for d in company.decisions if d.source == "ai"][-AI_DECISION_MEMORY:]
+        unit_cost = company.unit_cost()
+        gross_profit = company.daily_revenue - company.served * unit_cost
         payload = {
             "day": day,
             "you": {
                 "cash": _num(company.cash),
                 "runway_months": None if math.isinf(runway) else _num(runway),
-                "daily_revenue": _num(company.daily_revenue),
-                "daily_costs": _num(company.daily_costs),
+                "monthly_revenue": _num(company.daily_revenue * DAYS_PER_MONTH),
+                "monthly_gross_profit": _num(gross_profit * DAYS_PER_MONTH),
+                "monthly_profit": _num(
+                    (company.daily_revenue - company.daily_costs) * DAYS_PER_MONTH
+                ),
                 "price": _num(company.price),
                 "starting_price": _num(company.seed.starting_price),
-                "unit_cost": _num(company.seed.base_unit_cost),
+                "unit_cost": _num(unit_cost),
+                "gross_margin": _num(company.gross_margin()),
+                "price_elasticity": _num(company.own_price_elasticity),
                 "marketing_intensity": _num(company.marketing_intensity),
                 "market_share": _num(company.market_share),
+                "target_share": _num(company.target_share),
                 "satisfaction": _num(company.satisfaction),
                 "utilization": _num(company.utilization),
                 "binding": company.binding,
@@ -465,7 +524,8 @@ class AiCeo:
                 for s in list(company.history)[-AI_HISTORY_MONTHS:]
             ],
             "market": {
-                "annual_tam": _num(tam),
+                "annual_tam_at_starting_price": _num(tam),
+                "category_price_elasticity": _num(company.seed.market_price_elasticity),
                 "rivals": [
                     {
                         "name": c.name,
@@ -481,11 +541,12 @@ class AiCeo:
             "shocks": [
                 {
                     "name": s.name,
+                    "scope": s.scope,
                     "severity": s.severity,
                     "days_left": s.tick_started + s.duration_ticks - day,
                     "about": s.description,
                 }
-                for s in company.shocks
+                for s in [*market_shocks, *company.shocks]
             ],
             "your_last_decisions": [
                 {"day": d.day, "reasoning": d.reasoning[:AI_REASONING_MEMORY_CHARS]} for d in recent

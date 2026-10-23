@@ -118,11 +118,11 @@ def test_five_year_run_invariants() -> None:
 def test_higher_price_loses_share() -> None:
     sim = sim_for(days=30, ceos=["bootstrap", "bootstrap"], shocks_enabled=False)
     a, b = sim.companies
-    b.market_strength = a.market_strength
     b.price = a.price * 2
     asyncio.run(sim.step())
     assert a.market_share > b.market_share
-    expected = 1 / (1 + 2**-1.5)  # logit with elasticity 1.5, all else equal
+    # Customer bases start at the logit share of day-1 offers, all else equal.
+    expected = 1 / (1 + 2**-sim.share_price_elasticity)
     assert a.market_share == pytest.approx(expected, rel=0.05)
 
 
@@ -171,6 +171,122 @@ def test_lotka_volterra_coexistence_for_similar_firms() -> None:
     for _ in range(2000):
         pops = dynamics.lotka_volterra_step(pops, np.full(3, 0.05), k, alpha)
     assert pops == pytest.approx(100 / (1 + 0.3 * 2), rel=1e-3)
+
+
+def test_lv_rest_point_is_the_target_share_so_small_firms_survive() -> None:
+    alpha = dynamics.competition_matrix(4, 0.3, 0.1, np.random.default_rng(1))
+    target = np.array([0.62, 0.2, 0.13, 0.05])
+    k = dynamics.lv_capacities_for_equilibrium(alpha, target)
+    pops = np.full(4, 0.25)
+    for _ in range(3000):
+        pops = dynamics.lotka_volterra_step(pops, np.full(4, 0.05), k, alpha)
+    assert pops == pytest.approx(target, rel=1e-3), "no competitive exclusion at rest"
+
+
+def test_market_share_does_not_follow_headcount(library: NodeLibrary) -> None:
+    sim = sim_for(days=120, ceos=["bootstrap", "bootstrap"], shocks_enabled=False)
+    a, b = sim.companies
+    # Staff with no effect on satisfaction, reach or price: pure headcount.
+    plain = next(
+        k
+        for k, n in library.nodes.items()
+        if n.category == "ops"
+        and n.employees_count > 0
+        and not library.effects(k)
+        and a.seed.economics_model in n.applicable_economics
+        and library.prerequisites_met(k, b.spawned)
+    )
+    b.spawned[plain] = b.spawned.get(plain, 0) + library.nodes[plain].category_caps.hard_cap
+    assert b.employees > a.employees
+    for _ in range(90):
+        asyncio.run(sim.step())
+    assert a.market_share == pytest.approx(b.market_share, abs=0.01)
+
+
+def test_sales_headcount_buys_share_with_diminishing_returns(library: NodeLibrary) -> None:
+    sim = sim_for(days=30, ceos=["bootstrap", "bootstrap"], shocks_enabled=False)
+    plain, seller = sim.companies
+    # Stack every sales/marketing node that is open to this business, to its cap.
+    for key, node in library.nodes.items():
+        if (
+            library.effects(key).get("marketing", 0) > 0
+            and node.category in ("sales", "marketing")
+            and seller.seed.economics_model in node.applicable_economics
+        ):
+            seller.spawned[key] = node.category_caps.hard_cap
+    reach = [c.attraction_inputs()[1] for c in (plain, seller)]
+    assert reach[1] / reach[0] > 10
+    asyncio.run(sim.step())
+    pull_ratio = seller.target_share / plain.target_share
+    assert pull_ratio == pytest.approx((reach[1] / reach[0]) ** 0.3, rel=0.01)
+    assert seller.target_share < 0.8, "a sales army wins share, it does not wipe out rivals"
+
+
+def test_customers_move_toward_a_better_offer_over_weeks() -> None:
+    sim = sim_for(days=365, ceos=["bootstrap"] * 4, shocks_enabled=False)
+    asyncio.run(sim.step())
+    cutter = sim.companies[0]
+    cutter.price *= 0.8
+    asyncio.run(sim.step())
+    start, target = cutter.market_share, cutter.target_share
+    assert start == pytest.approx(0.25, abs=1e-3), "no overnight jump"
+    assert target > start + 0.01
+    for _ in range(60):
+        asyncio.run(sim.step())
+    closed = (cutter.market_share - start) / (target - start)
+    assert 0.4 < closed < 0.9, (
+        f"a mid-share base closes most of the gap in ~2 months ({closed:.2f})"
+    )
+
+
+def test_matched_price_cut_shrinks_an_inelastic_market() -> None:
+    def spend_at(mult: float) -> tuple[float, float]:
+        sim = sim_for(days=30, ceos=["bootstrap"] * 3, shocks_enabled=False, rng_seed=4)
+        for c in sim.companies:
+            c.price = c.seed.starting_price * mult
+        asyncio.run(sim.step())
+        return sim.daily_spend, sim.market_price_elasticity
+
+    (base, eps), (cut, _) = spend_at(1.0), spend_at(0.5)
+    assert eps < 1.0
+    assert cut / base == pytest.approx(0.5 ** (1 - eps), rel=1e-6)
+
+
+def test_starting_price_is_the_nash_price() -> None:
+    sim = sim_for(days=30, ceos=["bootstrap"] * 4, shocks_enabled=False)
+    asyncio.run(sim.step())
+    company = sim.companies[0]
+    # Lerner condition: gross margin = 1 / own-price elasticity at the start.
+    assert company.gross_margin() * company.own_price_elasticity == pytest.approx(1.0, rel=1e-3)
+    margin, share, eps_m = 0.4, 0.2, 0.7
+    eps_s = dynamics.nash_share_elasticity(margin, share, eps_m)
+    assert dynamics.own_price_elasticity(eps_s, share, eps_m, share) == pytest.approx(1 / margin)
+
+
+def test_shock_type_cannot_stack_on_itself() -> None:
+    from src.simulation.shocks import ShockScheduler
+
+    # λ ≈ 45 arrivals per type per tick: without dead time every type would stack.
+    scheduler = ShockScheduler("market", rng_seed=0, rate_multiplier=50_000.0)
+    first = scheduler.arrivals(1)
+    assert len({s.name for s in first}) == len(first), "one arrival per type per tick"
+    running = [s for s in first if s.name == "market_crash"]
+    assert running and not [s for s in scheduler.arrivals(2, running) if s.name == "market_crash"]
+    assert [s for s in scheduler.arrivals(2) if s.name == "market_crash"], "free once it ends"
+
+
+def test_severity_compounds_in_log_space_and_impacts_scale_with_the_company() -> None:
+    from src.simulation.shocks import MULT_SUFFIX, ONE_SHOT_KEYS, SEVERITY_INTENSITY, SHOCK_TYPES
+
+    rng = random.Random(0)
+    worst = min(
+        make_shock("market_crash", "severe", 1, rng).impact["market_demand_mult"]
+        for _ in range(200)
+    )
+    assert worst >= (1 - 0.20) ** SEVERITY_INTENSITY["severe"] - 1e-9 > 0.5
+    for spec in SHOCK_TYPES.values():
+        for key in spec["impact"]:
+            assert key.endswith(MULT_SUFFIX) or key in ONE_SHOT_KEYS, f"{key} is a fixed amount"
 
 
 def test_core_sales_never_exceed_market_spend() -> None:

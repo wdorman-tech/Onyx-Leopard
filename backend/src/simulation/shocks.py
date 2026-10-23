@@ -9,13 +9,22 @@ from neutral and how long it lasts.
   * scope "company" — scheduled per company (departures, competitor entry).
 
 Impact keys ending in `_mult` are multiplicative around 1.0 and compose by
-product; all other keys are additive and compose by sum.
+product; all other keys are additive and compose by sum. Each economic
+channel has exactly one key, so one shock never hits the same quantity twice,
+and no impact is a fixed dollar amount: every one scales with the company.
+
+Severity compounds in log space: a severe shock is the minor impact applied
+`intensity` times over, `(1 + d) ** intensity`, so a multiplier stays positive
+however severe the event. A shock type that is already active in its scope
+cannot arrive again until it ends (a Poisson process with dead time): a crash
+during a crash is the same crash, not a second one stacked on top.
 """
 
 from __future__ import annotations
 
 import math
 import random
+from collections.abc import Iterable
 from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,8 +32,10 @@ from pydantic import BaseModel, ConfigDict, Field
 Severity = Literal["minor", "moderate", "severe"]
 Scope = Literal["market", "company"]
 
-#: How far an impact deviates from neutral, relative to the minor-severity range.
-SEVERITY_INTENSITY: Final[dict[Severity, float]] = {"minor": 1.0, "moderate": 2.0, "severe": 3.5}
+#: Times the minor impact compounds (log space) at each severity. A severe
+#: market crash cuts demand by 23-43% (2008 US retail fell ~8% nominal at
+#: the trough; COVID-19 restaurant spend fell ~50% at its worst).
+SEVERITY_INTENSITY: Final[dict[Severity, float]] = {"minor": 1.0, "moderate": 1.75, "severe": 2.5}
 #: Duration range in ticks (days) per severity.
 SEVERITY_DURATION_DAYS: Final[dict[Severity, tuple[int, int]]] = {
     "minor": (14, 35),
@@ -47,7 +58,6 @@ SHOCK_TYPES: Final[dict[str, dict]] = {
         "description": "Broad demand contraction; external financing tightens.",
         "impact": {
             "market_demand_mult": (-0.20, -0.10),
-            "tam_mult": (-0.15, -0.08),
             "financing_availability_mult": (-0.30, -0.15),
         },
     },
@@ -57,7 +67,6 @@ SHOCK_TYPES: Final[dict[str, dict]] = {
         "duration_scale": 1.5,
         "impact": {
             "market_demand_mult": (-0.15, -0.07),
-            "consumer_spending_mult": (-0.12, -0.05),
             "financing_availability_mult": (-0.20, -0.10),
         },
     },
@@ -66,7 +75,6 @@ SHOCK_TYPES: Final[dict[str, dict]] = {
         "description": "Niche trending: demand surges and acquisition gets cheaper, briefly.",
         "impact": {
             "market_demand_mult": (0.15, 0.40),
-            "tam_mult": (0.10, 0.30),
             "acquisition_cost_mult": (-0.20, -0.10),
         },
     },
@@ -83,9 +91,8 @@ SHOCK_TYPES: Final[dict[str, dict]] = {
         "scope": "market",
         "description": "New compliance regime adds fixed cost and may cap capacity.",
         "impact": {
-            "fixed_cost_mult": (0.05, 0.15),
+            "fixed_cost_mult": (0.08, 0.25),
             "capacity_cap_mult": (-0.10, -0.03),
-            "compliance_cost_add": (1_500.0, 8_000.0),
         },
     },
     "new_competitor_entry": {
@@ -102,7 +109,9 @@ SHOCK_TYPES: Final[dict[str, dict]] = {
         "impact": {
             "team_capacity_mult": (-0.12, -0.06),
             "satisfaction_mult": (-0.08, -0.03),
-            "replacement_cost_add": (5_000.0, 20_000.0),
+            # Recruiting and ramp-up: 3-6 months of one average employee's share
+            # of fixed costs (SHRM puts replacement at 50-200% of annual pay).
+            "replacement_cost_employee_days": (90.0, 180.0),
             "retire_random_employee": (1.0, 1.0),
         },
     },
@@ -117,7 +126,9 @@ SHOCK_TYPES: Final[dict[str, dict]] = {
 }
 
 #: One-shot impact keys: applied once on arrival, not every active tick.
-ONE_SHOT_KEYS: Final[frozenset[str]] = frozenset({"replacement_cost_add", "retire_random_employee"})
+ONE_SHOT_KEYS: Final[frozenset[str]] = frozenset(
+    {"replacement_cost_employee_days", "retire_random_employee"}
+)
 
 
 class Shock(BaseModel):
@@ -141,7 +152,7 @@ def make_shock(name: str, severity: Severity, tick: int, rng: random.Random) -> 
     impact: dict[str, float] = {}
     for key, (lo, hi) in spec["impact"].items():
         if key.endswith(MULT_SUFFIX):
-            impact[key] = 1.0 + rng.uniform(lo, hi) * intensity
+            impact[key] = (1.0 + rng.uniform(lo, hi)) ** intensity
         else:
             impact[key] = rng.uniform(lo, hi) * intensity
     lo_d, hi_d = SEVERITY_DURATION_DAYS[severity]
@@ -166,16 +177,20 @@ class ShockScheduler:
         self._types = sorted(n for n, s in SHOCK_TYPES.items() if s["scope"] == scope)
         self._lambda = DEFAULT_LAMBDA_PER_TICK * rate_multiplier
 
-    def arrivals(self, tick: int) -> list[Shock]:
+    def arrivals(self, tick: int, active: Iterable[Shock] = ()) -> list[Shock]:
+        """New shocks this tick. Types in `active` (still running) are dead time."""
         if self._lambda == 0:
             return []
+        running = {s.name for s in active if s.active_at(tick)}
         out: list[Shock] = []
         for name in self._types:
-            for _ in range(self._poisson(self._lambda)):
-                severity = self._rng.choices(
-                    list(SEVERITY_WEIGHTS), weights=list(SEVERITY_WEIGHTS.values())
-                )[0]
-                out.append(make_shock(name, severity, tick, self._rng))
+            # Same-tick arrivals of one type are one event, like a running one.
+            if name in running or self._poisson(self._lambda) == 0:
+                continue
+            severity = self._rng.choices(
+                list(SEVERITY_WEIGHTS), weights=list(SEVERITY_WEIGHTS.values())
+            )[0]
+            out.append(make_shock(name, severity, tick, self._rng))
         return out
 
     def _poisson(self, lam: float) -> int:

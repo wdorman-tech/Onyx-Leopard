@@ -2,13 +2,19 @@
 
 Per tick (`MarketSim.step`):
   1. TAM compounds at the market growth rate; market-wide shocks arrive/expire.
-  2. Each living company's share of customer spend comes from a multinomial
-     logit over satisfaction, marketing reach, price, and LV market strength.
-  3. Each company serves min(demand, physical capacity, Cobb-Douglas
-     production), books revenue and costs, and updates cash and satisfaction.
-  4. Market strength evolves under N-species Lotka-Volterra competition.
-  5. CEOs decide: heuristic every few days, AI CEO monthly (or on a severe
-     shock). Decisions spawn/retire nodes and move price/marketing/capital.
+  2. A multinomial logit over satisfaction, marketing reach and price gives
+     the share each company's current offer earns. Customer bases move toward
+     those shares under N-species Lotka-Volterra competition (customers
+     switch over weeks, not overnight); the bases set today's spend shares.
+  3. Category spend responds to the market's average price (constant
+     elasticity). Each company serves min(demand, physical capacity,
+     Cobb-Douglas production), books revenue and costs, and updates cash.
+  4. CEOs decide: heuristic every few days, AI CEO monthly (or on a severe
+     shock) while the AI budget is on pace. Decisions spawn/retire nodes and
+     move price/marketing/capital.
+
+Headcount never buys market share directly: it buys capacity and production,
+which decide how much of the earned demand a company can serve.
 
 Everything industry-specific comes from the seed and the node library.
 """
@@ -52,9 +58,19 @@ SATISFACTION_RELAXATION_RATE: float = 0.1
 
 # ─── Market share (multinomial logit) ──────────────────────────────────────
 SHARE_QUALITY_EXPONENT: float = 1.5
-SHARE_MARKETING_EXPONENT: float = 1.0
-#: Constant price elasticity of attraction: 10% higher price → ~14% less pull.
+#: Share elasticity of marketing reach. Reach sums every sales and marketing
+#: node, so this is what stops sales headcount from buying share one-for-one:
+#: meta-analyses put selling-effort elasticity at ~0.31 (Albers, Mantrala &
+#: Sridhar 2010) and long-run advertising elasticity at ~0.24 (Sethuraman,
+#: Tellis & Briesch 2011). 20× the reach buys ~2.5× the pull, not 20×.
+SHARE_MARKETING_EXPONENT: float = 0.3
+#: Price elasticity of attraction when it cannot be calibrated from the seed
+#: (a single company has no rivals to lose share to): 10% higher price → ~14%
+#: less pull. With rivals, `MarketSim` calibrates it from the starting margin.
 PRICE_ELASTICITY: float = 1.5
+#: Floor on the calibrated share elasticity. A very high starting margin would
+#: otherwise imply customers ignore price differences altogether.
+MIN_SHARE_PRICE_ELASTICITY: float = 0.25
 #: Diminishing returns of marketing intensity on reach.
 MARKETING_INTENSITY_ELASTICITY: float = 0.3
 #: Daily marketing spend as a fraction of trailing daily revenue at intensity 1.0.
@@ -91,17 +107,20 @@ HISTORY_LEN: int = 12
 #: company (daily for runs up to this length, evenly spaced beyond it).
 MAX_SERIES_POINTS: int = 1000
 
-# ─── Lotka-Volterra market strength ────────────────────────────────────────
-LV_GROWTH_RATE: float = 0.02
-#: Carrying capacity of market strength per employee: hiring raises the ceiling.
-LV_K_PER_EMPLOYEE: float = 10.0
-#: Mean off-diagonal competition coefficient. A firm is competitively excluded
-#: only when its capacity is below this fraction of a rival's.
+# ─── Lotka-Volterra customer bases ─────────────────────────────────────────
+#: Each company's customer base (a fraction of the market's customers) follows
+#: N-species LV competition. Carrying capacities are reset daily so the LV rest
+#: point is exactly the logit share of today's offers (`dynamics.
+#: lv_capacities_for_equilibrium`): bases drift toward what each offer earns,
+#: rivals' bases slow each other on the way, and nobody is excluded at rest.
+#: Intrinsic growth rate; a mid-share base closes ~63% of a gap in ~2 months.
+LV_GROWTH_RATE: float = 0.05
+#: Mean off-diagonal competition coefficient (customer overlap between rivals).
 LV_COMPETITION_BASE: float = 0.3
 LV_COMPETITION_PERTURBATION: float = 0.1
-#: Market strength enters the logit with diminishing returns (sqrt): presence
-#: helps, but a 4× bigger firm gets 2× the pull, not 4×.
-LV_SHARE_EXPONENT: float = 0.5
+#: A base never falls below this share of customers: zero is absorbing in LV,
+#: and a company with any offer at all keeps a sliver of the market.
+CUSTOMER_BASE_FLOOR: float = 1e-4
 
 # ─── CEO decision bounds ────────────────────────────────────────────────────
 PRICE_BOUNDS_FACTOR: tuple[float, float] = (0.1, 10.0)
@@ -124,6 +143,9 @@ class Snapshot:
     day: int
     cash: float
     monthly_revenue: float
+    monthly_profit: float
+    price: float
+    gross_margin: float
     market_share: float
     satisfaction: float
     utilization: float
@@ -167,7 +189,14 @@ class Company:
         self.core_revenue = 0.0  # served × price, before revenue-stream uplift
         self.daily_costs = 0.0
         self.fixed_burn = 0.0
-        self.market_share = 0.0
+        #: Today's multiplier on node daily costs (cost bucket × shocks).
+        self.fixed_cost_mult = 1.0
+        self.market_share = 0.0  # share of category spend served by our customer base
+        self.target_share = 0.0  # share today's offer earns once customers settle
+        self.unit_share = 0.0  # share of category units (sets our pull on the price index)
+        self.own_price_elasticity = 0.0
+        #: LV customer base; MarketSim seeds it at the first day's target share.
+        self.customer_base: float | None = None
         self.demand = 0.0
         self.capacity = 0.0
         self.production = 0.0
@@ -202,7 +231,6 @@ class Company:
             seed.initial_locations,
         )
 
-        self.market_strength = float(seed.starting_employees)
         # Calibrate TFP so day-0 production sits PRODUCTION_HEADROOM above capacity;
         # afterwards production moves only with capital, headcount and quality.
         mods = library.modifiers(self.spawned)
@@ -245,6 +273,15 @@ class Company:
             return math.inf
         return max(0.0, self.cash) / (net_burn * DAYS_PER_MONTH)
 
+    def unit_cost(self) -> float:
+        """Variable cost per customer served today, after supply shocks."""
+        return self.seed.base_unit_cost * self.env.get("supply_cost_mult", 1.0)
+
+    def gross_margin(self) -> float:
+        """(price - unit cost) / price at today's effective price."""
+        price = self.effective_price(self.env)
+        return (price - self.unit_cost()) / price
+
     # ── Tick phases ──
 
     def attraction_inputs(self) -> tuple[float, float, float, float]:
@@ -254,8 +291,12 @@ class Company:
         reach = (1.0 + mods.marketing) * max(
             self.marketing_intensity, 1e-6
         ) ** MARKETING_INTENSITY_ELASTICITY
-        weight = self.market_strength**LV_SHARE_EXPONENT * env.get("market_share_mult", 1.0)
-        return self.satisfaction, reach, self.effective_price(env), weight
+        return (
+            self.satisfaction,
+            reach,
+            self.effective_price(env),
+            env.get("market_share_mult", 1.0),
+        )
 
     def effective_price(self, env: dict[str, float]) -> float:
         ceiling = env.get("price_ceiling_mult", 1.0)
@@ -264,7 +305,7 @@ class Company:
         return self.price
 
     def receive_shocks(self, tick: int) -> None:
-        for shock in self.shock_scheduler.arrivals(tick):
+        for shock in self.shock_scheduler.arrivals(tick, self.shocks):
             self.shocks.append(shock)
             self.events.append(f"Day {tick}: {self.name}: {shock.description}")
             self.log.append(shock_record(shock, self.company_id))
@@ -308,17 +349,17 @@ class Company:
 
         revenue_mult = _clamp(1.0 + REVENUE_BUCKET_GAIN * mods.revenue, REVENUE_MULT_RANGE)
         cost_mult = _clamp(1.0 + COST_BUCKET_GAIN * mods.cost, COST_MULT_RANGE)
-        fixed = self.seed.daily_fixed_costs + self.library.daily_cost(self.spawned)
-        self.fixed_burn = fixed * cost_mult * env.get("fixed_cost_mult", 1.0) * env.get(
-            "wage_inflation_mult", 1.0
-        ) + env.get("compliance_cost_add", 0.0)
+        self.fixed_cost_mult = (
+            cost_mult * env.get("fixed_cost_mult", 1.0) * env.get("wage_inflation_mult", 1.0)
+        )
+        self.fixed_burn = self._base_fixed_costs() * self.fixed_cost_mult
         marketing_spend = (
             MARKETING_SPEND_FRACTION
             * self.marketing_intensity
             * self.daily_revenue  # trailing day
             * env.get("acquisition_cost_mult", 1.0)
         )
-        variable = self.served * self.seed.base_unit_cost * env.get("supply_cost_mult", 1.0)
+        variable = self.served * self.unit_cost()
 
         self.core_revenue = self.served * price
         self.daily_revenue = self.core_revenue * revenue_mult
@@ -350,6 +391,9 @@ class Company:
                     day=tick,
                     cash=self.cash,
                     monthly_revenue=self.daily_revenue * DAYS_PER_MONTH,
+                    monthly_profit=(self.daily_revenue - self.daily_costs) * DAYS_PER_MONTH,
+                    price=price,
+                    gross_margin=self.gross_margin(),
                     market_share=self.market_share,
                     satisfaction=self.satisfaction,
                     utilization=self.utilization,
@@ -358,8 +402,15 @@ class Company:
                 )
             )
 
+    def _base_fixed_costs(self) -> float:
+        """Daily overhead plus every spawned node's daily cost, before multipliers."""
+        return self.seed.daily_fixed_costs + self.library.daily_cost(self.spawned)
+
     def _apply_one_shot(self, shock: Shock) -> None:
-        self.cash -= shock.impact.get("replacement_cost_add", 0.0)
+        # Costs scale with the company: days of one average employee's share
+        # of fixed costs, so a departure weighs the same at any headcount.
+        per_employee = self._base_fixed_costs() * self.fixed_cost_mult / max(1, self.employees)
+        self.cash -= shock.impact.get("replacement_cost_employee_days", 0.0) * per_employee
         if shock.impact.get("retire_random_employee", 0.0) > 0:
             self._retire_random_employee()
 
@@ -519,8 +570,16 @@ class MarketSim:
             LV_COMPETITION_PERTURBATION,
             np.random.default_rng(self.lv_seed),
         )
+        # Every company in a run shares one seed, so the market is described by it.
+        seed = self.companies[0].seed
+        self.reference_price = seed.starting_price
+        self.market_price_elasticity = seed.market_price_elasticity
+        self.share_price_elasticity = calibrated_share_elasticity(seed, len(self.companies))
+        self.daily_spend = 0.0
         self._severe_seen: set[tuple[str, str, int]] = set()
         self._ai_stop_reported = False
+        self._ai_pacing_reported = False
+        self.ai_rounds_paced = 0  # monthly AI rounds skipped to stretch the budget
         self.sample_every = max(1, math.ceil(self.max_ticks / MAX_SERIES_POINTS))
         self.market_series: list[dict[str, Any]] = []
         self.log: list[dict[str, Any]] = []  # structured market shocks
@@ -539,6 +598,7 @@ class MarketSim:
             tick % AI_CADENCE_DAYS == 0
             and self.llm is not None
             and self.llm.available
+            and self.llm.budget.on_pace(tick, self.max_ticks)
             and any(c.company_id in self.ai for c in self.alive)
         )
 
@@ -548,7 +608,7 @@ class MarketSim:
         tick = self.tick
         self.tam *= (1.0 + self.market_growth_rate) ** (1.0 / DAYS_PER_YEAR)
 
-        for shock in self.market_shocks.arrivals(tick):
+        for shock in self.market_shocks.arrivals(tick, self.active_market_shocks):
             self.active_market_shocks.append(shock)
             self.events.append(f"Day {tick}: Market: {shock.description}")
             self.log.append(shock_record(shock, None))
@@ -556,41 +616,9 @@ class MarketSim:
         market_env = environment(self.active_market_shocks)
 
         alive = self.alive
-        for company in alive:
-            company.receive_shocks(tick)
-        inputs = [c.attraction_inputs() for c in alive]
-        shares = dynamics.logit_shares(
-            [i[0] for i in inputs],
-            [i[1] for i in inputs],
-            [i[2] for i in inputs],
-            [i[3] for i in inputs],
-            quality_exponent=SHARE_QUALITY_EXPONENT,
-            marketing_exponent=SHARE_MARKETING_EXPONENT,
-            price_elasticity=PRICE_ELASTICITY,
-        )
-        daily_spend = (
-            self.tam
-            / DAYS_PER_YEAR
-            * market_env.get("market_demand_mult", 1.0)
-            * market_env.get("tam_mult", 1.0)
-            * market_env.get("consumer_spending_mult", 1.0)
-        )
-        for company, share in zip(alive, shares, strict=True):
-            company.operate(tick, daily_spend, share, self.active_market_shocks)
-
-        survivors = self.alive
-        if len(survivors) > 1:
-            idx = [self.companies.index(c) for c in survivors]
-            strength = dynamics.lotka_volterra_step(
-                np.array([c.market_strength for c in survivors]),
-                np.full(len(survivors), LV_GROWTH_RATE),
-                np.array([max(1.0, LV_K_PER_EMPLOYEE * c.employees) for c in survivors]),
-                self._lv_alpha[np.ix_(idx, idx)],
-            )
-            for company, s in zip(survivors, strength, strict=True):
-                company.market_strength = max(float(s), 1e-3)
-
-        await self._decide(tick, survivors)
+        if alive:
+            self._serve(tick, alive, market_env)
+        await self._decide(tick, self.alive)
 
         sample = tick % self.sample_every == 0 or self.is_complete
         for company in alive:
@@ -600,10 +628,73 @@ class MarketSim:
                 {
                     "day": tick,
                     "tam": self.tam,
+                    "spend": self.daily_spend * DAYS_PER_YEAR,
                     "alive": len(self.alive),
                     "shocks": [s.name for s in self.active_market_shocks],
                 }
             )
+
+    def _serve(self, tick: int, alive: list[Company], market_env: dict[str, float]) -> None:
+        """Clear the market for one day: shares, category spend, then each company operates."""
+        for company in alive:
+            company.receive_shocks(tick)
+        inputs = [c.attraction_inputs() for c in alive]
+        targets = dynamics.logit_shares(
+            [i[0] for i in inputs],
+            [i[1] for i in inputs],
+            [i[2] for i in inputs],
+            [i[3] for i in inputs],
+            quality_exponent=SHARE_QUALITY_EXPONENT,
+            marketing_exponent=SHARE_MARKETING_EXPONENT,
+            price_elasticity=self.share_price_elasticity,
+        )
+        shares = self._customer_shares(alive, targets)
+
+        # Average price per unit sold across the market (spend-weighted harmonic
+        # mean); category spend moves with it at the seed's price elasticity.
+        prices = [i[2] for i in inputs]
+        price_index = 1.0 / sum(s / p for s, p in zip(shares, prices, strict=True))
+        self.daily_spend = dynamics.constant_elasticity_spend(
+            self.tam / DAYS_PER_YEAR,
+            price_index,
+            self.reference_price,
+            self.market_price_elasticity,
+        ) * market_env.get("market_demand_mult", 1.0)
+        for company, share, target, price in zip(alive, shares, targets, prices, strict=True):
+            company.target_share = target
+            company.unit_share = share / price * price_index
+            company.own_price_elasticity = dynamics.own_price_elasticity(
+                self.share_price_elasticity,
+                target,
+                self.market_price_elasticity,
+                company.unit_share,
+            )
+            company.operate(tick, self.daily_spend, share, self.active_market_shocks)
+
+    def _customer_shares(self, alive: list[Company], targets: list[float]) -> list[float]:
+        """Advance every customer base one day toward its target; return spend shares."""
+        if len(alive) == 1:
+            alive[0].customer_base = 1.0
+            return [1.0]
+        target = np.array(targets)
+        base = np.array(
+            [
+                t if c.customer_base is None else c.customer_base
+                for c, t in zip(alive, targets, strict=True)
+            ]
+        )
+        idx = [self.companies.index(c) for c in alive]
+        alpha = self._lv_alpha[np.ix_(idx, idx)]
+        base = dynamics.lotka_volterra_step(
+            base,
+            np.full(len(alive), LV_GROWTH_RATE),
+            dynamics.lv_capacities_for_equilibrium(alpha, target),
+            alpha,
+        )
+        base = np.maximum(base, CUSTOMER_BASE_FLOOR)
+        for company, b in zip(alive, base, strict=True):
+            company.customer_base = float(b)
+        return [float(b) for b in base / base.sum()]
 
     async def _decide(self, tick: int, companies: list[Company]) -> None:
         # Weekly rule CEO: Python proposes; Jev, when on, approves or vetoes.
@@ -627,18 +718,24 @@ class MarketSim:
             company.apply(proposal if verdict is None else verdict.decision)
 
         # AI CEOs wake monthly, and early on the first tick of a severe shock
-        # that hits them (market-wide or their own).
+        # that hits them (market-wide or their own). Monthly rounds run only
+        # while spend is on pace to last the whole run; severe shocks may
+        # borrow ahead, which pushes the next monthly round back.
         market_severe = self._new_severe("market", self.active_market_shocks)
+        monthly = tick % AI_CADENCE_DAYS == 0 and self._ai_on_pace(tick)
         due = []
         for company in companies:
             own_severe = self._new_severe(company.company_id, company.shocks)
-            if company.company_id in self.ai and (
-                tick % AI_CADENCE_DAYS == 0 or market_severe or own_severe
-            ):
+            if company.company_id in self.ai and (monthly or market_severe or own_severe):
                 due.append(company)
         if due:
             results = await asyncio.gather(
-                *(self.ai[c.company_id].decide(c, tick, self.companies, self.tam) for c in due)
+                *(
+                    self.ai[c.company_id].decide(
+                        c, tick, self.companies, self.tam, self.active_market_shocks
+                    )
+                    for c in due
+                )
             )
             for company, decision in zip(due, results, strict=True):
                 if decision is not None:
@@ -652,6 +749,22 @@ class MarketSim:
                 f"(${budget.ceiling_usd - budget.spent_usd:.2f} kept for the CEO post-mortems)"
             )
             self.events.append(f"Day {tick}: {reason}. CEOs continue on heuristics.")
+
+    def _ai_on_pace(self, tick: int) -> bool:
+        if self.llm is None or not self.llm.available or not self.ai:
+            return True
+        if self.llm.budget.on_pace(tick, self.max_ticks):
+            return True
+        self.ai_rounds_paced += 1
+        if not self._ai_pacing_reported:
+            self._ai_pacing_reported = True
+            budget = self.llm.budget
+            self.events.append(
+                f"Day {tick}: AI spend (${budget.spent_usd:.3f} of ${budget.ceiling_usd:.2f}) "
+                "is ahead of pace, so AI CEOs skip some monthly rounds to last the whole run. "
+                "Heuristics cover the gaps."
+            )
+        return False
 
     def _new_severe(self, scope: str, shocks: list[Shock]) -> bool:
         keys = {(scope, s.name, s.tick_started) for s in shocks if s.severity == "severe"}
@@ -667,6 +780,7 @@ class MarketSim:
             "spent_usd": self.llm.budget.spent_usd,
             "budget_usd": self.llm.budget.ceiling_usd,
             "calls": self.llm.budget.calls,
+            "paced_rounds": self.ai_rounds_paced,
             "error": self.llm.disabled_reason,
         }
 
@@ -688,6 +802,23 @@ class MarketSim:
             "jev": self.jev.status() if self.jev is not None else None,
             "companies": [c.payload() for c in self.companies],
         }
+
+
+def calibrated_share_elasticity(seed: CompanySeed, companies: int) -> float:
+    """Logit price elasticity at which the seed's starting price is the Nash price.
+
+    All companies start from the same seed with equal shares, so the observed
+    starting margin pins down how price-sensitive switching must be for that
+    price to be an equilibrium (`dynamics.nash_share_elasticity`). Undercutting
+    then pays only as far as the margin the market actually supports.
+    """
+    if companies < 2:
+        return PRICE_ELASTICITY
+    margin = (seed.starting_price - seed.base_unit_cost) / seed.starting_price
+    elasticity = dynamics.nash_share_elasticity(
+        margin, 1.0 / companies, seed.market_price_elasticity
+    )
+    return max(MIN_SHARE_PRICE_ELASTICITY, elasticity)
 
 
 def shock_record(shock: Shock, company_id: str | None) -> dict[str, Any]:
