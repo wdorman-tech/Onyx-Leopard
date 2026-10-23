@@ -587,9 +587,13 @@ def _summary_section(run: dict[str, Any], axis: _Axis) -> list[Any]:
     ai_value = (
         f"{usd(ai['spent_usd'])} of {usd(ai['budget_usd'])} · {ai['calls']} calls" if ai else "Off"
     )
+    if ai and ai.get("paced_rounds"):
+        ai_value += f" · {ai['paced_rounds']} rounds paced"
     jev_value = (
         f"{jev['approved']} approved · {jev['vetoed']} vetoed" if jev else "Off (rules alone)"
     )
+    if jev and jev.get("forced"):
+        jev_value += f" · {jev['forced']} forced cuts"
     items = [
         ("Duration", _years(run["days"])),
         ("Companies", f"{len(companies)} · {survivors} survived"),

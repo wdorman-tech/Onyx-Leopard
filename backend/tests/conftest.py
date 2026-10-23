@@ -1,19 +1,34 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 import pytest
+from dotenv import dotenv_values
 
+import src.main
+from src.simulation import jev, llm
 from src.simulation.engine import Company
 from src.simulation.library import NodeLibrary, get_library
 from src.simulation.llm import Budget, ModelInfo, OpenRouterClient
 from src.simulation.seed import sample_seed
 from src.simulation.shocks import ShockScheduler
 from src.simulation.stance import sample_stance
+
+# src.main loads backend/.env into os.environ on import (done just above).
+# For the whole session, before collection-time code, module fixtures or tests
+# run: clear every variable it set plus the app's own variables from the shell,
+# and point the live key lookups (which re-read backend/.env) at a file that
+# does not exist. Nothing can reach a real API with a real key or pick up a
+# local override such as OPENROUTER_BASE_URL.
+_APP_ENV = (llm.API_KEY_ENV, "OPENROUTER_BASE_URL", jev.API_KEY_ENV, jev.MODEL_ENV)
+for _key in {*dotenv_values(src.main.BACKEND_DIR / ".env"), *_APP_ENV}:
+    os.environ.pop(_key, None)
+llm.ENV_FILE = src.main.BACKEND_DIR / "tests" / ".env.does-not-exist"
 
 GLM_FLASH = ModelInfo(
     id="z-ai/glm-5.3-flash",
@@ -102,10 +117,14 @@ def make_llm(router: FakeRouter, *, budget: float = 1.0, model: ModelInfo = GLM_
 
 @pytest.fixture(autouse=True)
 def isolated_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    """Keep the developer's real backend/.env key out of tests."""
-    from src.simulation import llm
+    """Keep the developer's real keys out of tests: no live .env, no key variables.
 
+    Key lookups fall back to reading backend/.env live, so the file is swapped
+    for an empty one; key variables set in the shell are cleared per test.
+    """
     monkeypatch.setattr(llm, "ENV_FILE", tmp_path / ".env")
+    for key in (llm.API_KEY_ENV, jev.API_KEY_ENV):
+        monkeypatch.delenv(key, raising=False)
 
 
 @pytest.fixture(autouse=True)

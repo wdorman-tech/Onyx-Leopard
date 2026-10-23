@@ -54,7 +54,13 @@ export function SimView({ sim, modelName, onBack }: SimViewProps) {
                   ? "border-negative/40 text-negative bg-negative/5"
                   : "border-surface-200 text-surface-600"
               }`}
-              title={sim.ai.error ?? `${sim.ai.calls} AI calls on ${sim.ai.model}`}
+              title={
+                sim.ai.error ??
+                `${sim.ai.calls} AI calls on ${sim.ai.model}` +
+                  (sim.ai.paced_rounds
+                    ? ` · ${sim.ai.paced_rounds} monthly rounds skipped to pace the budget`
+                    : "")
+              }
             >
               <Bot size={12} />
               <span className="font-medium truncate max-w-[9rem]">{modelName ?? sim.ai.model}</span>
@@ -74,12 +80,19 @@ export function SimView({ sim, modelName, onBack }: SimViewProps) {
                   ? "border-negative/40 text-negative bg-negative/5"
                   : "border-surface-200 text-surface-600"
               }`}
-              title={sim.jev.error ?? `${sim.jev.calls} Jev calls · ${formatUsd(sim.jev.cost_usd)}`}
+              title={
+                sim.jev.error ??
+                `${sim.jev.calls} Jev calls · ${formatUsd(sim.jev.cost_usd)}` +
+                  (sim.jev.forced
+                    ? ` · ${sim.jev.forced} survival cuts skipped Jev (cash would run out first)`
+                    : "")
+              }
             >
               <Scale size={12} />
               <span className="font-medium">Jev</span>
               <span className="font-mono whitespace-nowrap">
                 {sim.jev.approved} ok · {sim.jev.vetoed} veto
+                {sim.jev.forced ? ` · ${sim.jev.forced} forced` : ""}
               </span>
             </div>
           )}

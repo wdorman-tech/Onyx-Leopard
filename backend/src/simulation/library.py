@@ -81,6 +81,15 @@ class NodeDef(BaseModel):
     applicable_economics: list[str] = Field(..., min_length=1)
 
 
+#: Node-bucket effects on unit economics: each multiplier is 1 + gain × the
+#: bucket's summed modifiers, clamped to its range. The engine applies them
+#: daily; the seed sampler uses them to size a coherent day-0 company.
+COST_BUCKET_GAIN: Final[float] = 1.0
+COST_MULT_RANGE: Final[tuple[float, float]] = (0.5, 1.5)
+REVENUE_BUCKET_GAIN: Final[float] = 1.0
+REVENUE_MULT_RANGE: Final[tuple[float, float]] = (0.5, 2.0)
+
+
 @dataclass(frozen=True)
 class Modifiers:
     """Summed modifier magnitudes per bucket for a company's spawned set."""
@@ -91,6 +100,16 @@ class Modifiers:
     revenue: float = 0.0
     capital: float = 0.0
     cost: float = 0.0
+
+    def cost_multiplier(self) -> float:
+        """Multiplier on daily node and overhead costs."""
+        lo, hi = COST_MULT_RANGE
+        return max(lo, min(hi, 1.0 + COST_BUCKET_GAIN * self.cost))
+
+    def revenue_multiplier(self) -> float:
+        """Revenue per customer served relative to price (revenue-stream uplift)."""
+        lo, hi = REVENUE_MULT_RANGE
+        return max(lo, min(hi, 1.0 + REVENUE_BUCKET_GAIN * self.revenue))
 
 
 def classify_modifier(key: str) -> str | None:
@@ -172,6 +191,16 @@ class NodeLibrary:
     def daily_cost(self, spawned: dict[str, int]) -> float:
         return sum(self.nodes[k].daily_fixed_costs * c for k, c in spawned.items())
 
+    def starting_modifiers(
+        self, refs: Iterable[str], economics_model: str, locations: int
+    ) -> Modifiers:
+        """Bucket sums of a day-0 node set. Unknown references are a validation error."""
+        refs = list(refs)
+        unknown = sorted(r for r in refs if r not in self.nodes)
+        if unknown:
+            raise LibraryValidationError(f"unknown starting nodes {unknown}")
+        return self.modifiers(self.starting_nodes(refs, economics_model, locations))
+
     def validate_seed(self, seed: CompanySeed) -> None:
         errors: list[str] = []
         for field in ("initial_supplier_types", "initial_revenue_streams", "initial_cost_centers"):
@@ -184,6 +213,30 @@ class NodeLibrary:
                         f"{field}: '{ref}' does not apply to economics_model "
                         f"'{seed.economics_model}' (supports {node.applicable_economics})"
                     )
+        refs = [
+            *seed.initial_supplier_types,
+            *seed.initial_revenue_streams,
+            *seed.initial_cost_centers,
+        ]
+        if not errors:
+            # The engine starts from refs + founder + locations; no node may
+            # start above the hard cap a CEO could never build past.
+            day0 = self.starting_nodes(refs, seed.economics_model, seed.initial_locations)
+            for key, count in sorted(day0.items()):
+                cap = self.nodes[key].category_caps.hard_cap
+                if count > cap:
+                    errors.append(f"day-0 '{key}' count {count} exceeds its hard cap {cap}")
+        if not errors:
+            # Each customer brings in price × the revenue streams' uplift, so
+            # that, not the list price alone, is what unit cost must not pass.
+            uplift = self.starting_modifiers(
+                refs, seed.economics_model, seed.initial_locations
+            ).revenue_multiplier()
+            if seed.base_unit_cost > seed.starting_price * uplift:
+                errors.append(
+                    f"base_unit_cost {seed.base_unit_cost} exceeds revenue per customer "
+                    f"{seed.starting_price * uplift:.2f} (negative gross margin)"
+                )
         if errors:
             raise LibraryValidationError("seed failed library validation: " + "; ".join(errors))
 

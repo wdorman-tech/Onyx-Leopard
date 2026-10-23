@@ -236,7 +236,9 @@ class Budget:
 
     The estimated cost of the end-of-run CEO reports is held back from the
     decision calls, so post-mortems stay AI-written even when the decisions
-    would otherwise spend the whole budget.
+    would otherwise spend the whole budget. Decision spend is paced linearly
+    over the run (`on_pace`), so a budget too small for a monthly cadence
+    stretches the cadence instead of going silent partway through.
     """
 
     ceiling_usd: float
@@ -261,6 +263,11 @@ class Budget:
     def spent(self) -> bool:
         """The hard ceiling: not even reports may call past this."""
         return self.spent_usd >= self.ceiling_usd
+
+    def on_pace(self, day: int, max_days: int) -> bool:
+        """Decision spend so far is within a straight-line share of the run."""
+        spendable = self.ceiling_usd - self.reserve_usd
+        return self.spent_usd <= spendable * min(1.0, day / max(1, max_days))
 
     def record(self, cost_usd: float) -> None:
         self.spent_usd += max(0.0, cost_usd)

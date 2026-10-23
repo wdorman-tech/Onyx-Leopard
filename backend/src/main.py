@@ -193,7 +193,7 @@ async def companies() -> list[dict[str, Any]]:
     for path in sorted(COMPANIES_DIR.glob("*.oleo")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            seed = seed_from_oleo(data)
+            seed = seed_from_oleo(data, library)
             library.validate_seed(seed)
         except (ValueError, LibraryValidationError) as exc:
             log.warning("skipping %s: %s", path.name, exc)

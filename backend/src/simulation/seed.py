@@ -47,6 +47,12 @@ class CompanySeed(BaseModel):
     tam: float = Field(..., gt=0.0, le=1e15)
     #: Annual TAM growth rate (0.05 = 5%/yr).
     market_growth_rate: float = Field(..., ge=-0.5, le=2.0)
+    #: Category price elasticity of demand at the starting price (positive
+    #: magnitude), the point elasticity of a linear demand curve: how total
+    #: customer spend responds to the market's average price. Below 1, an
+    #: industry-wide price cut shrinks total spend; above 1, it grows it. It
+    #: rises with price, and nobody buys past starting_price × (1 + 1/ε).
+    market_price_elasticity: float = Field(default=1.0, gt=0.0, le=5.0)
 
     initial_supplier_types: list[str] = Field(..., min_length=1, max_length=3)
     initial_revenue_streams: list[str] = Field(..., min_length=1, max_length=3)
@@ -57,8 +63,8 @@ class CompanySeed(BaseModel):
 
     @model_validator(mode="after")
     def _economically_coherent(self) -> CompanySeed:
-        if self.base_unit_cost > self.starting_price:
-            raise ValueError("base_unit_cost cannot exceed starting_price (negative gross margin)")
+        # Unit cost vs revenue per customer depends on the starting nodes'
+        # revenue uplift, so `NodeLibrary.validate_seed` checks gross margin.
         if self.cobb_douglas_alpha + self.cobb_douglas_beta > MAX_RETURNS_TO_SCALE:
             raise ValueError(f"cobb_douglas_alpha + beta must be <= {MAX_RETURNS_TO_SCALE}")
         return self
@@ -141,10 +147,22 @@ _ARCHETYPE_BANDS: dict[Archetype, dict[str, tuple[float, float]]] = {
     },
 }
 
+#: `market_elasticity` is the category (not single-firm) price elasticity.
+#: Category demand is usually inelastic: food away from home ≈ 0.8 (Andreyeva
+#: et al. 2010), business software and professional services lower still, as
+#: firms buy them for a job that has to get done.
 _ECONOMICS_BANDS: dict[EconomicsModel, dict[str, tuple[float, float]]] = {
-    "physical": {"price": (5.0, 60.0), "cost_ratio": (0.20, 0.55)},
-    "subscription": {"price": (15.0, 1_500.0), "cost_ratio": (0.05, 0.30)},
-    "service": {"price": (3_000.0, 80_000.0), "cost_ratio": (0.15, 0.45)},
+    "physical": {"price": (5.0, 60.0), "cost_ratio": (0.20, 0.55), "market_elasticity": (0.6, 1.2)},
+    "subscription": {
+        "price": (15.0, 1_500.0),
+        "cost_ratio": (0.05, 0.30),
+        "market_elasticity": (0.4, 0.9),
+    },
+    "service": {
+        "price": (3_000.0, 80_000.0),
+        "cost_ratio": (0.15, 0.45),
+        "market_elasticity": (0.3, 0.8),
+    },
 }
 
 _ECONOMICS_WEIGHTS: dict[Archetype, dict[EconomicsModel, float]] = {
@@ -163,6 +181,15 @@ STARTING_OPERATING_MARGIN_BAND: tuple[float, float] = (0.08, 0.20)
 INITIAL_MARKET_SHARE_BAND: tuple[float, float] = (0.10, 0.25)
 #: Annual market growth band.
 MARKET_GROWTH_BAND: tuple[float, float] = (-0.05, 0.40)
+
+
+#: Significant figures kept on derived seed quantities. Fixed decimals would
+#: distort high-ticket businesses, which serve a few hundredths of a customer a day.
+SEED_SIGNIFICANT_FIGURES: int = 6
+
+
+def _round_sig(value: float) -> float:
+    return float(f"{value:.{SEED_SIGNIFICANT_FIGURES}g}")
 
 
 def company_name(economics: EconomicsModel, rng: random.Random) -> str:
@@ -190,15 +217,21 @@ def sample_seed(
     cost_ratio = rng.uniform(*econ["cost_ratio"])
     employees = rng.randint(*map(int, bands["starting_employees"]))
     locations = rng.randint(*map(int, bands["initial_locations"]))
-    # Fixed costs must leave the sampled operating margin at target revenue:
-    # R * (1 - cost_ratio - margin) = node costs + overhead.
-    fixed_share = 1.0 - cost_ratio - rng.uniform(*STARTING_OPERATING_MARGIN_BAND)
-    node_burn = library.daily_cost(
-        library.starting_nodes([k for ks in refs.values() for k in ks], economics, locations)
-    )
+    # The starting nodes set the unit economics the engine will apply: each
+    # customer brings in price × uplift (revenue streams), and overhead plus
+    # node costs run at the cost-bucket multiplier.
+    ref_keys = [k for ks in refs.values() for k in ks]
+    starting = library.starting_nodes(ref_keys, economics, locations)
+    mods = library.starting_modifiers(ref_keys, economics, locations)
+    uplift, cost_mult = mods.revenue_multiplier(), mods.cost_multiplier()
+    node_burn = library.daily_cost(starting) * cost_mult
+    # Fixed costs must leave the sampled operating margin at target revenue R:
+    # R * (1 - cost_ratio / uplift - margin) = (node costs + overhead) * cost_mult.
+    fixed_share = 1.0 - cost_ratio / uplift - rng.uniform(*STARTING_OPERATING_MARGIN_BAND)
     target = employees * rng.uniform(*bands["revenue_per_employee"]) / 365.0
     daily_revenue = max(target, node_burn / fixed_share)
     annual_revenue = daily_revenue * 365.0
+    daily_units = daily_revenue / (price * uplift)
 
     return CompanySeed(
         name=company_name(economics, rng),
@@ -206,17 +239,19 @@ def sample_seed(
         economics_model=economics,
         starting_price=price,
         base_unit_cost=round(price * cost_ratio, 2),
-        daily_fixed_costs=round(daily_revenue * fixed_share - node_burn, 2),
+        daily_fixed_costs=round((daily_revenue * fixed_share - node_burn) / cost_mult, 2),
         starting_cash=round(annual_revenue * rng.uniform(*bands["cash_to_revenue"]), 2),
         starting_employees=employees,
         base_capacity_per_location=max(
-            1e-4, round(daily_revenue / price * CAPACITY_HEADROOM / locations, 4)
+            1e-4, _round_sig(daily_units * CAPACITY_HEADROOM / locations)
         ),
         initial_locations=locations,
-        tam=round(annual_revenue / rng.uniform(*INITIAL_MARKET_SHARE_BAND), 2),
+        # TAM is customer spend at list price; uplift comes on top of it.
+        tam=round(daily_units * price * 365.0 / rng.uniform(*INITIAL_MARKET_SHARE_BAND), 2),
         market_growth_rate=round(rng.uniform(*MARKET_GROWTH_BAND), 3),
         cobb_douglas_alpha=round(rng.uniform(*bands["alpha"]), 3),
         cobb_douglas_beta=round(rng.uniform(*bands["beta"]), 3),
+        market_price_elasticity=round(rng.uniform(*econ["market_elasticity"]), 2),
         **refs,
     )
 
@@ -233,8 +268,13 @@ _OLEO_UNIT_PRICE: dict[EconomicsModel, float] = {
 _OLEO_CASH_FRACTION_OF_REVENUE: float = 0.15
 #: Share of non-COGS daily revenue treated as fixed overhead.
 _OLEO_FIXED_COST_SHARE: float = 0.35
+#: Bounds on an imported gross margin. The floor is twice the baseline
+#: marketing share of revenue, so an import still earns something on each sale.
+_OLEO_GROSS_MARGIN_BOUNDS: tuple[float, float] = (0.10, 0.85)
 #: Headcount per location used to infer a location count from org size.
 _OLEO_EMPLOYEES_PER_LOCATION: int = 5_000
+#: Bounds on an imported `market.price_elasticity_estimate` (magnitude).
+_OLEO_ELASTICITY_BOUNDS: tuple[float, float] = (0.1, 5.0)
 
 
 def _num(value: Any, fallback: float) -> float:
@@ -254,8 +294,16 @@ def _oleo_economics(identity: dict[str, Any]) -> EconomicsModel:
     return "physical"
 
 
-def seed_from_oleo(data: dict[str, Any]) -> CompanySeed:
-    """Convert an `.oleo` company profile export into a `CompanySeed`."""
+def seed_from_oleo(data: dict[str, Any], library: NodeLibrary | None = None) -> CompanySeed:
+    """Convert an `.oleo` company profile export into a `CompanySeed`.
+
+    The profile's revenue and gross margin are matched as the engine will book
+    them: each customer brings in price × the default revenue streams' uplift.
+    """
+    if library is None:
+        from src.simulation.library import get_library
+
+        library = get_library()
     profile = data.get("profile", {})
     identity = profile.get("identity", {})
     org = profile.get("organization", {})
@@ -267,28 +315,42 @@ def seed_from_oleo(data: dict[str, Any]) -> CompanySeed:
     price = _OLEO_UNIT_PRICE[economics]
     headcount = int(_clamp(_num(org.get("total_headcount"), 10), 1, 10_000_000))
     revenue = _num(fin.get("annual_revenue"), 1_000_000.0)
-    margin = _clamp(_num(fin.get("gross_margin"), 0.55), 0.05, 0.85)
+    margin = _clamp(_num(fin.get("gross_margin"), 0.55), *_OLEO_GROSS_MARGIN_BOUNDS)
     share = _clamp(_num(market.get("market_share"), 0.05), 0.001, 0.95)
     daily_revenue = revenue / 365.0
     cash = _num(fin.get("cash"), revenue * _OLEO_CASH_FRACTION_OF_REVENUE)
     locations = int(_clamp(-(-headcount // _OLEO_EMPLOYEES_PER_LOCATION), 1, 1_000))
+    primary = library.primary_location(economics)
+    if primary is not None:  # a bigger org gets bigger locations, not more than the cap
+        locations = min(locations, library.nodes[primary].category_caps.hard_cap)
+    refs = _DEFAULT_REFS[economics]
+    ref_keys = [k for ks in refs.values() for k in ks]
+    mods = library.starting_modifiers(ref_keys, economics, locations)
+    uplift, cost_mult = mods.revenue_multiplier(), mods.cost_multiplier()
+    node_burn = library.daily_cost(library.starting_nodes(ref_keys, economics, locations))
+    daily_units = daily_revenue / (price * uplift)
 
     return CompanySeed(
         name=name,
         niche=str(identity.get("description") or f"{name} in {identity.get('industry', '')}")[:400],
         economics_model=economics,
         starting_price=price,
-        base_unit_cost=round(price * (1.0 - margin), 2),
+        # The profile's gross margin is on revenue per customer (price × uplift).
+        base_unit_cost=round(price * uplift * (1.0 - margin), 2),
         daily_fixed_costs=round(
-            _clamp(daily_revenue * (1.0 - margin) * _OLEO_FIXED_COST_SHARE, 1, 1e9), 2
+            # All fixed costs (overhead + starting nodes, at the cost bucket the
+            # engine applies) are this share of gross profit (non-COGS revenue).
+            _clamp(daily_revenue * margin * _OLEO_FIXED_COST_SHARE / cost_mult - node_burn, 1, 1e9),
+            2,
         ),
         starting_cash=_clamp(cash, 1_000, 1e12),
         starting_employees=headcount,
-        base_capacity_per_location=round(
-            _clamp(daily_revenue / price * CAPACITY_HEADROOM / locations, 1e-4, 1e8), 4
+        base_capacity_per_location=_round_sig(
+            _clamp(daily_units * CAPACITY_HEADROOM / locations, 1e-4, 1e8)
         ),
         initial_locations=locations,
-        tam=_clamp(_num(market.get("tam"), revenue / share), 1, 1e15),
+        # TAM is spend at list price; the profile's figure includes the uplift.
+        tam=_clamp(_num(market.get("tam"), revenue / share) / uplift, 1, 1e15),
         market_growth_rate=_clamp(
             _num(fin.get("revenue_growth_rate"), _num(market.get("market_growth_rate"), 0.08)),
             -0.5,
@@ -296,5 +358,8 @@ def seed_from_oleo(data: dict[str, Any]) -> CompanySeed:
         ),
         cobb_douglas_alpha=0.45 if economics == "physical" else 0.35,
         cobb_douglas_beta=0.55 if economics == "physical" else 0.65,
-        **_DEFAULT_REFS[economics],
+        market_price_elasticity=_clamp(
+            abs(_num(market.get("price_elasticity_estimate"), 1.0)), *_OLEO_ELASTICITY_BOUNDS
+        ),
+        **refs,
     )

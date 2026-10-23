@@ -75,15 +75,45 @@ export const getModels = () => request<ModelCatalog>("/api/models");
 // MiMo-V2.6-Pro in real 5-year runs). Used only for the setup-screen estimate.
 const TOKENS_IN_PER_CALL = 3000;
 const TOKENS_OUT_PER_CALL = 4000;
-const AI_CADENCE_DAYS = 30;
+export const AI_CADENCE_DAYS = 30;
+// Mirrors backend/src/simulation/llm.py: a post-mortem costs about this many
+// decision calls, and the budget never holds back more than this share for them.
+const REPORT_COST_MULTIPLE = 3;
+const MAX_REPORT_RESERVE_SHARE = 0.5;
 
-export function estimateRunCost(model: ModelOption, companies: number, days: number): number {
-  const calls = companies * (Math.floor(days / AI_CADENCE_DAYS) + 1); // +1: end-of-run report
-  const perCall =
+function costPerCall(model: ModelOption): number {
+  return (
     (TOKENS_IN_PER_CALL * model.prompt_per_million +
       TOKENS_OUT_PER_CALL * model.completion_per_million) /
-    1e6;
-  return calls * perCall;
+    1e6
+  );
+}
+
+export function estimateRunCost(model: ModelOption, companies: number, days: number): number {
+  const decisions = companies * Math.floor(days / AI_CADENCE_DAYS);
+  return (decisions + companies * REPORT_COST_MULTIPLE) * costPerCall(model);
+}
+
+/**
+ * Days between AI rounds when spend is paced to last the run. Like the
+ * backend `Budget`, the post-mortem reserve comes off the top first; the rest
+ * pays for decisions, monthly if it covers them, stretched in proportion if not.
+ */
+export function pacedCadenceDays(
+  model: ModelOption,
+  companies: number,
+  days: number,
+  budgetUsd: number,
+): number {
+  const perCall = costPerCall(model);
+  const decisionCost = companies * Math.floor(days / AI_CADENCE_DAYS) * perCall;
+  const reserve = Math.min(
+    companies * REPORT_COST_MULTIPLE * perCall,
+    budgetUsd * MAX_REPORT_RESERVE_SHARE,
+  );
+  const spendable = budgetUsd - reserve;
+  if (spendable <= 0 || decisionCost <= spendable) return AI_CADENCE_DAYS;
+  return Math.ceil((AI_CADENCE_DAYS * decisionCost) / spendable);
 }
 
 export function formatUsd(n: number): string {
@@ -220,6 +250,8 @@ export interface AiStatus {
   spent_usd: number;
   budget_usd: number;
   calls: number;
+  /** Monthly AI rounds skipped so the budget lasts the whole run. */
+  paced_rounds: number;
   error: string | null;
 }
 
@@ -228,6 +260,8 @@ export interface JevStatus {
   calls: number;
   approved: number;
   vetoed: number;
+  /** Survival cuts that skipped Jev: holding off would run out of cash. */
+  forced: number;
   errors: number;
   cost_usd: number;
   error: string | null;
