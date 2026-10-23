@@ -75,7 +75,7 @@ export const getModels = () => request<ModelCatalog>("/api/models");
 // MiMo-V2.6-Pro in real 5-year runs). Used only for the setup-screen estimate.
 const TOKENS_IN_PER_CALL = 3000;
 const TOKENS_OUT_PER_CALL = 4000;
-const AI_CADENCE_DAYS = 30;
+export const AI_CADENCE_DAYS = 30;
 
 export function estimateRunCost(model: ModelOption, companies: number, days: number): number {
   const calls = companies * (Math.floor(days / AI_CADENCE_DAYS) + 1); // +1: end-of-run report
@@ -84,6 +84,15 @@ export function estimateRunCost(model: ModelOption, companies: number, days: num
       TOKENS_OUT_PER_CALL * model.completion_per_million) /
     1e6;
   return calls * perCall;
+}
+
+/**
+ * Days between AI rounds when spend is paced to last the run: monthly when the
+ * budget covers the estimate, stretched in proportion when it does not.
+ */
+export function pacedCadenceDays(estimateUsd: number, budgetUsd: number): number {
+  if (budgetUsd <= 0 || estimateUsd <= budgetUsd) return AI_CADENCE_DAYS;
+  return Math.ceil((AI_CADENCE_DAYS * estimateUsd) / budgetUsd);
 }
 
 export function formatUsd(n: number): string {
@@ -220,6 +229,8 @@ export interface AiStatus {
   spent_usd: number;
   budget_usd: number;
   calls: number;
+  /** Monthly AI rounds skipped so the budget lasts the whole run. */
+  paced_rounds: number;
   error: string | null;
 }
 
@@ -228,6 +239,8 @@ export interface JevStatus {
   calls: number;
   approved: number;
   vetoed: number;
+  /** Survival cuts that skipped Jev: holding off would run out of cash. */
+  forced: number;
   errors: number;
   cost_usd: number;
   error: string | null;

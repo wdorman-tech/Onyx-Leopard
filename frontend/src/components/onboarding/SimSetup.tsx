@@ -5,6 +5,7 @@ import { ArrowLeft, Building2, Cpu, Plus, Scale, Shuffle, X } from "lucide-react
 import { Logo } from "@/components/ui/Logo";
 import { COMPANY_COLORS } from "@/hooks/useSimulation";
 import {
+  AI_CADENCE_DAYS,
   type AppConfig,
   type Archetypes,
   type CompanyProfile,
@@ -14,6 +15,7 @@ import {
   formatUsd,
   getArchetypes,
   getCompanies,
+  pacedCadenceDays,
 } from "@/lib/api";
 
 const DURATIONS = [1, 5, 10, 20];
@@ -73,6 +75,7 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
   }, []);
 
   const estimate = estimateRunCost(model, ceos.length, years * 365);
+  const cadence = pacedCadenceDays(estimate, budget);
   const ceoLabel = (id: string) => archetypes?.ceo.find((a) => a.id === id)?.label ?? id;
   const nextCeo = () => archetypes?.ceo[ceos.length % archetypes.ceo.length]?.id ?? "bootstrap";
 
@@ -224,7 +227,7 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
                   <div className="text-sm font-medium text-surface-800">AI CEOs</div>
                   <div className="text-[11px] text-surface-500">
                     {config.ai_available
-                      ? `${model.name} decides monthly for every company`
+                      ? `${model.name} decides about monthly for every company`
                       : `Needs ${config.key_env} in backend/.env, then reload`}
                   </div>
                 </div>
@@ -239,7 +242,16 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
               <div className="flex items-center justify-between gap-3 pt-3 border-t border-surface-100">
                 <div className="text-[11px] text-surface-500">
                   Estimated <span className="font-mono text-surface-700">{formatUsd(estimate)}</span>
-                  . Hard budget; CEOs fall back to heuristics once it is spent.
+                  . Hard budget, paced over the whole run
+                  {cadence > AI_CADENCE_DAYS ? (
+                    <>
+                      : at this budget the AI decides about every{" "}
+                      <span className="font-mono text-surface-700">{cadence}</span> days instead of
+                      monthly.
+                    </>
+                  ) : (
+                    "."
+                  )}
                 </div>
                 <label className="flex items-center gap-1 text-xs text-surface-600 flex-shrink-0">
                   $
