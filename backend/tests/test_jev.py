@@ -118,11 +118,16 @@ def test_repeated_proposals_are_not_a_coin_flip(library: NodeLibrary) -> None:
     rng = random.Random(0)
     answers = [min(1.0, max(0.0, rng.gauss(0.6, 0.03))) for _ in range(60)]
     judge = JevJudge(client=FakeTypeSafe(list(answers)))
-    verdicts = []
-    for i in range(len(answers)):
-        verdict = asyncio.run(judge.review(company, propose(HeuristicCeo(), company), 21 * i))
-        assert verdict is not None
-        verdicts.append(verdict.approved)
+
+    async def go() -> list[bool]:  # one event loop: a loop per call exhausts Windows sockets
+        verdicts = []
+        for i in range(len(answers)):
+            verdict = await judge.review(company, propose(HeuristicCeo(), company), 21 * i)
+            assert verdict is not None
+            verdicts.append(verdict.approved)
+        return verdicts
+
+    verdicts = asyncio.run(go())
     assert sum(not v for v in verdicts) <= len(verdicts) * 0.15
 
 

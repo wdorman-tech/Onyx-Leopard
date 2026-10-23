@@ -6,8 +6,8 @@ Per tick (`MarketSim.step`):
      the share each company's current offer earns. Customer bases move toward
      those shares under N-species Lotka-Volterra competition (customers
      switch over weeks, not overnight); the bases set today's spend shares.
-  3. Category spend responds to the market's average price (constant
-     elasticity). Each company serves min(demand, physical capacity,
+  3. Category spend responds to the market's average price (linear demand
+     calibrated to the seed's elasticity). Each company serves min(demand, physical capacity,
      Cobb-Douglas production), books revenue and costs, and updates cash.
   4. CEOs decide: heuristic every few days, AI CEO monthly (or on a severe
      shock) while the AI budget is on pace. Decisions spawn/retire nodes and
@@ -38,6 +38,8 @@ from src.simulation.shocks import Shock, ShockScheduler, environment
 from src.simulation.stance import RAISE_ALLOWED_ARCHETYPES, CeoStance
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
     from src.simulation.ceo import AiCeo, CeoDecision, HeuristicCeo
     from src.simulation.jev import JevJudge
     from src.simulation.llm import OpenRouterClient
@@ -68,10 +70,23 @@ SHARE_MARKETING_EXPONENT: float = 0.3
 #: (a single company has no rivals to lose share to): 10% higher price → ~14%
 #: less pull. With rivals, `MarketSim` calibrates it from the starting margin.
 PRICE_ELASTICITY: float = 1.5
-#: Floor on the calibrated share elasticity. A very high starting margin would
-#: otherwise imply customers ignore price differences altogether.
-MIN_SHARE_PRICE_ELASTICITY: float = 0.25
-#: Diminishing returns of marketing intensity on reach.
+#: Floor on the calibrated share elasticity. The Lerner inversion needs
+#: ε_s ≤ 0 (no switching at all) when 1/margin - 1 < (ε_m - 1)·share: a margin
+#: near 1 (unit cost a few percent of price), or an elastic category (ε_m > 1)
+#: where the industry gains by cutting price together. Sampled seeds stay above
+#: it (lowest ≈ 0.064, high-margin SaaS at 10 rivals); such custom or imported
+#: seeds are clamped here and start only near, not at, the Nash price.
+MIN_SHARE_PRICE_ELASTICITY: float = 0.05
+#: Ceiling on the calibrated share elasticity: near-perfect substitutes. A thin
+#: or zero starting margin would otherwise imply ε → ∞ (any price gap takes the
+#: whole market). Measured brand-level price elasticities average -2.6 and
+#: rarely pass -6 (Bijmolt, van Heerde & Pieters 2005 meta-analysis).
+MAX_SHARE_PRICE_ELASTICITY: float = 10.0
+#: Elasticity of reach to marketing intensity at the baseline (intensity 1).
+#: Reach uses the (1 + intensity) transform (Hanssens, Parsons & Schultz 2001):
+#: a pure power law sends reach to zero at zero spend, which no market shows,
+#: since brand and word of mouth remain. ((1 + x) / 2)^(2e) has elasticity e
+#: at x = 1, so intensity 0 keeps (1/2)^(2e) of baseline reach (≈ 66%).
 MARKETING_INTENSITY_ELASTICITY: float = 0.3
 #: Daily marketing spend as a fraction of trailing daily revenue at intensity 1.0.
 MARKETING_SPEND_FRACTION: float = 0.05
@@ -87,10 +102,7 @@ PRODUCTION_HEADROOM: float = 1.25
 COBB_DOUGLAS_QUALITY_GAIN: float = 0.05
 
 # ─── Node-bucket effects ────────────────────────────────────────────────────
-COST_BUCKET_GAIN: float = 1.0
-COST_MULT_RANGE: tuple[float, float] = (0.5, 1.5)
-REVENUE_BUCKET_GAIN: float = 1.0
-REVENUE_MULT_RANGE: tuple[float, float] = (0.5, 2.0)
+# Cost and revenue multipliers live on `Modifiers` (library.py).
 #: Daily financing inflow per unit of |capital modifiers|, as a fraction of
 #: starting cash (investor nodes give standing access to capital).
 CAPITAL_BUCKET_DAILY_RATE: float = 0.001
@@ -129,13 +141,29 @@ MAX_SPAWNS_PER_DECISION: int = 5
 #: A single raise is capped at max(starting cash, this many months of revenue).
 RAISE_CAP_MONTHS_OF_REVENUE: float = 12.0
 
+#: Best-response price search: log-spaced grid over the price bounds, then
+#: golden-section refinement around the best grid point.
+BEST_RESPONSE_GRID_POINTS: int = 241
+BEST_RESPONSE_REFINE_STEPS: int = 40
+#: Relative contribution gap below which today's list price counts as best.
+BEST_RESPONSE_TOLERANCE: float = 1e-9
+#: The search stops this far (relative) below the choke price: further than the
+#: prompt's price rounding (6 significant figures), so a copied price can never
+#: round up onto the choke, where nobody buys.
+BEST_RESPONSE_CHOKE_MARGIN: float = 1e-4
+
 #: Heuristic CEO cadence (days) and AI CEO cadence (days).
 HEURISTIC_CADENCE_DAYS: int = 7
 AI_CADENCE_DAYS: int = 30
 
 
-def _clamp(value: float, bounds: tuple[float, float]) -> float:
-    return max(bounds[0], min(bounds[1], value))
+def fixed_cost_multiplier(mods: Modifiers, env: dict[str, float]) -> float:
+    """Today's multiplier on daily node and overhead costs: cost bucket × shocks."""
+    return (
+        mods.cost_multiplier()
+        * env.get("fixed_cost_mult", 1.0)
+        * env.get("wage_inflation_mult", 1.0)
+    )
 
 
 @dataclass
@@ -144,7 +172,8 @@ class Snapshot:
     cash: float
     monthly_revenue: float
     monthly_profit: float
-    price: float
+    price: float  # list price
+    effective_price: float  # what customers paid (after any price cap)
     gross_margin: float
     market_share: float
     satisfaction: float
@@ -189,15 +218,21 @@ class Company:
         self.core_revenue = 0.0  # served × price, before revenue-stream uplift
         self.daily_costs = 0.0
         self.fixed_burn = 0.0
-        #: Today's multiplier on node daily costs (cost bucket × shocks).
+        #: Multiplier on node daily costs (cost bucket × shocks) as of the last
+        #: operate(); seeded from the starting nodes below.
         self.fixed_cost_mult = 1.0
+        #: Revenue per unit served, relative to price (revenue-stream uplift).
+        self.revenue_mult = 1.0
         self.market_share = 0.0  # share of category spend served by our customer base
         self.target_share = 0.0  # share today's offer earns once customers settle
-        self.unit_share = 0.0  # share of category units (sets our pull on the price index)
         self.own_price_elasticity = 0.0
+        #: Category demand elasticity at today's settled average price.
+        self.category_elasticity = seed.market_price_elasticity
         #: LV customer base; MarketSim seeds it at the first day's target share.
         self.customer_base: float | None = None
         self.demand = 0.0
+        #: Demand once customers settle on today's offers (target share).
+        self.settled_demand = 0.0
         self.capacity = 0.0
         self.production = 0.0
         self.served = 0.0
@@ -242,6 +277,8 @@ class Company:
             seed.cobb_douglas_beta,
         )
         self.tfp0 = PRODUCTION_HEADROOM * self._physical_capacity(mods) / base
+        self.fixed_cost_mult = mods.cost_multiplier()
+        self.revenue_mult = mods.revenue_multiplier()
 
     # ── Derived quantities ──
 
@@ -260,12 +297,35 @@ class Company:
             and self.library.nodes[k].capacity_contribution > 0
         )
 
+    def capacity_and_production(self, env: dict[str, float]) -> tuple[float, float]:
+        """(physical capacity, Cobb-Douglas production) for today's nodes under `env`."""
+        mods = self.library.modifiers(self.spawned)
+        capacity = (
+            self._physical_capacity(mods)
+            * env.get("team_capacity_mult", 1.0)
+            * env.get("capacity_cap_mult", 1.0)
+        )
+        tfp = self.tfp0 * (1.0 + COBB_DOUGLAS_QUALITY_GAIN * mods.quality)
+        production = dynamics.cobb_douglas(
+            tfp,
+            self._capital_stock(mods),
+            float(max(1, self.employees)),
+            self.seed.cobb_douglas_alpha,
+            self.seed.cobb_douglas_beta,
+        )
+        return capacity, production
+
     def _physical_capacity(self, mods: Modifiers) -> float:
         infra = 1.0 + INFRA_TO_CAPACITY_GAIN * math.tanh(mods.infrastructure / INFRA_SATURATION_K)
         return self.seed.base_capacity_per_location * max(1, self.locations) * infra
 
     def _capital_stock(self, mods: Modifiers) -> float:
         return self.seed.starting_cash * (1.0 + abs(mods.capital)) + self.capex
+
+    def settled_demand_vs_capacity(self) -> float:
+        """Settled demand over what the company can serve; above 1 it turns customers away."""
+        servable = min(self.capacity, self.production)
+        return self.settled_demand / servable if servable > 0 else math.inf
 
     def runway_months(self) -> float:
         net_burn = self.daily_costs - self.daily_revenue
@@ -277,20 +337,47 @@ class Company:
         """Variable cost per customer served today, after supply shocks."""
         return self.seed.base_unit_cost * self.env.get("supply_cost_mult", 1.0)
 
+    def revenue_per_unit(self) -> float:
+        """What one customer served brings in: effective price × revenue-stream uplift."""
+        return self.effective_price(self.env) * self.revenue_mult
+
     def gross_margin(self) -> float:
-        """(price - unit cost) / price at today's effective price."""
-        price = self.effective_price(self.env)
-        return (price - self.unit_cost()) / price
+        """(revenue per unit - unit cost) / revenue per unit."""
+        revenue = self.revenue_per_unit()
+        return (revenue - self.unit_cost()) / revenue
+
+    def contribution_margin(self) -> float:
+        """Gross margin after marketing too, which scales with revenue.
+
+        This is the margin the Lerner rule prices against: every cost here
+        moves with each unit sold.
+        """
+        # Marketing is at most a few percent of revenue (intensity ≤ 2), so net > 0.
+        net = self.revenue_per_unit() * (1.0 - self._marketing_share())
+        return (net - self.unit_cost()) / net
+
+    def _marketing_share(self) -> float:
+        """Marketing spend as a share of revenue (it scales with revenue)."""
+        return (
+            MARKETING_SPEND_FRACTION
+            * self.marketing_intensity
+            * self.env.get("acquisition_cost_mult", 1.0)
+        )
 
     # ── Tick phases ──
 
-    def attraction_inputs(self) -> tuple[float, float, float, float]:
-        """(quality, marketing reach, effective price, extra weight) for the logit."""
+    def attraction_inputs(
+        self, shocks: list[Shock] | None = None
+    ) -> tuple[float, float, float, float]:
+        """(quality, marketing reach, effective price, extra weight) for the logit.
+
+        `shocks` replaces the company's own shocks (for what-if pricing).
+        """
         mods = self.library.modifiers(self.spawned)
-        env = environment(self.shocks)
-        reach = (1.0 + mods.marketing) * max(
-            self.marketing_intensity, 1e-6
-        ) ** MARKETING_INTENSITY_ELASTICITY
+        env = environment(self.shocks if shocks is None else shocks)
+        reach = (1.0 + mods.marketing) * ((1.0 + self.marketing_intensity) / 2.0) ** (
+            2.0 * MARKETING_INTENSITY_ELASTICITY
+        )
         return (
             self.satisfaction,
             reach,
@@ -299,23 +386,40 @@ class Company:
         )
 
     def effective_price(self, env: dict[str, float]) -> float:
+        return self.capped_price(self.price, env)
+
+    def capped_price(self, price: float, env: dict[str, float]) -> float:
+        """What customers pay at list `price`: a price-ceiling shock caps it."""
         ceiling = env.get("price_ceiling_mult", 1.0)
         if ceiling < 1.0:
-            return min(self.price, self.seed.starting_price * ceiling)
-        return self.price
+            return min(price, self.seed.starting_price * ceiling)
+        return price
 
-    def receive_shocks(self, tick: int) -> None:
-        for shock in self.shock_scheduler.arrivals(tick, self.shocks):
-            self.shocks.append(shock)
+    def receive_shocks(self, tick: int, market_shocks: list[Shock] | None = None) -> None:
+        arrived = self.shock_scheduler.arrivals(tick, self.shocks)
+        self.shocks = [s for s in self.shocks + arrived if s.active_at(tick)]
+        if not arrived:
+            return
+        # One-shot costs are priced at today's nodes and shocks, not yesterday's.
+        env = environment([*(market_shocks or []), *self.shocks])
+        for shock in arrived:
             self.events.append(f"Day {tick}: {self.name}: {shock.description}")
             self.log.append(shock_record(shock, self.company_id))
-            self._apply_one_shot(shock)
-        self.shocks = [s for s in self.shocks if s.active_at(tick)]
+            self._apply_one_shot(shock, env)
 
     def operate(
-        self, tick: int, market_spend: float, share: float, market_shocks: list[Shock]
+        self,
+        tick: int,
+        market_spend: float,
+        share: float,
+        market_shocks: list[Shock],
+        choke_price: float = math.inf,
     ) -> None:
-        """Serve customers for one day and settle cash."""
+        """Serve customers for one day and settle cash.
+
+        No customer pays `choke_price` or more, so an offer priced there sells
+        nothing, whatever its customer base.
+        """
         env = self.env = environment(market_shocks + self.shocks)
         mods = self.library.modifiers(self.spawned)
 
@@ -327,31 +431,17 @@ class Company:
 
         price = self.effective_price(env)
         self.market_share = share
-        self.demand = market_spend * share / price
-        self.demand *= env.get("inventory_throughput_mult", 1.0)
-        self.capacity = (
-            self._physical_capacity(mods)
-            * env.get("team_capacity_mult", 1.0)
-            * env.get("capacity_cap_mult", 1.0)
-        )
-        tfp = self.tfp0 * (1.0 + COBB_DOUGLAS_QUALITY_GAIN * mods.quality)
-        self.production = dynamics.cobb_douglas(
-            tfp,
-            self._capital_stock(mods),
-            float(max(1, self.employees)),
-            self.seed.cobb_douglas_alpha,
-            self.seed.cobb_douglas_beta,
-        )
+        throughput = env.get("inventory_throughput_mult", 1.0) if price < choke_price else 0.0
+        self.demand = market_spend * share / price * throughput
+        self.settled_demand = market_spend * self.target_share / price * throughput
+        self.capacity, self.production = self.capacity_and_production(env)
         self.served, self.binding = min(
             (self.demand, "demand"), (self.capacity, "capacity"), (self.production, "production")
         )
         self.utilization = self.served / self.capacity if self.capacity > 0 else 0.0
 
-        revenue_mult = _clamp(1.0 + REVENUE_BUCKET_GAIN * mods.revenue, REVENUE_MULT_RANGE)
-        cost_mult = _clamp(1.0 + COST_BUCKET_GAIN * mods.cost, COST_MULT_RANGE)
-        self.fixed_cost_mult = (
-            cost_mult * env.get("fixed_cost_mult", 1.0) * env.get("wage_inflation_mult", 1.0)
-        )
+        self.revenue_mult = mods.revenue_multiplier()
+        self.fixed_cost_mult = fixed_cost_multiplier(mods, env)
         self.fixed_burn = self._base_fixed_costs() * self.fixed_cost_mult
         marketing_spend = (
             MARKETING_SPEND_FRACTION
@@ -362,7 +452,7 @@ class Company:
         variable = self.served * self.unit_cost()
 
         self.core_revenue = self.served * price
-        self.daily_revenue = self.core_revenue * revenue_mult
+        self.daily_revenue = self.core_revenue * self.revenue_mult
         self.daily_costs = variable + self.fixed_burn + marketing_spend
         self.cash += self.daily_revenue - self.daily_costs
         self.total_revenue += self.daily_revenue
@@ -392,7 +482,8 @@ class Company:
                     cash=self.cash,
                     monthly_revenue=self.daily_revenue * DAYS_PER_MONTH,
                     monthly_profit=(self.daily_revenue - self.daily_costs) * DAYS_PER_MONTH,
-                    price=price,
+                    price=self.price,
+                    effective_price=price,
                     gross_margin=self.gross_margin(),
                     market_share=self.market_share,
                     satisfaction=self.satisfaction,
@@ -406,10 +497,11 @@ class Company:
         """Daily overhead plus every spawned node's daily cost, before multipliers."""
         return self.seed.daily_fixed_costs + self.library.daily_cost(self.spawned)
 
-    def _apply_one_shot(self, shock: Shock) -> None:
+    def _apply_one_shot(self, shock: Shock, env: dict[str, float]) -> None:
         # Costs scale with the company: days of one average employee's share
         # of fixed costs, so a departure weighs the same at any headcount.
-        per_employee = self._base_fixed_costs() * self.fixed_cost_mult / max(1, self.employees)
+        mult = fixed_cost_multiplier(self.library.modifiers(self.spawned), env)
+        per_employee = self._base_fixed_costs() * mult / max(1, self.employees)
         self.cash -= shock.impact.get("replacement_cost_employee_days", 0.0) * per_employee
         if shock.impact.get("retire_random_employee", 0.0) > 0:
             self._retire_random_employee()
@@ -574,7 +666,11 @@ class MarketSim:
         seed = self.companies[0].seed
         self.reference_price = seed.starting_price
         self.market_price_elasticity = seed.market_price_elasticity
-        self.share_price_elasticity = calibrated_share_elasticity(seed, len(self.companies))
+        self.share_price_elasticity = calibrated_share_elasticity(
+            self.companies[0], len(self.companies)
+        )
+        #: Linear category demand ends here: no customer pays this much.
+        self.choke_price = seed.starting_price * (1.0 + 1.0 / seed.market_price_elasticity)
         self.daily_spend = 0.0
         self._severe_seen: set[tuple[str, str, int]] = set()
         self._ai_stop_reported = False
@@ -637,8 +733,8 @@ class MarketSim:
     def _serve(self, tick: int, alive: list[Company], market_env: dict[str, float]) -> None:
         """Clear the market for one day: shares, category spend, then each company operates."""
         for company in alive:
-            company.receive_shocks(tick)
-        inputs = [c.attraction_inputs() for c in alive]
+            company.receive_shocks(tick, self.active_market_shocks)
+        inputs = self._reserve(c.attraction_inputs() for c in alive)
         targets = dynamics.logit_shares(
             [i[0] for i in inputs],
             [i[1] for i in inputs],
@@ -651,25 +747,37 @@ class MarketSim:
         shares = self._customer_shares(alive, targets)
 
         # Average price per unit sold across the market (spend-weighted harmonic
-        # mean); category spend moves with it at the seed's price elasticity.
+        # mean); category spend moves with it along the seed's linear demand curve.
         prices = [i[2] for i in inputs]
         price_index = 1.0 / sum(s / p for s, p in zip(shares, prices, strict=True))
-        self.daily_spend = dynamics.constant_elasticity_spend(
+        self.daily_spend = dynamics.linear_demand_spend(
             self.tam / DAYS_PER_YEAR,
             price_index,
             self.reference_price,
             self.market_price_elasticity,
         ) * market_env.get("market_demand_mult", 1.0)
+        # Elasticities are long-run, so use settled (target) shares throughout.
+        settled_index = 1.0 / sum(t / p for t, p in zip(targets, prices, strict=True))
+        # Category demand is linear, so its elasticity depends on the price level.
+        category = dynamics.linear_demand_elasticity(
+            settled_index, self.reference_price, self.market_price_elasticity
+        )
         for company, share, target, price in zip(alive, shares, targets, prices, strict=True):
             company.target_share = target
-            company.unit_share = share / price * price_index
-            company.own_price_elasticity = dynamics.own_price_elasticity(
-                self.share_price_elasticity,
-                target,
-                self.market_price_elasticity,
-                company.unit_share,
+            company.category_elasticity = category
+            company.own_price_elasticity = (
+                dynamics.own_price_elasticity(
+                    self.share_price_elasticity,
+                    target,
+                    category,
+                    target / price * settled_index,
+                )
+                if math.isfinite(category)
+                else math.inf  # priced past the choke: nobody buys at all
             )
-            company.operate(tick, self.daily_spend, share, self.active_market_shocks)
+            company.operate(
+                tick, self.daily_spend, share, self.active_market_shocks, self.choke_price
+            )
 
     def _customer_shares(self, alive: list[Company], targets: list[float]) -> list[float]:
         """Advance every customer base one day toward its target; return spend shares."""
@@ -683,6 +791,14 @@ class MarketSim:
                 for c, t in zip(alive, targets, strict=True)
             ]
         )
+        # A bankrupt company's customers choose again by today's offers (logit
+        # IIA), not in proportion to whichever rivals happened to be big.
+        freed = 0.0
+        for company in self.companies:
+            if not company.alive and company.customer_base:
+                freed += company.customer_base
+                company.customer_base = 0.0
+        base = base + freed * target
         idx = [self.companies.index(c) for c in alive]
         alpha = self._lv_alpha[np.ix_(idx, idx)]
         base = dynamics.lotka_volterra_step(
@@ -695,6 +811,118 @@ class MarketSim:
         for company, b in zip(alive, base, strict=True):
             company.customer_base = float(b)
         return [float(b) for b in base / base.sum()]
+
+    def _reserve(
+        self, inputs: Iterable[tuple[float, float, float, float]]
+    ) -> list[tuple[float, float, float, float]]:
+        """Logit inputs with no pull for an offer priced at or past the choke price.
+
+        The choke is the category's reservation price: nobody pays that much,
+        whatever a rival charges, so such an offer wins no customers.
+        """
+        return [(q, m, p, w if p < self.choke_price else 0.0) for q, m, p, w in inputs]
+
+    def best_response_price(self, company: Company) -> tuple[float, float] | None:
+        """List price that maximizes the company's settled daily contribution.
+
+        Rivals hold today's prices and offers; the company keeps its current
+        nodes (capacity, production, costs) and shocks. Customer bases are
+        taken as settled (logit target shares, floored like the engine's), so
+        the gain is where customers end up, not this month's change. Searches
+        the engine's price bounds below the choke price, so the answer is a
+        price the engine accepts and customers can pay. Today's list price is
+        kept when it earns within a relative BEST_RESPONSE_TOLERANCE of the
+        best. Under a price cap every list price at or above it earns the same,
+        so the answer aims at the best price for when the cap lifts.
+
+        "Rivals hold" is the assumption that can fail: when every firm has far
+        more demand than capacity, each one's answer is near the choke, and if
+        all reprice there on the same day the market empties until they come
+        back down (a Bertrand-Edgeworth cycle, real for capacity-bound rivals).
+        Returns
+        (price, settled daily contribution gain over today's list price), or
+        None if the company is not trading.
+        """
+        alive = self.alive
+        if company not in alive:
+            return None
+        idx = alive.index(company)
+        rivals = [c.attraction_inputs() for c in alive]
+        lo, hi = (company.seed.starting_price * f for f in PRICE_BOUNDS_FACTOR)
+        hi = min(hi, self.choke_price * (1.0 - BEST_RESPONSE_CHOKE_MARGIN))
+        # Today's nodes, not the morning cache: a decision may have changed them.
+        mods = company.library.modifiers(company.spawned)
+
+        def world(own_shocks: list[Shock]) -> Callable[[float], float]:
+            """Settled daily contribution at a list price, under these company shocks."""
+            env = environment([*self.active_market_shocks, *own_shocks])
+            inputs = list(rivals)
+            inputs[idx] = company.attraction_inputs(own_shocks)
+            servable = min(company.capacity_and_production(env))
+            throughput = env.get("inventory_throughput_mult", 1.0)
+            net_share = mods.revenue_multiplier() * (1.0 - company._marketing_share())
+            unit_cost = company.seed.base_unit_cost * env.get("supply_cost_mult", 1.0)
+
+            def contribution(list_price: float) -> float:
+                price = company.capped_price(list_price, env)
+                rows = self._reserve(
+                    (q, m, price if i == idx else p, w) for i, (q, m, p, w) in enumerate(inputs)
+                )
+                shares = dynamics.logit_shares(
+                    [r[0] for r in rows],
+                    [r[1] for r in rows],
+                    [r[2] for r in rows],
+                    [r[3] for r in rows],
+                    quality_exponent=SHARE_QUALITY_EXPONENT,
+                    marketing_exponent=SHARE_MARKETING_EXPONENT,
+                    price_elasticity=self.share_price_elasticity,
+                )
+                # The engine never lets a customer base fall below its floor.
+                floored = [max(s, CUSTOMER_BASE_FLOOR) for s in shares]
+                shares = [s / sum(floored) for s in floored]
+                index = 1.0 / sum(s / r[2] for s, r in zip(shares, rows, strict=True))
+                spend = dynamics.linear_demand_spend(
+                    self.tam / DAYS_PER_YEAR,
+                    index,
+                    self.reference_price,
+                    self.market_price_elasticity,
+                ) * env.get("market_demand_mult", 1.0)
+                served = min(spend * shares[idx] / price * throughput, servable)
+                return served * (price * net_share - unit_cost)
+
+            return contribution
+
+        def search(contribution: Callable[[float], float]) -> float:
+            grid = np.geomspace(lo, hi, BEST_RESPONSE_GRID_POINTS)
+            values = [contribution(float(p)) for p in grid]
+            best = int(np.argmax(values))
+            a, b = float(grid[max(best - 1, 0)]), float(grid[min(best + 1, len(grid) - 1)])
+            ratio = (math.sqrt(5.0) - 1.0) / 2.0
+            for _ in range(BEST_RESPONSE_REFINE_STEPS):
+                left, right = b - ratio * (b - a), a + ratio * (b - a)
+                if contribution(left) >= contribution(right):
+                    b = right
+                else:
+                    a = left
+            refined = (a + b) / 2.0
+            return refined if contribution(refined) >= values[best] else float(grid[best])
+
+        def close(x: float, best: float) -> bool:
+            return x >= best - BEST_RESPONSE_TOLERANCE * abs(best)
+
+        now = world(company.shocks)
+        price = search(now)
+        current = now(company.price)
+        if company.capped_price(hi, company.env) < hi:
+            # Customers pay the cap whatever the list price above it. Aim the
+            # list price at the best one for when the capping shock is over.
+            uncapped = [s for s in company.shocks if "price_ceiling_mult" not in s.impact]
+            after = search(world(uncapped))
+            if close(now(after), now(price)):
+                return after, now(after) - current
+        if close(current, now(price)):
+            return company.price, 0.0  # flat curve: no pointless move
+        return price, now(price) - current
 
     async def _decide(self, tick: int, companies: list[Company]) -> None:
         # Weekly rule CEO: Python proposes; Jev, when on, approves or vetoes.
@@ -722,17 +950,27 @@ class MarketSim:
         # while spend is on pace to last the whole run; severe shocks may
         # borrow ahead, which pushes the next monthly round back.
         market_severe = self._new_severe("market", self.active_market_shocks)
-        monthly = tick % AI_CADENCE_DAYS == 0 and self._ai_on_pace(tick)
+        ai_live = self.llm is not None and self.llm.available
+        monthly = ai_live and tick % AI_CADENCE_DAYS == 0 and self._ai_on_pace(tick)
         due = []
         for company in companies:
             own_severe = self._new_severe(company.company_id, company.shocks)
-            if company.company_id in self.ai and (monthly or market_severe or own_severe):
+            if (
+                ai_live
+                and company.company_id in self.ai
+                and (monthly or market_severe or own_severe)
+            ):
                 due.append(company)
         if due:
             results = await asyncio.gather(
                 *(
                     self.ai[c.company_id].decide(
-                        c, tick, self.companies, self.tam, self.active_market_shocks
+                        c,
+                        tick,
+                        self.companies,
+                        self.tam,
+                        self.active_market_shocks,
+                        self.best_response_price(c),
                     )
                     for c in due
                 )
@@ -804,21 +1042,29 @@ class MarketSim:
         }
 
 
-def calibrated_share_elasticity(seed: CompanySeed, companies: int) -> float:
+def calibrated_share_elasticity(company: Company, companies: int) -> float:
     """Logit price elasticity at which the seed's starting price is the Nash price.
 
-    All companies start from the same seed with equal shares, so the observed
-    starting margin pins down how price-sensitive switching must be for that
-    price to be an equilibrium (`dynamics.nash_share_elasticity`). Undercutting
-    then pays only as far as the margin the market actually supports.
+    All companies start from the same seed and nodes with equal shares, so the
+    observed starting contribution margin (revenue-stream uplift and marketing
+    included) pins down how price-sensitive switching must be for that price
+    to be an equilibrium while demand binds (`dynamics.nash_share_elasticity`).
+    Undercutting then pays only as far as the margin the market supports.
+
+    Two cases fall outside that claim, by design: a company that starts
+    capacity-bound gains by raising price until settled demand meets capacity
+    (a real excess-demand signal), and a seed clamped to MIN or
+    MAX_SHARE_PRICE_ELASTICITY (see those constants) starts near Nash, not at it.
     """
     if companies < 2:
         return PRICE_ELASTICITY
-    margin = (seed.starting_price - seed.base_unit_cost) / seed.starting_price
+    margin = company.contribution_margin()
+    if margin <= 0:
+        return MAX_SHARE_PRICE_ELASTICITY  # no markup at all: perfect competition
     elasticity = dynamics.nash_share_elasticity(
-        margin, 1.0 / companies, seed.market_price_elasticity
+        margin, 1.0 / companies, company.seed.market_price_elasticity
     )
-    return max(MIN_SHARE_PRICE_ELASTICITY, elasticity)
+    return min(MAX_SHARE_PRICE_ELASTICITY, max(MIN_SHARE_PRICE_ELASTICITY, elasticity))
 
 
 def shock_record(shock: Shock, company_id: str | None) -> dict[str, Any]:

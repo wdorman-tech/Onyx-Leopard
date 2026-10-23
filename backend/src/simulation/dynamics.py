@@ -6,7 +6,7 @@ No business logic, no I/O. Every function here is an established model:
   * First-order relaxation ODE     dy/dt = r * (target - y)   (exact solution)
   * N-species Lotka-Volterra       dN_i/dt = r_i N_i (1 - Σ_j a_ij N_j / K_i)
   * Multinomial-logit market share s_i ∝ q_i^β_q * m_i^β_m * p_i^(-ε)
-  * Constant-elasticity demand     Q = Q_0 (P / P_0)^(-ε), so spend ∝ P^(1-ε)
+  * Linear demand (point-elastic)  Q = Q_0 (1 + ε (1 - P/P_0)), choke at P_0 (1 + 1/ε)
 """
 
 from __future__ import annotations
@@ -92,16 +92,22 @@ def logit_shares(
 ) -> list[float]:
     """Multinomial-logit share with a constant-elasticity price term.
 
-    `weight` carries any extra multiplicative attraction (LV market strength,
-    shock modifiers). Returns shares summing to 1.
+    `weight` carries any extra multiplicative attraction (shock modifiers).
+    Computed in log space with the largest term subtracted (log-sum-exp), so a
+    steep price elasticity cannot underflow every attraction to zero or
+    overflow a sub-unit price. Returns shares summing to 1.
     """
-    attraction = [
-        max(q, _EPS) ** quality_exponent
-        * max(m, _EPS) ** marketing_exponent
-        * max(p, _EPS) ** (-price_elasticity)
-        * max(w, _EPS)
+    log_attraction = [
+        quality_exponent * math.log(max(q, _EPS))
+        + marketing_exponent * math.log(max(m, _EPS))
+        - price_elasticity * math.log(max(p, _EPS))
+        + math.log(max(w, _EPS))
         for q, m, p, w in zip(quality, marketing, price, weight, strict=True)
     ]
+    if not log_attraction:
+        return []
+    top = max(log_attraction)
+    attraction = [math.exp(a - top) for a in log_attraction]
     total = sum(attraction)
     return [a / total for a in attraction]
 
@@ -109,33 +115,48 @@ def logit_shares(
 def own_price_elasticity(
     share_elasticity: float, share: float, market_elasticity: float, unit_share: float
 ) -> float:
-    """Elasticity of one firm's unit demand to its own price (positive magnitude).
+    """Long-run elasticity of one firm's unit demand to its own price (magnitude).
 
     Units q_i = S(P̄) s_i / p_i, with category spend S ∝ P̄^(1-ε_m), logit share
-    s_i ∝ p_i^(-ε_s), and ∂ln P̄/∂ln p_i = u_i (the firm's share of units):
-    ε_i = 1 + ε_s (1 - s_i) - (1 - ε_m) u_i. For a monopolist (s = u = 1) this
-    is the category elasticity ε_m.
+    s_i ∝ p_i^(-ε_s) and the unit-weighted price index P̄ = 1 / Σ s_j/p_j, whose
+    response is ∂ln P̄/∂ln p_i = u_i + ε_s (u_i - s_i) once shares settle
+    (u_i = the firm's share of units). So
+    ε_i = 1 + ε_s (1 - s_i) - (1 - ε_m) (u_i + ε_s (u_i - s_i)).
+    `share` and `unit_share` must both be settled (logit target) values. At
+    symmetric prices u = s; for a monopolist (s = u = 1) this is ε_m.
     """
-    return 1.0 + share_elasticity * (1.0 - share) - (1.0 - market_elasticity) * unit_share
+    index_response = unit_share + share_elasticity * (unit_share - share)
+    return 1.0 + share_elasticity * (1.0 - share) - (1.0 - market_elasticity) * index_response
 
 
 def nash_share_elasticity(margin: float, share: float, market_elasticity: float) -> float:
     """Share-price elasticity ε_s at which `margin` is the Bertrand-Nash markup.
 
-    Inverts the Lerner condition (p - c) / p = 1 / ε_i at symmetric prices
-    (u_i = s_i), the way empirical IO recovers demand elasticities from
-    observed markups: ε_s = (1/m - 1 + (1 - ε_m) s) / (1 - s). Needs s < 1.
+    Inverts the Lerner condition m = 1 / ε_i at symmetric prices (u_i = s_i),
+    the way empirical IO recovers demand elasticities from observed markups:
+    ε_s = (1/m - 1 + (1 - ε_m) s) / (1 - s). `margin` is the per-unit
+    contribution margin (revenue per unit net of every cost that scales with
+    it). Holds while demand, not capacity, limits sales. Needs s < 1.
     """
     return (1.0 / max(margin, _EPS) - 1.0 + (1.0 - market_elasticity) * share) / (1.0 - share)
 
 
-def constant_elasticity_spend(
+def linear_demand_spend(
     base_spend: float, price: float, reference_price: float, elasticity: float
 ) -> float:
-    """Total spend at `price` under Q = Q_0 (P/P_0)^(-ε): spend = S_0 (P/P_0)^(1-ε).
+    """Total spend at `price` on a linear demand curve with point elasticity ε at P_0.
 
-    ε < 1 (inelastic): a lower price shrinks spend. ε > 1: it grows spend.
-    ε = 1: spend does not depend on price.
+    Q = Q_0 (1 + ε (1 - P/P_0)), so spend = S_0 (P/P_0) (1 + ε (1 - P/P_0)),
+    and nobody buys at or above the choke price P_0 (1 + 1/ε). Unlike constant
+    elasticity, demand grows more elastic as price rises, so even a monopolist
+    on inelastic demand has a finite best price instead of an unbounded one.
     """
     ratio = max(price, _EPS) / max(reference_price, _EPS)
-    return base_spend * ratio ** (1.0 - elasticity)
+    return base_spend * ratio * max(0.0, 1.0 + elasticity * (1.0 - ratio))
+
+
+def linear_demand_elasticity(price: float, reference_price: float, elasticity: float) -> float:
+    """Point elasticity of `linear_demand_spend` demand at `price` (ε at P_0, ∞ at the choke)."""
+    ratio = max(price, _EPS) / max(reference_price, _EPS)
+    units = 1.0 + elasticity * (1.0 - ratio)
+    return elasticity * ratio / units if units > 0 else math.inf
