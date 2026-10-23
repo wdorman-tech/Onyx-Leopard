@@ -50,13 +50,13 @@ There is no frontend test runner configured. Type-check via `pnpm build` or `tsc
 Concrete pointers so future instances don't have to crawl the tree to find the load-bearing files:
 
 - **API entry:** `backend/src/main.py` — FastAPI app with CORS for `localhost:3000`. Routes: `/api/config`, `/api/models`, `/api/archetypes`, `/api/companies`, `/api/seed/sample/{archetype}`, `/api/simulate/start|stream/{id}|control/{id}` (SSE stream).
-- **Engine:** `backend/src/simulation/engine.py` — `MarketSim` ticks N `Company` instances (one tick = one day) in a shared market. All companies in a run share one `CompanySeed`; they differ by CEO stance.
+- **Engine:** `backend/src/simulation/engine.py` — `MarketSim` ticks N `Company` instances (one tick = one day) in a shared market. All companies in a run share one `CompanySeed`; they differ by CEO stance. Share follows the offer (logit), customer bases follow it under LV with capacities set so the rest point is the logit share, and headcount only buys capacity/production.
 - **Inputs:** `seed.py` (`CompanySeed`, archetype sampler that derives a coherent seed from the library, `.oleo` profile conversion), `stance.py` (`CeoStance`, locked persona + archetype profiles), `library.py` (`NodeLibrary` from `node_library.yaml`, plus the suffix-based modifier buckets), `shocks.py` (table-driven shock types; market-scope shocks hit every company, company-scope shocks one).
-- **CEOs** (`backend/src/simulation/ceo.py`): `HeuristicCeo` (free, weekly; `propose` → `commit`/`defer`) and `AiCeo` (OpenRouter, monthly + on severe shocks). `sanitize()` enforces prerequisites, caps and engine bounds on every decision. `report.py` writes end-of-run post-mortems.
-- **Jev** (`backend/src/simulation/jev.py`): optional TypeSafe System One judge for the weekly heuristic proposals only. One Noul per proposal, all numbers precomputed, gate on a rolling per-company baseline (EMA), not 0.5. Needs `TYPESAFE_API_KEY`.
+- **CEOs** (`backend/src/simulation/ceo.py`): `HeuristicCeo` (free, weekly; `propose` → `commit`/`defer`) and `AiCeo` (OpenRouter, monthly + on severe shocks). `sanitize()` enforces prerequisites, caps and engine bounds on every decision, and nets an add and a close of the same node (paid churn). Every AI lever is a change, not a target; the schema says so because weak models send target counts. `report.py` writes end-of-run post-mortems.
+- **Jev** (`backend/src/simulation/jev.py`): optional TypeSafe System One judge for the weekly heuristic proposals only. One Noul per proposal, all numbers precomputed (act vs hold projections), veto only when the answer is `VETO_Z` sd below an EWMA baseline per (company, action kind), not 0.5. Cuts skip Jev when holding off runs out of cash inside the horizon. Needs `TYPESAFE_API_KEY`.
 - **Run record + report:** `Company.series` / `MarketSim.market_series` hold the whole-run time series (≤ `MAX_SERIES_POINTS` samples); `export.py` saves each finished run to `backend/runs/<run_id>/` (`run.json`, `timeseries.csv`, `report.pdf`) and `report_pdf.py` renders the in-theme PDF from `run.json` alone. Served at `/api/runs/{run_id}/{file}`.
 - **OpenRouter client** (`backend/src/simulation/llm.py`): strict JSON-schema output routed to providers that support it (falls back to prompt-JSON), low reasoning effort, cost from `usage.cost`, a per-run `Budget`; fatal errors (bad key, no credit) disable AI for the run. Model tiers live in `models.yaml`; prices and benchmark scores are fetched live from `/models`.
-- **Pure math layer:** `backend/src/simulation/dynamics.py` — Cobb-Douglas, exact relaxation ODE, N-species Lotka-Volterra (RK45 → BDF → Euler), multinomial-logit share with price elasticity. No business logic.
+- **Pure math layer:** `backend/src/simulation/dynamics.py` — Cobb-Douglas, exact relaxation ODE, N-species Lotka-Volterra (RK45 → BDF → Euler), multinomial-logit share with price elasticity, LV capacities for a chosen equilibrium, constant-elasticity category spend, own-price elasticity and its Lerner inversion. No business logic.
 - **Company profiles:** `backend/companies/*.oleo`.
 - **Frontend:** Next.js App Router, single page `frontend/src/app/page.tsx` (model picker → setup → run). Canvas graph at `frontend/src/components/graph/ForceGraph.tsx` (the visual reference — see "Visualization" below). SSE client in `frontend/src/hooks/useSimulation.ts`, API types in `frontend/src/lib/api.ts`.
 
@@ -128,8 +128,9 @@ The simulation's value comes from its mathematical foundation. These are non-neg
 
 - **Production:** Cobb-Douglas model (`Y = A * K^α * L^β`) — vectorized across all agents
 - **Growth:** Logistic growth ODE with RK45 integration (SciPy), BDF fallback for stiff systems, Euler as last resort
-- **Competition:** Lotka-Volterra N-species model with competition matrices
-- **Market share:** Multinomial logit (`s_i ∝ q_i^β * m_i^α`)
+- **Competition:** Lotka-Volterra N-species model with competition matrices (customer bases; K = A·s* so the rest point is the logit share)
+- **Market share:** Multinomial logit (`s_i ∝ q_i^β * m_i^α * p_i^-ε`), ε calibrated so the starting price is the Bertrand-Nash price
+- **Category demand:** constant elasticity (`spend ∝ P̄^(1-ε_m)`), ε_m from the seed
 - **Revenue dynamics:** Linear convergence with sigmoid capital constraint and churn
 - **Spawn/death:** Dual-channel probabilistic entry, multi-tick insolvency death
 
@@ -142,7 +143,7 @@ When adding new mechanics, find the established mathematical model for that phen
 - The user picks one model per run on the onboarding screen: four curated Chinese open-weight tiers (bad / mediocre / good / super good; default `z-ai/glm-5.3-flash`) or any live Claude model. Tiers are data in `models.yaml`.
 - CEO persona is locked via `CeoStance` and rendered into the system prompt (inception prompting); `references_stance` is constrained to real stance fields.
 - Prompts are compact (~1.5k tokens): current state, 6 months of history, rivals, active shocks, the CEO's last 3 decisions, and only the nodes that can be spawned right now.
-- `Budget` enforces a per-run dollar ceiling from OpenRouter's reported cost; once spent, CEOs continue on heuristics.
+- `Budget` enforces a per-run dollar ceiling from OpenRouter's reported cost, paced linearly over the run (monthly rounds are skipped while spend is ahead of pace); once spent, CEOs continue on heuristics.
 - All simulation math runs without AI — AI is an overlay, not a dependency. With no `OPENROUTER_API_KEY` the heuristic CEO handles every decision.
 
 ### Target Architecture

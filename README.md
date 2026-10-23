@@ -34,13 +34,12 @@ Open [http://localhost:3000](http://localhost:3000). On first run `start.py` ask
 
 `MarketSim.step` in `backend/src/simulation/engine.py`:
 
-1. TAM compounds at the seed's growth rate; market-wide shocks arrive (Poisson) or expire.
-2. Share of customer spend per company: multinomial logit over satisfaction, marketing reach, price (elasticity 1.5) and Lotka-Volterra market strength.
-3. Each company serves `min(demand, physical capacity, Cobb-Douglas production)`, books revenue and costs, and updates cash. A month of negative cash is bankruptcy.
-4. Market strength evolves under N-species Lotka-Volterra competition.
-5. CEOs decide. The heuristic CEO acts weekly: it cuts costs in a cash crisis, expands when capacity binds, and hires when production binds. With a TypeSafe key, [Jev](https://typesafe.ai) judges each of those weekly moves before it happens (Python detects the setup, Jev approves or vetoes it, gated on a rolling per-company baseline). The AI CEO acts monthly, and early on severe shocks: it spawns or retires nodes, opens locations, and moves price, marketing and capital. Every decision is sanitized against the node library and engine bounds.
+1. TAM compounds at the seed's growth rate; market-wide shocks arrive (Poisson, and a type that is already running can't stack on itself) or expire. Severity compounds the minor impact in log space, and every impact scales with the company.
+2. A multinomial logit over satisfaction, marketing reach and price gives the share each company's offer earns. Its price elasticity is calibrated so the seed's starting price is the Bertrand-Nash price (Lerner condition). Customer bases move toward those shares under N-species Lotka-Volterra competition, with carrying capacities set so the rest point is the logit share: customers switch over weeks, and nobody is competitively excluded at rest. Headcount buys capacity, not share; sales and marketing reach enters at the empirical selling-effort elasticity (~0.3), so a sales army wins share without wiping out rivals.
+3. Category spend follows the market's average price at the seed's price elasticity (below 1, a matched price war shrinks the market). Each company serves `min(demand, physical capacity, Cobb-Douglas production)`, books revenue and costs, and updates cash. A month of negative cash is bankruptcy.
+4. CEOs decide. The heuristic CEO acts weekly: it cuts costs in a cash crisis, expands when capacity binds, and hires when production binds. With a TypeSafe key, [Jev](https://typesafe.ai) judges each of those weekly moves before it happens: Python detects the setup, Jev vetoes it only when its answer falls well below its rolling baseline for that kind of move, and a cut skips Jev when holding off would run out of cash inside the 90-day horizon. The AI CEO acts monthly, and early on severe shocks: it spawns or retires nodes, opens locations, and moves price, marketing and capital. It sees its gross margin, its own-price elasticity and every active shock. Every decision is sanitized against the node library and engine bounds.
 
-AI calls use strict JSON-schema output (node keys are enums, so weak models can't invent them), low reasoning effort, and a compact prompt of about 1.5k tokens. Spend is tracked from OpenRouter's reported cost; when the budget runs out, CEOs fall back to heuristics.
+AI calls use strict JSON-schema output (node keys are enums, so weak models can't invent them), low reasoning effort, and a compact prompt of about 1.5k tokens. Spend is tracked from OpenRouter's reported cost and paced over the run: when a budget can't cover a monthly cadence, AI rounds spread out instead of stopping partway; heuristics cover the gaps.
 
 ## Project Structure
 
