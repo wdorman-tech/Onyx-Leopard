@@ -75,7 +75,7 @@ export function SimSetup({ model, config, onBack, onStart }: SimSetupProps) {
   }, []);
 
   const estimate = estimateRunCost(model, ceos.length, years * 365);
-  const cadence = pacedCadenceDays(estimate, budget);
+  const cadence = pacedCadenceDays(model, ceos.length, years * 365, budget);
   const ceoLabel = (id: string) => archetypes?.ceo.find((a) => a.id === id)?.label ?? id;
   const nextCeo = () => archetypes?.ceo[ceos.length % archetypes.ceo.length]?.id ?? "bootstrap";
 
